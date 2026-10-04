@@ -232,7 +232,9 @@ class RetailOffer(Base):
     __tablename__ = "retail_offers"
     __table_args__ = (
         CheckConstraint(
-            "(amount IS NULL AND currency IS NULL) OR (amount >= 0 AND currency ~ '^[A-Z]{3}$')",
+            "(amount IS NULL AND currency IS NULL) OR "
+            "(amount IS NOT NULL AND currency IS NOT NULL AND amount >= 0 "
+            "AND currency ~ '^[A-Z]{3}$')",
             name="ck_offer_amount_currency",
         ),
         CheckConstraint(

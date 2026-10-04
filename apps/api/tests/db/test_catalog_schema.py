@@ -3,7 +3,7 @@ from decimal import Decimal
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -142,3 +142,47 @@ def test_catalog_database_rejects_offer_with_negative_price(db_engine):
         with pytest.raises(IntegrityError):
             session.commit()
         session.rollback()
+
+
+def test_catalog_database_rejects_half_known_offer_amount_currency_pairs(db_engine):
+    owner_id = uuid4()
+    product_id, variant_id = uuid4(), uuid4()
+    with Session(db_engine) as session:
+        session.add(Product(id=product_id, owner_id=owner_id, canonical_name="Example Item"))
+        session.flush()
+        session.add(
+            ProductVariant(
+                id=variant_id,
+                product_id=product_id,
+                display_name="Unspecified",
+                identity_key="unspecified",
+            )
+        )
+        session.commit()
+
+        for index, amount, currency in (
+            (1, None, "USD"),
+            (2, Decimal("12.00"), None),
+        ):
+            with pytest.raises(IntegrityError):
+                session.execute(
+                    text(
+                        "INSERT INTO retail_offers "
+                        "(id, owner_id, variant_id, idempotency_key, retailer_name, url, "
+                        "amount, currency, availability, condition, observed_at) "
+                        "VALUES (:id, :owner_id, :variant_id, :key, 'Example Store', "
+                        "'https://store.example/item', :amount, :currency, 'unknown', "
+                        "'unknown', :at)"
+                    ),
+                    {
+                        "id": uuid4(),
+                        "owner_id": owner_id,
+                        "variant_id": variant_id,
+                        "key": f"half-known-{index}",
+                        "amount": amount,
+                        "currency": currency,
+                        "at": datetime.now(UTC),
+                    },
+                )
+                session.commit()
+            session.rollback()

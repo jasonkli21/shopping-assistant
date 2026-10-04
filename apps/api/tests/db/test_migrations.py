@@ -16,6 +16,22 @@ def test_fresh_database_can_upgrade_downgrade_and_upgrade_again(postgres_schema)
     connection = engine.connect()
     config.attributes["connection"] = connection
     try:
+        command.downgrade(config, "0007_catalog_versions")
+        downgraded_offer_check = next(
+            item["sqltext"]
+            for item in inspect(connection).get_check_constraints("retail_offers")
+            if item["name"] == "ck_offer_amount_currency"
+        )
+        assert "amount IS NOT NULL" not in downgraded_offer_check
+        command.upgrade(config, "head")
+        upgraded_offer_check = next(
+            item["sqltext"]
+            for item in inspect(connection).get_check_constraints("retail_offers")
+            if item["name"] == "ck_offer_amount_currency"
+        )
+        assert "amount IS NOT NULL" in upgraded_offer_check
+        command.check(config)
+
         command.downgrade(config, "base")
         assert inspect(connection).get_table_names() == ["alembic_version"]
         command.upgrade(config, "head")
