@@ -28,6 +28,13 @@ def test_fresh_database_can_upgrade_downgrade_and_upgrade_again(postgres_schema)
             "conversation_messages",
             "project_update_proposals",
             "research_runs",
+            "products",
+            "product_variants",
+            "product_identifiers",
+            "project_products",
+            "retail_offers",
+            "catalog_observations",
+            "entity_resolution_events",
             "search_queries",
             "search_attempts",
             "search_results",
@@ -171,5 +178,108 @@ def test_applied_at_migration_backfills_existing_applied_proposals(postgres_sche
         assert "applied_at" in {
             column["name"] for column in inspect(connection).get_columns("project_update_proposals")
         }
+    finally:
+        connection.close()
+
+
+def test_catalog_migration_preserves_phase_three_candidate_and_search_lineage(postgres_schema):
+    engine, _schema = postgres_schema
+    config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
+    connection = engine.connect()
+    config.attributes["connection"] = connection
+    owner_id, project_id, run_id, query_id = uuid4(), uuid4(), uuid4(), uuid4()
+    attempt_id, result_id, candidate_id = uuid4(), uuid4(), uuid4()
+    try:
+        command.downgrade(config, "0005_bounded_discovery")
+        connection.execute(
+            text(
+                "INSERT INTO shopping_projects (id, owner_id, title, goal, revision) "
+                "VALUES (:id, :owner_id, 'Vacuum', 'Find a vacuum', 1)"
+            ),
+            {"id": project_id, "owner_id": owner_id},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO research_runs (id, project_id, owner_id, objective, run_type, "
+                "status, request_key, request_hash, snapshot_revision, input_snapshot, "
+                "effective_budgets, task_name, prompt_version, schema_version, ai_provider, "
+                "search_provider) VALUES (:id, :project_id, :owner_id, 'Find vacuum', "
+                "'discovery', 'succeeded', 'request-0001', 'hash', 1, '{}'::jsonb, "
+                "'{}'::jsonb, 'plan_discovery.v1', 'v1', 1, 'fake', 'fake')"
+            ),
+            {"id": run_id, "project_id": project_id, "owner_id": owner_id},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO search_queries "
+                "(id, run_id, ordinal, text, purpose, max_results, state) "
+                "VALUES (:id, :run_id, 0, 'vacuum pet hair', 'identify products', 1, 'succeeded')"
+            ),
+            {"id": query_id, "run_id": run_id},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO search_attempts (id, query_id, attempt_number, provider, status) "
+                "VALUES (:id, :query_id, 1, 'fake', 'succeeded')"
+            ),
+            {"id": attempt_id, "query_id": query_id},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO search_results (id, query_id, attempt_id, result_rank, title, url) "
+                "VALUES (:id, :query_id, :attempt_id, 1, 'Example Vacuum', "
+                "'https://shop.example/vacuum')"
+            ),
+            {"id": result_id, "query_id": query_id, "attempt_id": attempt_id},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO discovery_candidates (id, project_id, run_id, provisional_name, "
+                "discovery_reason, normalized_url) VALUES (:id, :project_id, :run_id, "
+                "'Example Vacuum', 'Search result', 'https://shop.example/vacuum')"
+            ),
+            {"id": candidate_id, "project_id": project_id, "run_id": run_id},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO candidate_search_results (id, candidate_id, search_result_id) "
+                "VALUES (:id, :candidate_id, :result_id)"
+            ),
+            {"id": uuid4(), "candidate_id": candidate_id, "result_id": result_id},
+        )
+        connection.commit()
+
+        command.upgrade(config, "head")
+        assert connection.execute(
+            text(
+                "SELECT c.provisional_name, c.canonical_mapping_id, r.owner_id, "
+                "s.title FROM discovery_candidates c "
+                "JOIN research_runs r ON r.id = c.run_id "
+                "JOIN candidate_search_results csr ON csr.candidate_id = c.id "
+                "JOIN search_results s ON s.id = csr.search_result_id WHERE c.id = :id"
+            ),
+            {"id": candidate_id},
+        ).one() == ("Example Vacuum", None, owner_id, "Example Vacuum")
+
+        command.downgrade(config, "0005_bounded_discovery")
+        assert (
+            connection.execute(
+                text(
+                    "SELECT count(*) FROM candidate_search_results csr "
+                    "JOIN discovery_candidates c ON c.id = csr.candidate_id "
+                    "WHERE c.id = :id"
+                ),
+                {"id": candidate_id},
+            ).scalar_one()
+            == 1
+        )
+        command.upgrade(config, "head")
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM discovery_candidates WHERE id = :id"),
+                {"id": candidate_id},
+            ).scalar_one()
+            == 1
+        )
     finally:
         connection.close()

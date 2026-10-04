@@ -3,6 +3,7 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
+from shopping.catalog import models as catalog_models  # noqa: F401
 from shopping.config import get_settings
 from shopping.conversations import models as conversation_models  # noqa: F401
 from shopping.db.base import Base

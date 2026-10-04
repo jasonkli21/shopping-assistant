@@ -218,7 +218,14 @@ class DiscoveryCandidate(Base):
     discovery_reason: Mapped[str] = mapped_column(String(300), nullable=False)
     indicative_price_text: Mapped[str | None] = mapped_column(String(200))
     normalized_url: Mapped[str] = mapped_column(String(2048), nullable=False)
-    canonical_mapping_id: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
+    canonical_mapping_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey(
+            "project_products.id",
+            name="fk_discovery_candidate_canonical_mapping",
+            ondelete="SET NULL",
+        ),
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
