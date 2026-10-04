@@ -33,6 +33,9 @@ export type ProjectProductPage = components["schemas"]["ProjectProductPage"];
 export type ProductRead = components["schemas"]["ProductRead"];
 export type OfferPage = components["schemas"]["OfferPage"];
 export type CatalogVariantChoicePage = components["schemas"]["CatalogVariantChoicePage"];
+export type ProjectProductResearchRead = components["schemas"]["ProjectProductResearchRead"];
+export type ClaimDetailRead = components["schemas"]["ClaimDetailRead"];
+export type SourceSnapshotRead = components["schemas"]["SourceSnapshotRead"];
 
 export class ApiRequestError extends Error {
   constructor(
@@ -163,6 +166,14 @@ export const projectsApi = {
 };
 
 export const researchApi = {
+  productEvidence: (projectId: string, projectProductId: string, signal?: AbortSignal) =>
+    request<ProjectProductResearchRead>(
+      `/projects/${projectId}/products/${projectProductId}/research`, { signal },
+    ),
+  claim: (projectId: string, claimId: string, signal?: AbortSignal) =>
+    request<ClaimDetailRead>(`/projects/${projectId}/claims/${claimId}`, { signal }),
+  source: (projectId: string, snapshotId: string, signal?: AbortSignal) =>
+    request<SourceSnapshotRead>(`/projects/${projectId}/sources/${snapshotId}`, { signal }),
   create: (projectId: string, command: ResearchCreate) =>
     request<ResearchCreated>(
       `/projects/${projectId}/research`,

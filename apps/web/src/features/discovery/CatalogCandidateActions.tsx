@@ -438,7 +438,11 @@ export function CatalogCandidateActions({
       {mapping?.project_product_id && mapping.product_id ? (
         <div className="normalized-product-link">
           <span className="catalog-status-pill">{mapping.status === "manual_linked" || mapping.can_revert_correction || mapping.reason === "manual_mapping_preserved" ? "Manual match" : "Normalized"}</span>
-          <Link to={"/products/" + mapping.product_id + (mapping.variant_id ? "?variant=" + encodeURIComponent(mapping.variant_id) : "")}>View product details</Link>
+          <Link to={"/products/" + mapping.product_id + "?" + new URLSearchParams({
+            ...(mapping.variant_id ? { variant: mapping.variant_id } : {}),
+            project: projectId,
+            project_product: mapping.project_product_id,
+          }).toString()}>View product details</Link>
           {mapping.reason && <small>{mapping.reason.replaceAll("_", " ")}</small>}
         </div>
       ) : (

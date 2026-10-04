@@ -435,3 +435,16 @@ input[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: #bc615
   .catalog-attribute-list small { grid-column: auto; }
   .retail-offer-heading { flex-direction: column; }
 }
+.product-research-card { margin: 1.5rem 0; }
+.research-conclusions, .research-claims, .research-sources { display: grid; gap: .8rem; margin: 1rem 0; padding-left: 1.3rem; }
+.research-conclusions li, .research-claims li, .research-sources li { padding: .5rem 0; }
+.research-sources li { display: grid; gap: .35rem; }
+.research-claims p { margin: .3rem 0; color: var(--muted, #5b6470); }
+.evidence-link { display: inline-block; margin: .25rem .5rem .25rem 0; padding: .2rem 0; border: 0; background: none; color: var(--accent, #175a89); text-decoration: underline; cursor: pointer; font: inherit; text-align: left; }
+.evidence-link:focus-visible { outline: 3px solid currentColor; outline-offset: 3px; }
+.evidence-backdrop { position: fixed; inset: 0; z-index: 100; display: flex; justify-content: flex-end; background: rgba(16, 27, 38, .45); }
+.evidence-panel { width: min(34rem, 100%); height: 100%; overflow-y: auto; padding: 1.5rem; background: #fff; box-shadow: -8px 0 30px rgba(0,0,0,.18); }
+.evidence-panel blockquote { margin: 1rem 0; padding: 1rem; border-left: 4px solid #547f9e; background: #f3f7f9; overflow-wrap: anywhere; }
+.evidence-panel p { overflow-wrap: anywhere; }
+.evidence-close { position: sticky; top: 0; z-index: 1; margin-bottom: 1rem; background: #fff; }
+@media (max-width: 600px) { .evidence-panel { width: 100%; padding: 1rem; box-shadow: none; } }

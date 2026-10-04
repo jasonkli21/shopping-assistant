@@ -3,6 +3,7 @@ import { useEffect, useMemo } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 
 import { ApiRequestError, ProductRead, catalogApi } from "../../api/client";
+import { ProductResearch } from "./ProductResearch";
 
 function message(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
@@ -60,6 +61,8 @@ export function ProductDetailPage() {
   const { productId } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const variantId = searchParams.get("variant") ?? "";
+  const projectId = searchParams.get("project") ?? "";
+  const projectProductId = searchParams.get("project_product") ?? "";
   const productQuery = useQuery({
     queryKey: ["product", productId],
     queryFn: ({ signal }) => catalogApi.getProduct(productId!, signal),
@@ -96,18 +99,23 @@ export function ProductDetailPage() {
   return <ProductDetail
     product={product}
     variantId={variantId}
+    projectId={projectId}
+    projectProductId={projectProductId}
     setVariantId={(id) => setSearchParams((current) => {
       const params = new URLSearchParams(current);
       if (id) params.set("variant", id);
       else params.delete("variant");
+      if (id !== variantId) params.delete("project_product");
       return params;
     })}
   />;
 }
 
-function ProductDetail({ product, variantId, setVariantId }: {
+function ProductDetail({ product, variantId, projectId, projectProductId, setVariantId }: {
   product: ProductRead;
   variantId: string;
+  projectId: string;
+  projectProductId: string;
   setVariantId: (id: string) => void;
 }) {
   const offersQuery = useInfiniteQuery({
@@ -146,6 +154,10 @@ function ProductDetail({ product, variantId, setVariantId }: {
           {[product.brand, product.model_family, product.category].filter(Boolean).join(" · ") || "Brand, model, and category are unknown"}
         </p>
       </section>
+      {projectId && projectProductId && variantId && <ProductResearch
+        projectId={projectId}
+        projectProductId={projectProductId}
+      />}
 
       <section className="product-detail-layout">
         <div className="card product-variant-card">
