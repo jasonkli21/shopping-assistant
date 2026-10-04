@@ -1,4 +1,5 @@
 import type { components } from "../../../../packages/api-types/src";
+import { consumeAssistantSse, type AssistantSseEvent } from "../features/assistant/sse";
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000").replace(/\/$/, "");
 
@@ -10,6 +11,14 @@ export type ProjectPage = components["schemas"]["ProjectPage"];
 export type Requirement = components["schemas"]["RequirementRead"];
 export type RequirementCreate = components["schemas"]["RequirementCreate"];
 export type RequirementPatch = components["schemas"]["RequirementPatch"];
+export type ConversationRead = components["schemas"]["ConversationRead"];
+export type ConversationPage = components["schemas"]["ConversationPage"];
+export type MessageCreate = components["schemas"]["MessageCreate"];
+export type MessageCreated = components["schemas"]["MessageCreated"];
+export type MessageRead = components["schemas"]["MessageRead"];
+export type MessagePage = components["schemas"]["MessagePage"];
+export type ProposalRead = components["schemas"]["ProposalRead"];
+export type ProposalMutationResult = components["schemas"]["ProposalMutationResult"];
 
 export class ApiRequestError extends Error {
   constructor(
@@ -88,5 +97,52 @@ export const projectsApi = {
     request<Project>(
       `/projects/${projectId}/requirements/${requirementId}?${new URLSearchParams({ expected_version: String(expectedVersion) })}`,
       jsonRequest("DELETE"),
+    ),
+  listConversations: (projectId: string) =>
+    request<ConversationPage>(`/projects/${projectId}/conversations`),
+  listMessages: (projectId: string, limit = 50, before?: string) => {
+    const query = new URLSearchParams({ limit: String(limit) });
+    if (before) query.set("before", before);
+    return request<MessagePage>(`/projects/${projectId}/messages?${query.toString()}`);
+  },
+  createMessage: (projectId: string, command: MessageCreate) =>
+    request<MessageCreated>(`/projects/${projectId}/messages`, jsonRequest("POST", command)),
+  streamMessage: async (
+    projectId: string,
+    messageId: string,
+    onEvent: (event: AssistantSseEvent) => void,
+    signal: AbortSignal,
+  ) => {
+    const query = new URLSearchParams({ message_id: messageId });
+    const response = await fetch(
+      `${API_BASE_URL}/projects/${projectId}/messages/stream?${query.toString()}`,
+      { headers: { Accept: "text/event-stream" }, signal },
+    );
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: { code?: string; message?: string; details?: unknown };
+      };
+      throw new ApiRequestError(
+        payload.error?.message ?? `Assistant stream failed (${response.status})`,
+        response.status,
+        payload.error?.code ?? "stream_error",
+        payload.error?.details,
+      );
+    }
+    return consumeAssistantSse(response, onEvent);
+  },
+  applyProposal: (
+    projectId: string,
+    proposalId: string,
+    expectedVersion: number,
+  ) =>
+    request<ProposalMutationResult>(
+      `/projects/${projectId}/proposals/${proposalId}/apply`,
+      jsonRequest("POST", { expected_version: expectedVersion }),
+    ),
+  dismissProposal: (projectId: string, proposalId: string) =>
+    request<ProposalMutationResult>(
+      `/projects/${projectId}/proposals/${proposalId}/dismiss`,
+      jsonRequest("POST"),
     ),
 };

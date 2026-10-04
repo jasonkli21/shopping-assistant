@@ -3,6 +3,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { ApiRequestError, Project, Requirement, projectsApi } from "../../api/client";
+import { AssistantPanel } from "../assistant/AssistantPanel";
 import { FieldError, NewRequirement, RequirementEditor } from "./RequirementEditor";
 import {
   CURRENCIES,
@@ -114,6 +115,16 @@ export function ProjectOverview() {
     setConflictChoices({});
     setSaveError("");
     setSaveMessage(`Saved revision ${updated.revision}.`);
+  }
+
+  function acceptAssistantProjectUpdate(updated: Project, replayed: boolean) {
+    if (replayed) {
+      void projectQuery.refetch();
+      return;
+    }
+    acceptProjectUpdate(updated);
+    setDraft(fromProject(updated));
+    setErrors({});
   }
 
   const saveProject = useMutation({
@@ -539,6 +550,13 @@ export function ProjectOverview() {
           {deleteProject.isPending ? "Deleting…" : "Delete project"}
         </button>
       </section>
+
+      <AssistantPanel
+        project={project}
+        blocked={Boolean(conflict) || isDirty || saveProject.isPending || deleteProject.isPending}
+        onProjectUpdate={acceptAssistantProjectUpdate}
+        onRevisionConflict={(error) => reportWriteError(error, "The assistant proposal could not be applied.", project)}
+      />
     </main>
   );
 }
