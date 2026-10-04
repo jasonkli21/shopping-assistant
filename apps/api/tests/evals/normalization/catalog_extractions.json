@@ -53,6 +53,7 @@
       "model_family": "AX-400",
       "model_family_excerpt": "AX-400",
       "variant_attributes": {"bundle": "body only"},
+      "variant_attribute_excerpts": {"bundle": "Body only"},
       "identifiers": [{"scheme": "manufacturer_model", "namespace": "brand:acme|category:vacuum", "value": "AX-400", "excerpt": "AX-400"}],
       "warnings": ["bundle_contents_observed"]
     }
@@ -71,6 +72,7 @@
       "model_family": "AX-400",
       "model_family_excerpt": "AX-400",
       "variant_attributes": {"bundle": "pet kit"},
+      "variant_attribute_excerpts": {"bundle": "pet kit"},
       "identifiers": [{"scheme": "manufacturer_model", "namespace": "brand:acme|category:vacuum", "value": "AX-400", "excerpt": "AX-400"}],
       "warnings": ["bundle_contents_observed"]
     }
@@ -89,6 +91,7 @@
       "model_family": "VP27-4K",
       "model_family_excerpt": "VP27-4K",
       "variant_attributes": {"region": "North America", "size": "27-inch"},
+      "variant_attribute_excerpts": {"region": "North America", "size": "27-inch"},
       "identifiers": [{"scheme": "manufacturer_model", "namespace": "brand:viewpoint|category:monitor", "value": "VP27-4K", "excerpt": "VP27-4K"}]
     }
   },
@@ -106,6 +109,7 @@
       "model_family": "VP27-4K",
       "model_family_excerpt": "VP27-4K",
       "variant_attributes": {"region": "Europe", "size": "27-inch"},
+      "variant_attribute_excerpts": {"region": "Europe", "size": "27-inch"},
       "attributes": [{"key": "power_voltage", "value": 230, "unit": "V", "origin": "manufacturer", "excerpt": "230V"}],
       "identifiers": [{"scheme": "manufacturer_model", "namespace": "brand:viewpoint|category:monitor", "value": "VP27-4K", "excerpt": "VP27-4K"}]
     }

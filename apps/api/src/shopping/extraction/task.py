@@ -8,6 +8,7 @@ from urllib.parse import urlsplit
 
 from pydantic import ValidationError
 
+from shopping.extraction.http_retriever import html_to_text
 from shopping.extraction.retriever import RetrievedDocument
 from shopping.extraction.schemas import SUPPORTED_CURRENCIES, CatalogExtraction, OfferExtraction
 
@@ -141,9 +142,14 @@ def validate_extraction_evidence(
     )
     excerpts.extend(item.excerpt for item in extraction.identifiers)
     excerpts.extend(item.excerpt for item in extraction.attributes)
+    excerpts.extend(extraction.variant_attribute_excerpts.values())
     if extraction.offer:
         excerpts.append(extraction.offer.excerpt)
-    page = _normalize_evidence(document.body)
+    visible_and_structured = html_to_text(document.body)
+    structured_products = _product_objects(document.body)
+    if structured_products:
+        visible_and_structured += json.dumps(structured_products, ensure_ascii=False)
+    page = _normalize_evidence(visible_and_structured)
     if any(_normalize_evidence(excerpt) not in page for excerpt in excerpts):
         raise CatalogExtractionError(
             "unsupported_extraction",

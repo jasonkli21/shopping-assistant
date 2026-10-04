@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import math
+import unicodedata
 from decimal import Decimal
 from typing import Literal
 
@@ -76,6 +78,10 @@ class AttributeExtraction(StrictExtractionModel):
     def finite_numeric_value(cls, value):
         if isinstance(value, float) and (value != value or abs(value) == float("inf")):
             raise ValueError("numeric attribute values must be finite")
+        if isinstance(value, str) and len(value) > 200:
+            raise ValueError("attribute text is too long")
+        if isinstance(value, int) and not isinstance(value, bool) and len(str(abs(value))) > 40:
+            raise ValueError("numeric attribute value is too large")
         return value
 
     @model_validator(mode="after")
@@ -144,10 +150,18 @@ class CatalogExtraction(StrictExtractionModel):
     variant_attributes: dict[str, str | int | float | bool] = Field(
         default_factory=dict, max_length=12
     )
+    variant_attribute_excerpts: dict[str, str] = Field(default_factory=dict, max_length=12)
     identifiers: list[IdentifierExtraction] = Field(default_factory=list, max_length=8)
     attributes: list[AttributeExtraction] = Field(default_factory=list, max_length=20)
     offer: OfferExtraction | None = None
     warnings: list[str] = Field(default_factory=list, max_length=20)
+
+    @field_validator("warnings")
+    @classmethod
+    def warning_text_is_bounded(cls, value):
+        if any(len(item) > 200 for item in value):
+            raise ValueError("extraction warning text is too long")
+        return value
 
     @field_validator("variant_attributes")
     @classmethod
@@ -174,4 +188,43 @@ class CatalogExtraction(StrictExtractionModel):
         ):
             if value and not excerpt:
                 raise ValueError(f"{field} requires a supporting source excerpt")
+        if set(self.variant_attribute_excerpts) != set(self.variant_attributes):
+            raise ValueError("every variant identity attribute requires a source excerpt")
+        normalized_model = (
+            " ".join(unicodedata.normalize("NFKC", self.model_family).casefold().split())
+            if self.model_family
+            else None
+        )
+        if any(
+            identifier.scheme == "manufacturer_model"
+            and (
+                normalized_model is None
+                or " ".join(unicodedata.normalize("NFKC", identifier.value).casefold().split())
+                != normalized_model
+            )
+            for identifier in self.identifiers
+        ):
+            raise ValueError("manufacturer model identifiers must agree with the model family")
+        normalized_identity = {
+            key: " ".join(unicodedata.normalize("NFKC", str(value)).casefold().split())
+            for key, value in self.variant_attributes.items()
+        }
+        identity_key_size = len(
+            json.dumps(normalized_identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        )
+        if identity_key_size > 450:
+            raise ValueError("variant identity dimensions exceed the supported size")
+        bounded_fields = {
+            "variant_attributes": self.variant_attributes,
+            "variant_attribute_excerpts": self.variant_attribute_excerpts,
+            "attributes": [item.model_dump(mode="json") for item in self.attributes],
+        }
+        try:
+            encoded = json.dumps(bounded_fields, allow_nan=False, ensure_ascii=False).encode(
+                "utf-8"
+            )
+        except (TypeError, ValueError) as error:
+            raise ValueError("catalog attributes must be JSON-safe") from error
+        if len(encoded) > 9000:
+            raise ValueError("catalog attributes exceed the supported size")
         return self

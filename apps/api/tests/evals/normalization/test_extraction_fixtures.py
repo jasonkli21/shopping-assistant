@@ -10,7 +10,7 @@ import pytest
 from pydantic import ValidationError
 
 from shopping.extraction.retriever import RetrievedDocument
-from shopping.extraction.schemas import AttributeExtraction, OfferExtraction
+from shopping.extraction.schemas import AttributeExtraction, CatalogExtraction, OfferExtraction
 from shopping.extraction.task import (
     CatalogExtractionError,
     FakeCatalogExtractionTask,
@@ -175,3 +175,10 @@ def test_invalid_currency_units_and_implausible_dimensions_are_rejected():
             origin="manufacturer",
             excerpt="72 V",
         )
+
+
+def test_manufacturer_identifier_must_agree_with_extracted_model_family():
+    extraction = dict(FIXTURES[0]["extraction"])
+    extraction["model_family"] = "AX-401"
+    with pytest.raises(ValidationError, match="must agree with the model family"):
+        CatalogExtraction.model_validate(extraction)
