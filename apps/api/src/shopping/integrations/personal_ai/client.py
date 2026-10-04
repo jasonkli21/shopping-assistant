@@ -11,6 +11,14 @@ class AIRequest:
 @dataclass(frozen=True)
 class AIResponse:
     output: dict[str, Any]
+    provider_request_id: str | None = None
+    refused: bool = False
+
+
+class AIProviderError(Exception):
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
 
 
 class PersonalAIClient(Protocol):
@@ -21,3 +29,10 @@ class PersonalAIClient(Protocol):
     """
 
     async def generate(self, request: AIRequest) -> AIResponse: ...
+
+
+class UnavailablePersonalAIClient(PersonalAIClient):
+    """Explicitly disabled until a verified task endpoint/schema is available."""
+
+    async def generate(self, request: AIRequest) -> AIResponse:
+        raise AIProviderError("provider_unavailable")

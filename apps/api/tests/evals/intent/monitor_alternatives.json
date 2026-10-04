@@ -1,0 +1,8 @@
+{
+  "name": "monitor alternatives",
+  "message": "Show me monitor alternatives",
+  "expected_question": "prioritize",
+  "expected_category": null,
+  "expected_operation": null,
+  "expected_no_mutation": true
+}

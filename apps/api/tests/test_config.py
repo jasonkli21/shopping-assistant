@@ -19,7 +19,22 @@ def test_environment_overrides_dotenv(monkeypatch, tmp_path: Path) -> None:
     assert Settings(_env_file=env_file).research_max_queries == 4
 
 
+def test_assistant_defaults_to_fake_with_bounded_generation_limits() -> None:
+    settings = Settings(_env_file=None)
+    assert settings.personal_ai_mode == "fake"
+    assert settings.conversation_generation_timeout_seconds == 30
+    assert settings.conversation_max_concurrent_generations == 4
+
+
 @pytest.mark.parametrize("value", [0, -1])
 def test_research_budgets_must_be_positive(value: int) -> None:
     with pytest.raises(ValidationError):
         Settings(_env_file=None, research_max_queries=value)
+
+
+@pytest.mark.parametrize(
+    "field", ["conversation_generation_timeout_seconds", "conversation_max_concurrent_generations"]
+)
+def test_assistant_generation_limits_must_be_positive(field: str) -> None:
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, **{field: 0})

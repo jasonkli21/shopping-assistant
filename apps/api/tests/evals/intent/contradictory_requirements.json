@@ -1,0 +1,8 @@
+{
+  "name": "contradictory requirements",
+  "message": "I need a vacuum that is very quiet but also loud",
+  "expected_question": "priority",
+  "expected_category": null,
+  "expected_operation": null,
+  "expected_no_mutation": true
+}

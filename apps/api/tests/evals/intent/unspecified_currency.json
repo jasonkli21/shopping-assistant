@@ -1,0 +1,8 @@
+{
+  "name": "unspecified currency",
+  "message": "Keep the vacuum under $400",
+  "expected_question": "currency",
+  "expected_category": "Vacuum",
+  "expected_operation": null,
+  "forbid_budget_currency": true
+}

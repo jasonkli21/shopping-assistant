@@ -1,0 +1,8 @@
+{
+  "name": "ambiguous lightweight",
+  "message": "I want something lightweight",
+  "expected_question": "carry",
+  "expected_category": null,
+  "expected_operation": null,
+  "expected_no_mutation": true
+}

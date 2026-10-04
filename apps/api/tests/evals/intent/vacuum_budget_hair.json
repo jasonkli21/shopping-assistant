@@ -1,0 +1,8 @@
+{
+  "name": "vacuum budget and hair preference",
+  "message": "I need a lightweight vacuum under $400 that is good with hair",
+  "expected_question": "currency",
+  "expected_category": "Vacuum",
+  "expected_operation": "preference",
+  "forbid_budget_currency": true
+}

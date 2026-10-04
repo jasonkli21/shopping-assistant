@@ -1,5 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 from uuid import UUID
 
 from pydantic import Field
@@ -15,6 +16,9 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://shopping:shopping@localhost:5432/shopping"
     local_owner_id: UUID = UUID("00000000-0000-4000-8000-000000000001")
     personal_ai_url: str = "http://localhost:8080"
+    personal_ai_mode: Literal["fake", "external"] = "fake"
+    conversation_generation_timeout_seconds: int = Field(default=30, gt=0, le=120)
+    conversation_max_concurrent_generations: int = Field(default=4, gt=0, le=32)
     search_provider: str = "fake"
     tavily_api_key: str | None = None
     brave_api_key: str | None = None
