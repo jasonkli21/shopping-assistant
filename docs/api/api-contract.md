@@ -1,6 +1,6 @@
-# API Contract (Phases 0–3 Implemented; Later Phases Planned)
+# API Contract (Phases 0–4 Implemented; Later Phases Planned)
 
-`GET /health`, the Phase 1 project/requirement API, Phase 2 conversation/proposal API, and Phase 3 discovery API are implemented. Phase 4 onward remains a planning contract; the [plans index](../planning/implementation-plans-index.md) and selected phase plans define those future commands. OpenAPI is the source for committed TypeScript transport types in `packages/api-types/src/index.ts`; regenerate with `make api-types` and verify with `make api-types-check`.
+`GET /health`, the Phase 1 project/requirement API, Phase 2 conversation/proposal API, Phase 3 discovery API, and Phase 4 catalog API are implemented. Phase 5 onward remains a planning contract; the [plans index](../planning/implementation-plans-index.md) and selected phase plans define those future commands. OpenAPI is the source for committed TypeScript transport types in `packages/api-types/src/index.ts`; regenerate with `make api-types` and verify with `make api-types-check`.
 
 ## Shared conventions
 
@@ -83,12 +83,23 @@ The local lifespan-owned supervisor uses the existing `ResearchExecutor` boundar
 
 ```text
 POST /projects/{project_id}/candidates/{candidate_id}/normalize
+POST /projects/{project_id}/candidates/{candidate_id}/correction
+POST /projects/{project_id}/candidates/{candidate_id}/correction/revert
 GET  /projects/{project_id}/products
+GET  /products?q=...&limit=...&cursor=...
 GET  /products/{product_id}
 GET  /products/{product_id}/offers?variant_id=...
 ```
 
-Normalization/link/correction commands are owner/version scoped and defined precisely in Phase 4 OpenAPI. Canonical identity is Product → ProductVariant → timestamped RetailOffer. ProjectProduct links an exact variant; corrections retain provenance and history. A URL is not product identity.
+Catalog reads and writes use the server-side owner. `GET /products` searches that owner's variants and supplies existing-variant choices for correction. Product detail returns variants, identifier namespaces, bounded attributes and origin metadata; offer history is variant-specific and paginated by `limit` (default 20, max 100) and opaque `cursor`. Project product pages return `catalog_version` and `project_version` snapshots.
+
+`POST .../normalize` accepts `request_key`, `expected_catalog_version`, and `expected_project_version`. Retrieval and extraction happen before the short write transaction. The transaction rechecks both versions, writes the immutable page observation and resolution event, and advances the project version only when it adds a project-to-variant link. A matching replay returns the saved event before version checks or page retrieval; reusing a key for a different body, candidate, or command conflicts with 409. Retrieval/extraction outcomes return typed `auto_linked|unresolved|failed|blocked|unsupported` results so an unavailable page leaves the candidate usable.
+
+`POST .../correction` accepts the same request/version fields, a required explanation, and exactly one target: an existing `target_variant_id`, a `new_variant` under an owner-owned product, or a `new_product` with one explicitly named variant. `POST .../correction/revert` restores the previous mapping for the latest active manual assignment. Both commands are replay-safe and audited. Corrections do not move offers; each offer remains attached to the variant observed on its source page. Refreshes preserve manual mappings, while observations, event history and offers remain inspectable.
+
+Canonical identity is Product → ProductVariant → timestamped RetailOffer. Resolution uses matching namespaced identifiers or an exact brand/model family plus a complete compatible set of known variant dimensions. Partial or unknown variant dimensions do not select a richer known variant; title and URL similarity never merge products. Offers preserve amount as decimal text, currency, availability, condition, retailer URL and observation time. Unknown money stays unknown, and outbound links are limited to credential-free HTTP(S). Candidate reads include the latest normalization status and correction revertibility.
+
+The single `PageRetriever` enforces public destination checks and IP-pinned connections per redirect, with bounded time, redirects, decoded bytes and supported content types. Extraction strips executable page text from visible excerpts, accepts only exact page-backed excerpts and does not process page instructions. The local structured-data extractor supports one Product object and returns unsupported for ambiguous or absent product data. No external Personal AI extraction endpoint is assumed; that structured-task integration remains unavailable pending a verified upstream contract.
 
 ## Evidence — Phase 5
 
