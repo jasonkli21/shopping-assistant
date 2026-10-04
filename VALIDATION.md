@@ -71,6 +71,22 @@ Phase 2 adds owner-scoped conversation persistence, a bounded shopping-intent ta
 
 Default tests and configuration make no external calls. `--run-live` is recognized as an explicit pytest opt-in; no live compatibility test can pass until the upstream task contract and adapter are verified. The schema/prompt context is capped at 24,000 characters, accepted structured output at 256,000 characters, each user message at 8,000 characters, and concurrent in-process generations are capped by `CONVERSATION_MAX_CONCURRENT_GENERATIONS` (default 4). Prompt snapshots are removed once generation reaches a terminal state.
 
+## Phase 2 independent-review fixes — 2026-10-04
+
+Follow-up review tightened generated-output validation, generation-worker lifecycle, proposal owner/tombstone checks, frontend recovery and unsaved-draft protection, and fake-chair fixture semantics. `0004_proposal_applied_at` backfills already-applied proposals from `updated_at`; active-project gating now precedes replay and proposal locking follows project locking. Requirement and project patches are validated against the Phase 1 schemas before persistence, including the merged final budget. Exact replay remains before the revision check for active projects, while tombstoned or foreign projects return the scoped 404. Supervisor database work runs in worker threads with worker-owned sessions; cancellation waits for the owned database write to finish.
+
+| Check | Result |
+|---|---|
+| `cd apps/api && UV_CACHE_DIR=/private/tmp/shopping-uv-cache /opt/homebrew/bin/uv run pytest` | Passed: 39 deterministic tests; no external provider calls. Includes invalid-output rejection, absent/null semantics, deep and oversized data, explicit-unit fixture cases, and the dynamic budget question. |
+| `cd apps/api && UV_CACHE_DIR=/private/tmp/shopping-uv-cache TEST_DATABASE_URL=postgresql+psycopg://postgres@127.0.0.1:55843/shopping_test /opt/homebrew/bin/uv run pytest -m db` | Passed: 50 PostgreSQL tests; includes migration `0004` backfill, live-project owner/tombstone gates across proposal states, rollback on invalid operation, atomic replay, and add/remove replacement at the 100-item limit. |
+| `cd apps/api && UV_CACHE_DIR=/private/tmp/shopping-uv-cache /opt/homebrew/bin/uv run ruff check src tests migrations && UV_CACHE_DIR=/private/tmp/shopping-uv-cache /opt/homebrew/bin/uv run ruff format --check src tests migrations` | Passed: clean lint and formatting. |
+| `cd apps/api && UV_CACHE_DIR=/private/tmp/shopping-uv-cache /opt/homebrew/bin/uv run python ../../scripts/generate_api_types.py --check` | Passed; OpenAPI types include nullable `applied_at`. |
+| `cd apps/web && /Users/jasonkli/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node node_modules/vitest/vitest.mjs run` | Passed: 31 frontend tests, including definitive busy/capacity rejection recovery, uncertain retry-key retention, project-switch stream cancellation, dirty-requirement send/apply blocking and delayed-apply locking. |
+| Direct bundled-Node ESLint, `node_modules/typescript/bin/tsc -b`, and `node_modules/vite/bin/vite.js build` | Passed. The installed pnpm wrapper is 11.19.0 while the project pins 10.34.6, so checks used installed dependencies without relinking. |
+| Alembic `heads`, `upgrade head --sql`, and `bash scripts/validate_scaffold.sh` | Passed; migration head is `0004_proposal_applied_at`, the offline SQL includes the timestamp backfill, and the Phase 2 scaffold check passes. The PostgreSQL suite exercised fresh migration upgrade/downgrade/re-upgrade and ORM drift checks. |
+
+`make validate` was not run as an aggregate because the local pnpm wrapper does not match the pinned version; all constituent offline checks are listed above. Browser smoke, hosted CI, multi-instance behavior, and live Personal AI compatibility were not run. The fake is deterministic test/local behavior, not evidence of external provider compatibility.
+
 ## Phase 0 baseline review and validation (historical)
 
 Reviewed 2026-10-03 in `/Users/jasonkli/projects/shopping-assistant` before local Git history was established. The original supplied directory had no `.git`; it is now recorded at baseline commit `5ff030d`. No Phase 1+ functionality existed at the time of that review.
