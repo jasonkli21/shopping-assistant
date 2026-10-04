@@ -1,15 +1,33 @@
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Protocol
 
 
 @dataclass(frozen=True)
 class RetrievedDocument:
-    url: str
+    requested_url: str
+    final_url: str
     content_type: str | None
     body: str
+    content_hash: str
+    retrieved_at: datetime
+
+    @property
+    def url(self) -> str:
+        """Compatibility alias for earlier fake fixtures."""
+        return self.final_url
 
 
 class PageRetriever(Protocol):
-    """Retrieves source content without imposing extraction or domain logic."""
+    """Retrieves bounded source content without imposing domain logic."""
 
     async def retrieve(self, url: str) -> RetrievedDocument: ...
+
+
+class PageRetrievalError(Exception):
+    """A typed, sanitized retrieval failure suitable for durable observations."""
+
+    def __init__(self, code: str, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.code = code
+        self.status_code = status_code

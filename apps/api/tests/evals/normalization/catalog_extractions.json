@@ -1,0 +1,165 @@
+[
+  {
+    "case": "same_model_retailer_a",
+    "url": "https://shop-a.example/vacuum?sku=123",
+    "page": "<h1>Acme Clean 4</h1><p>Vacuum model AX-400. SKU A-123. $299.99 USD. In stock.</p>",
+    "extraction": {
+      "product_name": "Acme Clean 4",
+      "product_name_excerpt": "Acme Clean 4",
+      "brand": "Acme",
+      "brand_excerpt": "Acme",
+      "category": "vacuum",
+      "category_excerpt": "vacuum",
+      "model_family": "AX-400",
+      "model_family_excerpt": "AX-400",
+      "identifiers": [
+        {"scheme": "manufacturer_model", "namespace": "brand:acme|category:vacuum", "value": "AX-400", "excerpt": "AX-400"},
+        {"scheme": "retailer_sku", "namespace": "shop-a.example", "value": "A-123", "excerpt": "A-123"}
+      ],
+      "offer": {"retailer_name": "Shop A", "url": "https://shop-a.example/vacuum?sku=123", "amount": "299.99", "currency": "USD", "availability": "in_stock", "condition": "new", "excerpt": "$299.99 USD"}
+    }
+  },
+  {
+    "case": "same_model_retailer_b",
+    "url": "https://shop-b.example/products/clean-4?variant=standard",
+    "page": "<h1>Clean 4 by Acme</h1><p>Vacuum model AX-400. Retail SKU B-555. $319.00 USD.</p>",
+    "extraction": {
+      "product_name": "Acme Clean 4",
+      "product_name_excerpt": "Clean 4 by Acme",
+      "brand": "Acme",
+      "brand_excerpt": "Acme",
+      "category": "vacuum",
+      "category_excerpt": "vacuum",
+      "model_family": "AX-400",
+      "model_family_excerpt": "AX-400",
+      "identifiers": [
+        {"scheme": "manufacturer_model", "namespace": "brand:acme|category:vacuum", "value": "AX-400", "excerpt": "AX-400"},
+        {"scheme": "retailer_sku", "namespace": "shop-b.example", "value": "B-555", "excerpt": "B-555"}
+      ],
+      "offer": {"retailer_name": "Shop B", "url": "https://shop-b.example/products/clean-4?variant=standard", "amount": "319.00", "currency": "USD", "availability": "unknown", "condition": "new", "excerpt": "$319.00 USD"}
+    }
+  },
+  {
+    "case": "vacuum_body_only",
+    "url": "https://shop.example/ax-400-body",
+    "page": "<h1>Acme Clean 4 body only</h1><p>Vacuum model AX-400. Body only. No battery or tools included.</p>",
+    "extraction": {
+      "product_name": "Acme Clean 4 body only",
+      "product_name_excerpt": "Acme Clean 4 body only",
+      "brand": "Acme",
+      "brand_excerpt": "Acme",
+      "category": "vacuum",
+      "category_excerpt": "vacuum",
+      "model_family": "AX-400",
+      "model_family_excerpt": "AX-400",
+      "variant_attributes": {"bundle": "body only"},
+      "identifiers": [{"scheme": "manufacturer_model", "namespace": "brand:acme|category:vacuum", "value": "AX-400", "excerpt": "AX-400"}],
+      "warnings": ["bundle_contents_observed"]
+    }
+  },
+  {
+    "case": "vacuum_kit",
+    "url": "https://shop.example/ax-400-kit",
+    "page": "<h1>Acme Clean 4 pet kit</h1><p>Vacuum model AX-400. Includes one battery and motorized pet tool.</p>",
+    "extraction": {
+      "product_name": "Acme Clean 4 pet kit",
+      "product_name_excerpt": "Acme Clean 4 pet kit",
+      "brand": "Acme",
+      "brand_excerpt": "Acme",
+      "category": "vacuum",
+      "category_excerpt": "vacuum",
+      "model_family": "AX-400",
+      "model_family_excerpt": "AX-400",
+      "variant_attributes": {"bundle": "pet kit"},
+      "identifiers": [{"scheme": "manufacturer_model", "namespace": "brand:acme|category:vacuum", "value": "AX-400", "excerpt": "AX-400"}],
+      "warnings": ["bundle_contents_observed"]
+    }
+  },
+  {
+    "case": "monitor_us",
+    "url": "https://display.example/monitor/us",
+    "page": "<h1>ViewPoint 27 US monitor</h1><p>Model VP27-4K. 27-inch. North America region.</p>",
+    "extraction": {
+      "product_name": "ViewPoint 27",
+      "product_name_excerpt": "ViewPoint 27 US",
+      "brand": "ViewPoint",
+      "brand_excerpt": "ViewPoint",
+      "category": "monitor",
+      "category_excerpt": "monitor",
+      "model_family": "VP27-4K",
+      "model_family_excerpt": "VP27-4K",
+      "variant_attributes": {"region": "North America", "size": "27-inch"},
+      "identifiers": [{"scheme": "manufacturer_model", "namespace": "brand:viewpoint|category:monitor", "value": "VP27-4K", "excerpt": "VP27-4K"}]
+    }
+  },
+  {
+    "case": "monitor_eu",
+    "url": "https://display.example/monitor/eu",
+    "page": "<h1>ViewPoint 27 EU monitor</h1><p>Model VP27-4K. 27-inch. Europe region, 230V.</p>",
+    "extraction": {
+      "product_name": "ViewPoint 27",
+      "product_name_excerpt": "ViewPoint 27 EU",
+      "brand": "ViewPoint",
+      "brand_excerpt": "ViewPoint",
+      "category": "monitor",
+      "category_excerpt": "monitor",
+      "model_family": "VP27-4K",
+      "model_family_excerpt": "VP27-4K",
+      "variant_attributes": {"region": "Europe", "size": "27-inch"},
+      "attributes": [{"key": "power_voltage", "value": 230, "unit": "V", "origin": "manufacturer", "excerpt": "230V"}],
+      "identifiers": [{"scheme": "manufacturer_model", "namespace": "brand:viewpoint|category:monitor", "value": "VP27-4K", "excerpt": "VP27-4K"}]
+    }
+  },
+  {
+    "case": "chair_clearance_cm",
+    "url": "https://chair.example/clearance-cm",
+    "page": "<h1>Example Chair seat height</h1><p>Seat Co chair category. Adjustable seat height: 72 cm.</p>",
+    "extraction": {
+      "product_name": "Example Chair",
+      "product_name_excerpt": "Example Chair",
+      "brand": "Seat Co",
+      "brand_excerpt": "Seat Co",
+      "category": "chair",
+      "category_excerpt": "chair",
+      "attributes": [{"key": "seat_height", "value": 72, "unit": "cm", "origin": "manufacturer", "excerpt": "72 cm"}]
+    }
+  },
+  {
+    "case": "chair_clearance_mm",
+    "url": "https://chair.example/clearance-mm",
+    "page": "<h1>Example Chair seat height</h1><p>Seat Co chair category. Adjustable seat height: 720 mm.</p>",
+    "extraction": {
+      "product_name": "Example Chair",
+      "product_name_excerpt": "Example Chair",
+      "brand": "Seat Co",
+      "brand_excerpt": "Seat Co",
+      "category": "chair",
+      "category_excerpt": "chair",
+      "attributes": [{"key": "seat_height", "value": 720, "unit": "mm", "origin": "manufacturer", "excerpt": "720 mm"}]
+    }
+  },
+  {
+    "case": "sale_price_not_crossed_out_price",
+    "url": "https://store.example/monitor-sale",
+    "page": "<h1>ViewPoint display</h1><p>Was $599.99. Sale price $349.99 USD.</p>",
+    "extraction": {
+      "product_name": "ViewPoint display",
+      "product_name_excerpt": "ViewPoint display",
+      "brand": "ViewPoint",
+      "brand_excerpt": "ViewPoint",
+      "offer": {"retailer_name": "Store", "url": "https://store.example/monitor-sale", "amount": "349.99", "currency": "USD", "availability": "in_stock", "condition": "new", "excerpt": "$349.99 USD"},
+      "warnings": ["crossed_out_price_not_used"]
+    }
+  },
+  {
+    "case": "unknown_currency_keeps_unknown_price",
+    "url": "https://store.example/item-unknown-currency",
+    "page": "<h1>Example device</h1><p>Price listed: 149.00. Currency not stated.</p>",
+    "extraction": {
+      "product_name": "Example device",
+      "product_name_excerpt": "Example device",
+      "offer": {"retailer_name": "Store", "url": "https://store.example/item-unknown-currency", "amount": null, "currency": null, "availability": "unknown", "condition": "unknown", "excerpt": "149.00"},
+      "warnings": ["currency_unavailable"]
+    }
+  }
+]
