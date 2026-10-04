@@ -32,6 +32,7 @@ export function RequirementEditor({
   onProjectUpdate,
   onWriteError,
   onForget,
+  onDraftStateChange,
 }: {
   project: Project;
   requirement: Requirement;
@@ -41,6 +42,7 @@ export function RequirementEditor({
   onProjectUpdate: (project: Project) => void;
   onWriteError: (error: unknown, fallback: string, attemptedProject?: Project) => Promise<Project | null>;
   onForget: () => void;
+  onDraftStateChange: (key: string, dirty: boolean) => void;
 }) {
   const [draft, setDraft] = useState(() => fromRequirement(requirement));
   const [base, setBase] = useState(requirement);
@@ -82,6 +84,12 @@ export function RequirementEditor({
   });
 
   const dirty = requirementDraftIsDirty(draft, fromRequirement(base));
+  const pending = patch.isPending || remove.isPending;
+
+  useEffect(() => {
+    onDraftStateChange(requirement.id, dirty || pending);
+    return () => onDraftStateChange(requirement.id, false);
+  }, [dirty, onDraftStateChange, pending, requirement.id]);
 
   useEffect(() => {
     if (patch.isPending || remove.isPending) return;
@@ -171,7 +179,6 @@ export function RequirementEditor({
     setProblem("");
   }
 
-  const pending = patch.isPending || remove.isPending;
   const criterionId = `criterion-${requirement.id}`;
 
   if (!latestRequirement && !dirty && !conflict) return null;
@@ -235,7 +242,7 @@ export function RequirementEditor({
         </div>
       )}
       <form onSubmit={save}>
-        <fieldset className="pending-fieldset" disabled={pending}>
+        <fieldset className="pending-fieldset" disabled={pending || blocked}>
           <legend className="sr-only">Edit requirement</legend>
         <div className="requirement-topline">
           <label className="sr-only" htmlFor={`kind-${requirement.id}`}>Requirement type</label>
@@ -374,11 +381,13 @@ export function NewRequirement({
   blocked,
   onProjectUpdate,
   onWriteError,
+  onDraftStateChange,
 }: {
   project: Project;
   blocked: boolean;
   onProjectUpdate: (project: Project) => void;
   onWriteError: (error: unknown, fallback: string, attemptedProject?: Project) => Promise<Project | null>;
+  onDraftStateChange: (key: string, dirty: boolean) => void;
 }) {
   const [draft, setDraft] = useState<RequirementDraft>({
     kind: "must_have",
@@ -407,6 +416,21 @@ export function NewRequirement({
     },
   });
 
+  const emptyDraft: RequirementDraft = {
+    kind: "must_have",
+    label: "",
+    detail: "",
+    attributeKey: "",
+    operator: "",
+    value: "",
+    unit: "",
+  };
+  const dirty = requirementDraftIsDirty(draft, emptyDraft);
+  useEffect(() => {
+    onDraftStateChange("new-requirement", dirty || create.isPending);
+    return () => onDraftStateChange("new-requirement", false);
+  }, [create.isPending, dirty, onDraftStateChange]);
+
   function update<K extends keyof RequirementDraft>(field: K, value: RequirementDraft[K]) {
     setDraft((current) => ({ ...current, [field]: value }));
     setProblem("");
@@ -414,7 +438,7 @@ export function NewRequirement({
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (create.isPending) return;
+    if (create.isPending || blocked) return;
     let criterion: Partial<RequirementCreate>;
     try {
       criterion = requirementBody(draft);
@@ -436,7 +460,7 @@ export function NewRequirement({
 
   return (
     <form className="new-requirement" onSubmit={submit}>
-      <fieldset className="pending-fieldset" disabled={create.isPending}>
+      <fieldset className="pending-fieldset" disabled={create.isPending || blocked}>
         <legend className="sr-only">New requirement</legend>
       <div className="section-heading add-heading">
         <span className="add-mark" aria-hidden="true">+</span>

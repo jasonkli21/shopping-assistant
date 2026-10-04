@@ -11,6 +11,7 @@ interface AssistantPanelProps {
   blocked?: boolean;
   onProjectUpdate: (project: Project, replayed: boolean) => void;
   onRevisionConflict: (error: unknown) => Promise<unknown>;
+  onProposalActionPendingChange?: (pending: boolean) => void;
 }
 
 export function AssistantPanel({
@@ -18,6 +19,7 @@ export function AssistantPanel({
   blocked = false,
   onProjectUpdate,
   onRevisionConflict,
+  onProposalActionPendingChange = () => {},
 }: AssistantPanelProps) {
   const queryClient = useQueryClient();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -149,6 +151,7 @@ export function AssistantPanel({
       setActiveMessageId(response.assistant_message_id);
       void queryClient.invalidateQueries({ queryKey: messageKey(project.id) });
     } catch (caught) {
+      setNotice("");
       if (
         caught instanceof ApiRequestError &&
         (caught.code === "revision_conflict" || caught.code === "proposal_stale")
@@ -163,6 +166,19 @@ export function AssistantPanel({
         setPendingAttempt(null);
         setDraft(attempt.text);
         setError(caught.message);
+      } else if (
+        caught instanceof ApiRequestError &&
+        ((caught.status === 409 && caught.code === "conversation_busy") ||
+          (caught.status === 503 && caught.code === "generation_capacity"))
+      ) {
+        clearPendingAttempt(project.id);
+        setPendingAttempt(null);
+        setDraft(attempt.text);
+        setError(
+          caught.code === "conversation_busy"
+            ? "Another assistant response is still being prepared. Your message was not saved. Try again when it finishes."
+            : "The assistant is busy right now. Your message was not saved. Try again shortly.",
+        );
       } else {
         setPendingAttempt(attempt);
         persistPendingAttempt(project.id, attempt);
@@ -203,7 +219,9 @@ export function AssistantPanel({
   }
 
   async function applyProposal(proposal: ProposalRead) {
+    if (proposalActionId) return;
     setProposalActionId(proposal.id);
+    onProposalActionPendingChange(true);
     setError("");
     try {
       const result = await projectsApi.applyProposal(
@@ -231,11 +249,14 @@ export function AssistantPanel({
       void queryClient.invalidateQueries({ queryKey: messageKey(project.id) });
     } finally {
       setProposalActionId(null);
+      onProposalActionPendingChange(false);
     }
   }
 
   async function dismissProposal(proposal: ProposalRead) {
+    if (proposalActionId) return;
     setProposalActionId(proposal.id);
+    onProposalActionPendingChange(true);
     setError("");
     try {
       await projectsApi.dismissProposal(project.id, proposal.id);
@@ -245,6 +266,7 @@ export function AssistantPanel({
       setError(caught instanceof Error ? caught.message : "The suggestion could not be dismissed.");
     } finally {
       setProposalActionId(null);
+      onProposalActionPendingChange(false);
     }
   }
 

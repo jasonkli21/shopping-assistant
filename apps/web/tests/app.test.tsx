@@ -4,12 +4,13 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { Project, Requirement } from "../src/api/client";
+import type { MessageRead, Project, ProposalRead, Requirement } from "../src/api/client";
 import { App } from "../src/app/App";
 
 const PROJECT_ID = "6f16a208-307f-4dfc-8a2d-44aeb6df4d50";
 const REQUIREMENT_ID = "a2b837ac-511a-4f86-9e76-2c988246c4e4";
 const SECOND_REQUIREMENT_ID = "c2cf6497-9e70-41b6-844d-418320c3ea18";
+const SECOND_PROJECT_ID = "d2cf6497-9e70-41b6-844d-418320c3ea18";
 const timestamp = "2026-10-03T12:00:00Z";
 
 function requirement(overrides: Partial<Requirement> = {}): Requirement {
@@ -47,6 +48,27 @@ function project(overrides: Partial<Project> = {}): Project {
     updated_at: timestamp,
     requirements: [],
     ...overrides,
+  };
+}
+
+function proposalMessage(proposal: ProposalRead, id = SECOND_REQUIREMENT_ID): MessageRead {
+  return {
+    id,
+    conversation_id: "d2b837ac-511a-4f86-9e76-2c988246c4e5",
+    project_id: PROJECT_ID,
+    paired_message_id: null,
+    ordinal: 2,
+    role: "assistant",
+    text: "I prepared a suggestion for your review.",
+    status: "completed",
+    request_key: null,
+    snapshot_revision: 1,
+    sequence: 1,
+    error_code: null,
+    clarification_questions: [],
+    created_at: timestamp,
+    completed_at: timestamp,
+    proposal,
   };
 }
 
@@ -223,6 +245,175 @@ describe("project Overview", () => {
     pendingResponse.resolve(response(saved));
     expect(await screen.findByRole("status")).toHaveTextContent("Saved revision 2");
     expect(screen.getByLabelText("Project name")).toHaveValue(saved.title);
+  });
+
+  it.each(["existing requirement", "new requirement"])(
+    "blocks assistant send and apply while a %s draft is unsaved",
+    async (draftKind) => {
+      const existingRequirement = requirement();
+      const initial = project({
+        requirements: draftKind === "existing requirement" ? [existingRequirement] : [],
+      });
+      const proposal: ProposalRead = {
+        id: "e2cf6497-9e70-41b6-844d-418320c3ea18",
+        project_id: PROJECT_ID,
+        assistant_message_id: SECOND_REQUIREMENT_ID,
+        base_revision: 1,
+        schema_version: 1,
+        operations: { project_updates: { category: "Vacuum" }, requirement_operations: [] },
+        status: "pending",
+        applied_revision: null,
+        applied_at: null,
+        applied_project: null,
+        created_at: timestamp,
+        updated_at: timestamp,
+      };
+      const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+        void _init;
+        const url = String(input);
+        if (url.endsWith(`/projects/${PROJECT_ID}`)) return response(initial);
+        if (url.includes(`/projects/${PROJECT_ID}/messages?`)) {
+          return response({ items: [proposalMessage(proposal)], next_cursor: null });
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      renderApp(`/projects/${PROJECT_ID}`);
+
+      await screen.findByRole("heading", { name: "Apartment vacuum" });
+      fireEvent.click(screen.getByRole("button", { name: "Ask assistant" }));
+      expect(await screen.findByText("AI suggestion")).toBeInTheDocument();
+      if (draftKind === "existing requirement") {
+        fireEvent.change(screen.getByDisplayValue("Handles pet hair"), {
+          target: { value: "Keeps the draft safe" },
+        });
+      } else {
+        fireEvent.change(screen.getByPlaceholderText("Works well on pet hair"), {
+          target: { value: "Keeps the draft safe" },
+        });
+      }
+
+      expect(screen.getByRole("button", { name: "Apply suggestion" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+      expect(screen.getByDisplayValue("Keeps the draft safe")).toBeInTheDocument();
+      expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
+    },
+  );
+
+  it("locks manual project and requirement fields while a proposal is being applied", async () => {
+    const initial = project();
+    const updated = project({ category: "Vacuum", revision: 2 });
+    const proposal: ProposalRead = {
+      id: "e2cf6497-9e70-41b6-844d-418320c3ea18",
+      project_id: PROJECT_ID,
+      assistant_message_id: SECOND_REQUIREMENT_ID,
+      base_revision: 1,
+      schema_version: 1,
+      operations: { project_updates: { category: "Vacuum" }, requirement_operations: [] },
+      status: "pending",
+      applied_revision: null,
+      applied_at: null,
+      applied_project: null,
+      created_at: timestamp,
+      updated_at: timestamp,
+    };
+    const appliedProposal = {
+      ...proposal,
+      status: "applied" as const,
+      applied_revision: 2,
+      applied_at: timestamp,
+      applied_project: updated,
+    };
+    const delayedApply = deferred<ReturnType<typeof response>>();
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith(`/projects/${PROJECT_ID}`) && !init?.method) {
+        return Promise.resolve(response(initial));
+      }
+      if (url.includes(`/projects/${PROJECT_ID}/messages?`) && !init?.method) {
+        return Promise.resolve(response({ items: [proposalMessage(proposal)], next_cursor: null }));
+      }
+      if (url.endsWith(`/proposals/${proposal.id}/apply`)) return delayedApply.promise;
+      throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderApp(`/projects/${PROJECT_ID}`);
+
+    await screen.findByRole("heading", { name: "Apartment vacuum" });
+    fireEvent.click(screen.getByRole("button", { name: "Ask assistant" }));
+    expect(await screen.findByText("AI suggestion")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Apply suggestion" }));
+    await waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(true));
+
+    expect(screen.getByLabelText("Project name")).toBeDisabled();
+    expect(screen.getByLabelText("Goal")).toBeDisabled();
+    expect(screen.getByPlaceholderText("Works well on pet hair")).toBeDisabled();
+    delayedApply.resolve(response({ proposal: appliedProposal, project: updated, replayed: false }));
+    expect(await screen.findByText("Suggestion applied at revision 2.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Project name")).toHaveValue(updated.title);
+  });
+
+  it("cancels a project stream and clears its composer when cached navigation opens another project", async () => {
+    const first = project();
+    const second = project({ id: SECOND_PROJECT_ID, title: "Desk lamp", goal: "Find a warm desk lamp." });
+    const generating: MessageRead = {
+      id: "e2cf6497-9e70-41b6-844d-418320c3ea18",
+      conversation_id: "d2b837ac-511a-4f86-9e76-2c988246c4e5",
+      project_id: PROJECT_ID,
+      paired_message_id: null,
+      ordinal: 2,
+      role: "assistant",
+      text: "",
+      status: "generating",
+      request_key: null,
+      snapshot_revision: 1,
+      sequence: 0,
+      error_code: null,
+      clarification_questions: [],
+      created_at: timestamp,
+      completed_at: null,
+    };
+    const streamSignals: AbortSignal[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/projects?") && !init?.method) {
+        return response({ items: [first, second], next_cursor: null });
+      }
+      if (url.endsWith(`/projects/${PROJECT_ID}`) && !init?.method) return response(first);
+      if (url.endsWith(`/projects/${SECOND_PROJECT_ID}`) && !init?.method) return response(second);
+      if (url.includes(`/projects/${PROJECT_ID}/messages?`)) {
+        return response({ items: [generating], next_cursor: null });
+      }
+      if (url.includes(`/projects/${SECOND_PROJECT_ID}/messages?`)) {
+        return response({ items: [], next_cursor: null });
+      }
+      if (url.includes(`/projects/${PROJECT_ID}/messages/stream?`)) {
+        if (init?.signal) streamSignals.push(init.signal);
+        return new Promise<Response>(() => {});
+      }
+      throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderApp(`/projects/${PROJECT_ID}`);
+
+    await screen.findByRole("heading", { name: "Apartment vacuum" });
+    fireEvent.click(screen.getByRole("button", { name: "Ask assistant" }));
+    await screen.findByText(/Preparing suggestions|Response in progress/);
+    await waitFor(() => expect(streamSignals).toHaveLength(1));
+    fireEvent.change(screen.getByLabelText("Your shopping request"), {
+      target: { value: "A private vacuum draft" },
+    });
+
+    fireEvent.click(screen.getByRole("link", { name: /All projects/ }));
+    fireEvent.click(await screen.findByRole("link", { name: /Desk lamp/ }));
+    await screen.findByRole("heading", { name: "Desk lamp" });
+    fireEvent.click(screen.getByRole("button", { name: "Ask assistant" }));
+
+    expect(await screen.findByText("Tell me what you’re shopping for.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Your shopping request")).toHaveValue("");
+    expect(screen.queryByText(/Preparing suggestions|Response in progress/)).not.toBeInTheDocument();
+    expect(streamSignals[0].aborted).toBe(true);
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
   });
 
   it("keeps a project draft after a failed save so the user can retry", async () => {

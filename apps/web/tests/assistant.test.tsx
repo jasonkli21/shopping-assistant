@@ -128,6 +128,7 @@ describe("assistant panel", () => {
       },
       status: "pending",
       applied_revision: null,
+      applied_at: null,
       applied_project: null,
       created_at: timestamp,
       updated_at: timestamp,
@@ -150,6 +151,7 @@ describe("assistant panel", () => {
           ...proposal,
           status: "applied" as const,
           applied_revision: 2,
+          applied_at: timestamp,
           applied_project: appliedProject,
         };
         savedPage = page([
@@ -211,6 +213,61 @@ describe("assistant panel", () => {
     expect(await screen.findByText("The same saved command was confirmed. Reconnecting to its response.")).toBeInTheDocument();
     expect(attempts).toHaveLength(2);
     expect(attempts[0].request_key).toBe(attempts[1].request_key);
+  });
+
+  it.each([
+    [409, "conversation_busy", "Another assistant response is still being prepared."],
+    [503, "generation_capacity", "The assistant is busy right now."],
+  ])("restores text and creates a fresh command after a known %s rejection", async (status, code, message) => {
+    const attempts: Array<Record<string, unknown>> = [];
+    let savedPage = page();
+    let key = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/messages?") && !init?.method) return jsonResponse(savedPage);
+      if (url.endsWith(`/projects/${projectId}/messages`) && init?.method === "POST") {
+        const command = JSON.parse(String(init.body)) as Record<string, unknown>;
+        attempts.push(command);
+        if (attempts.length === 1) {
+          return jsonResponse({ error: { code, message: "Please retry shortly." } }, Number(status));
+        }
+        savedPage = page([
+          userMessage(String(command.text), String(command.request_key)),
+          completedMessage(),
+        ]);
+        return jsonResponse(
+          {
+            user_message_id: userMessageId,
+            assistant_message_id: assistantMessageId,
+            conversation_id: "e2cf6497-9e70-41b6-844d-418320c3ea18",
+            replayed: false,
+          },
+          202,
+        );
+      }
+      if (url.includes("/messages/stream?")) return sseResponse(completedMessage());
+      throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("crypto", { randomUUID: () => `request-key-${++key}` });
+    renderPanel();
+    fireEvent.click(screen.getByRole("button", { name: "Ask assistant" }));
+    await screen.findByText("Tell me what you’re shopping for.");
+    fireEvent.change(screen.getByLabelText("Your shopping request"), {
+      target: { value: "Find a quiet vacuum" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(await screen.findByText(new RegExp(message))).toBeInTheDocument();
+    expect(screen.getByLabelText("Your shopping request")).toHaveValue("Find a quiet vacuum");
+    expect(screen.queryByRole("button", { name: "Retry same submission" })).not.toBeInTheDocument();
+    expect(sessionStorage.getItem(`shopping-assistant-message-attempt:${projectId}`)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(await screen.findByText("Message saved. Preparing suggestions for review.")).toBeInTheDocument();
+    expect(attempts).toHaveLength(2);
+    expect(attempts[0].request_key).not.toBe(attempts[1].request_key);
+    expect(attempts[1].text).toBe("Find a quiet vacuum");
   });
 
   it("keeps typed text when a pending retry discovers a revision conflict", async () => {
@@ -306,6 +363,7 @@ describe("assistant panel", () => {
       },
       status: "pending",
       applied_revision: null,
+      applied_at: null,
       applied_project: null,
       created_at: timestamp,
       updated_at: timestamp,
@@ -338,6 +396,7 @@ describe("assistant panel", () => {
       operations: { project_updates: { category: "Vacuum" }, requirement_operations: [] },
       status: "pending",
       applied_revision: null,
+      applied_at: null,
       applied_project: null,
       created_at: timestamp,
       updated_at: timestamp,

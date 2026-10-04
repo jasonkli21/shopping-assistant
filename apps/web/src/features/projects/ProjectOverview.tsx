@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { ApiRequestError, Project, Requirement, projectsApi } from "../../api/client";
@@ -22,6 +22,10 @@ import {
 
 export function ProjectOverview() {
   const { projectId } = useParams();
+  return <ProjectOverviewContent key={projectId ?? "missing"} projectId={projectId} />;
+}
+
+function ProjectOverviewContent({ projectId }: { projectId?: string }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -34,6 +38,20 @@ export function ProjectOverview() {
   const [conflictChoices, setConflictChoices] = useState<Partial<Record<ProjectField, ConflictChoice>>>({});
   const [requirementResetKey, setRequirementResetKey] = useState(0);
   const [knownRequirements, setKnownRequirements] = useState<Requirement[]>([]);
+  const [dirtyRequirementDrafts, setDirtyRequirementDrafts] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [proposalActionPending, setProposalActionPending] = useState(false);
+
+  const reportRequirementDraftState = useCallback((key: string, dirty: boolean) => {
+    setDirtyRequirementDrafts((current) => {
+      if (current.has(key) === dirty) return current;
+      const next = new Set(current);
+      if (dirty) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  }, []);
 
   const projectQuery = useQuery({
     queryKey: ["project", projectId],
@@ -149,7 +167,10 @@ export function ProjectOverview() {
 
   function submitProject(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!project || !draft || conflict || saveProject.isPending || deleteProject.isPending) return;
+    if (
+      !project || !draft || conflict || saveProject.isPending || deleteProject.isPending ||
+      proposalActionPending
+    ) return;
     setSaveError("");
     setSaveMessage("");
     setErrors({});
@@ -169,7 +190,7 @@ export function ProjectOverview() {
   }
 
   function confirmDelete() {
-    if (!project || conflict) return;
+    if (!project || conflict || proposalActionPending) return;
     const confirmed = window.confirm(
       `Delete “${project.title}”? It will disappear from your project list and cannot be restored.`,
     );
@@ -256,7 +277,7 @@ export function ProjectOverview() {
         return base !== draft[field] || base !== fromProject(conflict.latest!)[field];
       })
     : [];
-  const saveDisabled = saveProject.isPending || Boolean(conflict) || !isDirty;
+  const saveDisabled = saveProject.isPending || proposalActionPending || Boolean(conflict) || !isDirty;
   const renderedRequirements = [...knownRequirements].sort((left, right) => {
     const leftPosition = project.requirements.findIndex((item) => item.id === left.id);
     const rightPosition = project.requirements.findIndex((item) => item.id === right.id);
@@ -374,7 +395,10 @@ export function ProjectOverview() {
             </div>
           </div>
           <form onSubmit={submitProject}>
-            <fieldset className="pending-fieldset" disabled={saveProject.isPending}>
+            <fieldset
+              className="pending-fieldset"
+              disabled={saveProject.isPending || deleteProject.isPending || proposalActionPending}
+            >
               <legend className="sr-only">Project details</legend>
             <div className="field-grid">
               <div className="field-span-two">
@@ -520,10 +544,11 @@ export function ProjectOverview() {
                 requirement={requirement}
                 latestRequirement={latestRequirement}
                 index={index}
-                blocked={Boolean(conflict)}
+                blocked={Boolean(conflict) || deleteProject.isPending || proposalActionPending}
                 onProjectUpdate={acceptProjectUpdate}
                 onWriteError={reportWriteError}
                 onForget={() => setKnownRequirements((current) => current.filter((item) => item.id !== requirement.id))}
+                onDraftStateChange={reportRequirementDraftState}
               />
               );
             })}
@@ -532,9 +557,10 @@ export function ProjectOverview() {
             <NewRequirement
               key={`${project.id}-${requirementResetKey}`}
               project={project}
-              blocked={Boolean(conflict)}
+              blocked={Boolean(conflict) || deleteProject.isPending || proposalActionPending}
               onProjectUpdate={acceptProjectUpdate}
               onWriteError={reportWriteError}
+              onDraftStateChange={reportRequirementDraftState}
             />
           )}
         </section>
@@ -546,16 +572,25 @@ export function ProjectOverview() {
           <h2 id="delete-title">Delete this project</h2>
           <p>Archived projects can be restored by changing their status. Deleted projects disappear from your list.</p>
         </div>
-        <button className="button danger-button" type="button" disabled={deleteProject.isPending || Boolean(conflict)} onClick={confirmDelete}>
+        <button className="button danger-button" type="button" disabled={deleteProject.isPending || proposalActionPending || Boolean(conflict)} onClick={confirmDelete}>
           {deleteProject.isPending ? "Deleting…" : "Delete project"}
         </button>
       </section>
 
       <AssistantPanel
+        key={project.id}
         project={project}
-        blocked={Boolean(conflict) || isDirty || saveProject.isPending || deleteProject.isPending}
+        blocked={
+          Boolean(conflict) ||
+          isDirty ||
+          dirtyRequirementDrafts.size > 0 ||
+          saveProject.isPending ||
+          deleteProject.isPending ||
+          proposalActionPending
+        }
         onProjectUpdate={acceptAssistantProjectUpdate}
         onRevisionConflict={(error) => reportWriteError(error, "The assistant proposal could not be applied.", project)}
+        onProposalActionPendingChange={setProposalActionPending}
       />
     </main>
   );
