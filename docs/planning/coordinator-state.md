@@ -7,7 +7,7 @@ Updated: 2026-10-04. This file is a resumable operational record, not completion
 - Baseline Phase 0 commit `5ff030d`; plans 1–9 are sequential.
 - Phase 1 accepted/signed off in `29165b4` after fixes `09200ed`, `4b6b8d8`, `e7aad12`. Root verified 17 offline API, 17 frontend, 23 PG tests and generated types.
 - Phase 2 implemented `78ebbfc`, `4a726e0`, `44d01ba`, `1106283`; independent main-session review fixes `a6b3c42`, `793b34a`, `7521b5c`, `a645e0a`. Root independently re-reviewed and verified 39 offline API, 50 PG, 31 frontend tests and generated types on October 4. Accepted deterministic local path; external structured Personal AI contract unavailable, browser smoke/hosted CI/multi-instance not verified.
-- Phase 3 is next; phases 3–9 have no implementation yet.
+- Phase 3 active agent `/root/phase3_implementation` (fresh Luna Extra High). Phases 4–9 have no implementation yet.
 
 ## Operating contract
 
@@ -22,7 +22,7 @@ Complete phases 1–9 sequentially. **User steering: every newly spawned impleme
 
 ## Next action
 
-Assess and dispatch Phase 3 entire bounded discovery phase to a fresh Luna Extra High agent. Main reviews only after it completes; stay idle during implementation. Search results/candidates are unverified observations, not catalog products/evidence. Preserve Phase 2 external structured-task gap; manual query path can run discovery without that capability. Live Tavily checks require opt-in credentials; fixture coverage does not establish live outcome.
+Wait for active `/root/phase3_implementation` implementing all Phase 3, then main independent review/verification and fresh Luna Extra High substantive fixes as needed. Main reviews only after it completes; stay idle during implementation. Search results/candidates are unverified observations, not catalog products/evidence. Preserve Phase 2 external structured-task gap; manual query path can run discovery without that capability. Live Tavily checks require opt-in credentials; fixture coverage does not establish live outcome.
 
 ## Restart schedule correction
 
