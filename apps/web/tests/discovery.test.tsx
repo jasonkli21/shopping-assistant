@@ -176,6 +176,9 @@ function discoveryFetch(
     }
     if (url.endsWith(`/projects/${PROJECT_ID}/research/${RUN_ID}`)) return response(runData ?? run());
     if (url.includes(`/projects/${PROJECT_ID}/candidates?`)) return response({ items: candidates, next_cursor: null });
+    if (url.includes(`/projects/${PROJECT_ID}/products?`)) {
+      return response({ items: [], next_cursor: null, catalog_version: 1, project_version: 3 });
+    }
     throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${url}`);
   });
 }
@@ -198,7 +201,7 @@ describe("Discover", () => {
     expect(screen.getByText("Works well on pet hair")).toBeInTheDocument();
     expect(screen.getByText("Up to 400.00 USD")).toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: "Cordless vacuum product page" })).toBeInTheDocument();
-    expect(screen.getByText("Not normalized or researched")).toBeInTheDocument();
+    expect(screen.getByText("Provisional · not yet matched")).toBeInTheDocument();
     expect(screen.getByText(/A listing snippet with a \$399 mention/)).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /script/ })).not.toBeInTheDocument();
     const sourceLink = screen.getByRole("link", { name: /Cordless vacuum product page/ });
@@ -206,6 +209,75 @@ describe("Discover", () => {
     expect(sourceLink).toHaveAttribute("rel", "noopener noreferrer");
     expect(screen.getByText(/Project revision 3/)).toBeInTheDocument();
     expect(screen.queryByText(/score/i)).not.toBeInTheDocument();
+  });
+
+  it("creates a new variant within an existing product family with a reason", async () => {
+    const saved: Record<string, unknown>[] = [];
+    const variantChoice = {
+      variant_id: "32941741-d069-4a20-8b8c-8b0cf6e450e8",
+      product_id: "b857dc62-dddf-46ad-b9f4-d2bb998a36dd",
+      canonical_name: "Acme Clean 4",
+      brand: "Acme",
+      category: "vacuum",
+      model_family: "AX-400",
+      variant_name: "Body only",
+      identity_attributes: { bundle: { value: "body only", origin: "source" } },
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input), "http://localhost");
+      if (url.pathname === `/projects/${PROJECT_ID}`) return response(project());
+      if (url.pathname === `/projects/${PROJECT_ID}/research`) return response({ items: [run()], next_cursor: null });
+      if (url.pathname === `/projects/${PROJECT_ID}/research/${RUN_ID}`) return response(run());
+      if (url.pathname === `/projects/${PROJECT_ID}/candidates`) return response({ items: [candidate], next_cursor: null });
+      if (url.pathname === `/projects/${PROJECT_ID}/products`) {
+        return response({ items: [], next_cursor: null, catalog_version: 1, project_version: 3 });
+      }
+      if (url.pathname === "/products") {
+        return response({ items: [variantChoice], next_cursor: null, catalog_version: 1 });
+      }
+      if (url.pathname.endsWith("/correction") && init?.method === "POST") {
+        saved.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+        return response({
+          candidate_id: candidate.id,
+          event_id: "de3eac0e-67e0-4ad1-9618-d9a6ddc4c319",
+          status: "manual_linked",
+          previous_project_product_id: null,
+          selected_project_product_id: "d82867c8-59e1-442a-aa3b-13125843492a",
+          catalog_version: 2,
+          project_version: 4,
+          reason: "This is the same family with a distinct kit.",
+          replayed: false,
+        });
+      }
+      throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderApp();
+
+    await screen.findByRole("heading", { name: "Cordless vacuum product page" });
+    fireEvent.click(screen.getByRole("button", { name: "Assign or correct match" }));
+    fireEvent.click(screen.getByLabelText("Create a new variant under an existing product"));
+    fireEvent.change(await screen.findByLabelText("Product family"), {
+      target: { value: variantChoice.product_id },
+    });
+    fireEvent.change(screen.getByLabelText("Variant name"), { target: { value: "Pet kit" } });
+    fireEvent.change(screen.getByLabelText(/Known variant identity values/), {
+      target: { value: '{"bundle":"pet kit"}' },
+    });
+    fireEvent.change(screen.getByLabelText("Why is this match correct?"), {
+      target: { value: "This is the same model family with a distinct kit." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save manual correction" }));
+
+    await screen.findByText("Your assignment was saved and can be reverted.");
+    expect(saved).toHaveLength(1);
+    expect(saved[0]?.new_variant).toEqual({
+      product_id: variantChoice.product_id,
+      display_name: "Pet kit",
+      identity_attributes: { bundle: "pet kit" },
+      category_attributes: [],
+    });
+    expect(saved[0]?.new_product).toBeUndefined();
   });
 
   it("submits explicit queries and keeps entries after a definitive busy rejection", async () => {
@@ -228,6 +300,9 @@ describe("Discover", () => {
       }
       if (url.endsWith(`/projects/${PROJECT_ID}/research/${RUN_ID}`)) return response(acceptedRun ?? run());
       if (url.includes(`/projects/${PROJECT_ID}/candidates?`)) return response({ items: [candidate], next_cursor: null });
+      if (url.includes(`/projects/${PROJECT_ID}/products?`)) {
+        return response({ items: [], next_cursor: null, catalog_version: 1, project_version: 3 });
+      }
       throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -338,6 +413,9 @@ describe("Discover", () => {
       }
       if (url.endsWith(`/projects/${PROJECT_ID}/research/${RUN_ID}`)) return response(accepted ?? run());
       if (url.includes(`/projects/${PROJECT_ID}/candidates?`)) return response({ items: [], next_cursor: null });
+      if (url.includes(`/projects/${PROJECT_ID}/products?`)) {
+        return response({ items: [], next_cursor: null, catalog_version: 1, project_version: 3 });
+      }
       throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -380,6 +458,9 @@ describe("Discover", () => {
       }
       if (url.endsWith(`/projects/${PROJECT_ID}/research/${RUN_ID}`)) return response(run({ status: "running" }));
       if (url.includes(`/projects/${PROJECT_ID}/candidates?`)) return response({ items: [], next_cursor: null });
+      if (url.includes(`/projects/${PROJECT_ID}/products?`)) {
+        return response({ items: [], next_cursor: null, catalog_version: 1, project_version: 3 });
+      }
       throw new Error(`Unexpected request: ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -436,6 +517,9 @@ describe("Discover", () => {
         candidateFetches += 1;
         return response({ items: details > 1 ? [candidate] : [], next_cursor: null });
       }
+      if (url.includes(`/projects/${PROJECT_ID}/products?`)) {
+        return response({ items: [], next_cursor: null, catalog_version: 1, project_version: 3 });
+      }
       throw new Error(`Unexpected request: ${url}`);
     }));
     renderApp();
@@ -488,6 +572,9 @@ describe("Discover", () => {
         return cursor
           ? response({ items: latestCandidates.slice(20), next_cursor: null })
           : response({ items: latestCandidates.slice(0, 20), next_cursor: "latest-more" });
+      }
+      if (url.pathname === `/projects/${PROJECT_ID}/products`) {
+        return response({ items: [], next_cursor: null, catalog_version: 1, project_version: 3 });
       }
       throw new Error(`Unexpected request: ${url}`);
     });

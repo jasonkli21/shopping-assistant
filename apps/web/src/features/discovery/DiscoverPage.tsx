@@ -9,6 +9,8 @@ import {
   projectsApi,
   researchApi,
 } from "../../api/client";
+import { catalogApi } from "../../api/client";
+import { CatalogCandidateActions } from "./CatalogCandidateActions";
 
 type SavedCommand = { command: ResearchCreate; requestKey: string };
 const TERMINAL = new Set<ResearchRunRead["status"]>([
@@ -88,6 +90,18 @@ function newRequestKey() {
 
 function readableError(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
+}
+
+function safeOutboundUrl(value: string): string | undefined {
+  try {
+    const url = new URL(value);
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) {
+      return undefined;
+    }
+    return url.href;
+  } catch {
+    return undefined;
+  }
 }
 
 export function DiscoverPage() {
@@ -191,6 +205,16 @@ function DiscoverPageContent({ projectId }: { projectId?: string }) {
       const run = detailQuery.data;
       return isVisible && run?.id === currentRunId && !TERMINAL.has(run.status) ? 4000 : false;
     },
+  });
+  const projectProductsQuery = useInfiniteQuery({
+    queryKey: ["project-products", projectId],
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ signal, pageParam }) =>
+      catalogApi.listProjectProducts(projectId!, 20, pageParam, signal),
+    getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
+    enabled: Boolean(projectId && project),
+    retry: false,
+    refetchOnWindowFocus: false,
   });
 
   const currentRun = detailQuery.data?.id === currentRunId ? detailQuery.data : undefined;
@@ -313,6 +337,8 @@ function DiscoverPageContent({ projectId }: { projectId?: string }) {
   }
 
   const visibleCandidates = candidatesQuery.data?.pages.flatMap((page) => page.items) ?? [];
+  const normalizedProducts = projectProductsQuery.data?.pages.flatMap((page) => page.items) ?? [];
+  const catalogVersion = projectProductsQuery.data?.pages[0]?.catalog_version;
   const active = Boolean(currentRun && !TERMINAL.has(currentRun.status));
   const controlsLocked = Boolean(savedCommand || cancelRun.isPending);
 
@@ -472,10 +498,14 @@ function DiscoverPageContent({ projectId }: { projectId?: string }) {
                 <li className="candidate-card" key={candidate.id}>
                   <div className="candidate-card-heading">
                     <div>
-                      <p className="eyebrow">Provisional candidate</p>
+                      <p className="eyebrow">
+                        {candidate.normalization?.product_id ? "Catalog product" : "Search observation"}
+                      </p>
                       <h3>{candidate.provisional_name}</h3>
                     </div>
-                    <span className="candidate-badge">Not normalized or researched</span>
+                    {!candidate.normalization?.product_id && (
+                      <span className="candidate-badge">Provisional · not yet matched</span>
+                    )}
                   </div>
                   <p className="candidate-reason">{candidate.discovery_reason}</p>
                   {candidate.indicative_price_text && (
@@ -485,11 +515,19 @@ function DiscoverPageContent({ projectId }: { projectId?: string }) {
                     <article className="candidate-observation" key={result.search_result_id}>
                       <p className="observation-origin">Found for “{result.query_text}” · observed {new Date(result.received_at).toLocaleString()}</p>
                       {result.snippet && <p className="candidate-snippet">{result.snippet}</p>}
-                      <a href={result.url} target="_blank" rel="noopener noreferrer">
-                        {result.title || result.url}<span className="sr-only"> (opens in a new tab)</span>
-                      </a>
+                      {safeOutboundUrl(result.url) ? (
+                        <a href={safeOutboundUrl(result.url)} target="_blank" rel="noopener noreferrer">
+                          {result.title || result.url}<span className="sr-only"> (opens in a new tab)</span>
+                        </a>
+                      ) : <p className="quiet-state">Source link unavailable.</p>}
                     </article>
                   ))}
+                  <CatalogCandidateActions
+                    projectId={project.id}
+                    candidate={candidate}
+                    projectVersion={project.revision}
+                    catalogVersion={catalogVersion}
+                  />
                 </li>
               ))}
             </ul>
@@ -503,6 +541,44 @@ function DiscoverPageContent({ projectId }: { projectId?: string }) {
                 {candidatesQuery.isFetchingNextPage ? "Loading more candidates…" : "Load more candidates"}
               </button>
             )}
+
+            <section className="project-catalog-section" aria-labelledby="project-catalog-title">
+              <div className="section-heading compact-section-heading">
+                <div>
+                  <p className="eyebrow">Exact project variants</p>
+                  <h3 id="project-catalog-title">Normalized products</h3>
+                </div>
+                <span className="count-pill">{normalizedProducts.length}</span>
+              </div>
+              {projectProductsQuery.isPending && <p role="status">Loading this project’s catalog…</p>}
+              {projectProductsQuery.isError && (
+                <div className="empty-state compact-empty">
+                  <p role="alert">{readableError(projectProductsQuery.error, "The project catalog could not load.")}</p>
+                  <button className="button quiet-button" type="button" onClick={() => void projectProductsQuery.refetch()}>Retry catalog</button>
+                </div>
+              )}
+              {!projectProductsQuery.isPending && !projectProductsQuery.isError && normalizedProducts.length === 0 && (
+                <p className="quiet-state">No candidates have been linked to products yet.</p>
+              )}
+              {normalizedProducts.length > 0 && (
+                <ul className="normalized-product-list">
+                  {normalizedProducts.map((item) => (
+                    <li key={item.id}>
+                      <div>
+                        <Link to={`/products/${item.product_id}`}>{item.canonical_name}</Link>
+                        <p>{[item.brand, item.model_family, item.variant_name].filter(Boolean).join(" · ")}</p>
+                      </div>
+                      <span>{item.offers.length} recent {item.offers.length === 1 ? "offer" : "offers"}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {projectProductsQuery.hasNextPage && (
+                <button className="button quiet-button" type="button" disabled={projectProductsQuery.isFetchingNextPage} onClick={() => void projectProductsQuery.fetchNextPage()}>
+                  {projectProductsQuery.isFetchingNextPage ? "Loading products…" : "Load more products"}
+                </button>
+              )}
+            </section>
           </section>
         </div>
 

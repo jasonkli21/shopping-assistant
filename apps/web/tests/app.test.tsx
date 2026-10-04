@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { MessageRead, Project, ProposalRead, Requirement } from "../src/api/client";
+import type { MessageRead, ProductRead, Project, ProposalRead, Requirement } from "../src/api/client";
 import { App } from "../src/app/App";
 
 const PROJECT_ID = "6f16a208-307f-4dfc-8a2d-44aeb6df4d50";
@@ -102,6 +102,91 @@ function renderApp(path = "/") {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+});
+
+describe("catalog product detail", () => {
+  it("shows variant provenance and paginates timestamped offers with safe outbound links", async () => {
+    const productId = "302ae131-b98e-4fd0-81de-ce644192688f";
+    const variantId = "396d0c5b-6732-4d62-a016-4a5e9f11e9b9";
+    const productData: ProductRead = {
+      id: productId,
+      canonical_name: "Acme Clean 4",
+      brand: "Acme",
+      category: "vacuum",
+      model_family: "AX-400",
+      revision: 2,
+      created_at: timestamp,
+      updated_at: timestamp,
+      variants: [{
+        id: variantId,
+        product_id: productId,
+        display_name: "Pet kit",
+        identity_attributes: {
+          bundle: { value: "pet kit", origin: "source", observation_id: "obs-1", excerpt: "pet kit" },
+        },
+        category_attributes: {
+          power: { value: 220, unit: "AW", origin: "manufacturer", excerpt: "220 AW" },
+        },
+        revision: 1,
+        identifiers: [],
+        offers: [],
+      }],
+    };
+    const offers = [
+      {
+        id: "8d287f99-5f0c-4ec6-a8e3-ecfc14b2aed2",
+        variant_id: variantId,
+        observation_id: "d9ed7fd7-603e-419e-a213-57d3e82640a0",
+        retailer_name: "Shop One",
+        retailer_domain: "shop.example",
+        url: "https://shop.example/item",
+        amount: "319.00",
+        currency: "USD",
+        availability: "in_stock" as const,
+        condition: "new" as const,
+        observed_at: timestamp,
+      },
+      {
+        id: "62e600a5-dfd4-4e0f-a781-cc56dc0bf359",
+        variant_id: variantId,
+        observation_id: "d9ed7fd7-603e-419e-a213-57d3e82640a0",
+        retailer_name: "Unsafe listing",
+        retailer_domain: null,
+        url: "javascript:alert(1)",
+        amount: null,
+        currency: null,
+        availability: "unknown" as const,
+        condition: "unknown" as const,
+        observed_at: timestamp,
+      },
+    ];
+    let olderOffersRequested = false;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), "http://localhost");
+      if (url.pathname === `/products/${productId}`) return response(productData);
+      if (url.pathname === `/products/${productId}/offers`) {
+        if (url.searchParams.has("cursor")) {
+          olderOffersRequested = true;
+          return response({ items: [], next_cursor: null, catalog_version: 2 });
+        }
+        return response({ items: offers, next_cursor: "older-page", catalog_version: 2 });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderApp(`/products/${productId}`);
+
+    expect(await screen.findByRole("heading", { name: "Acme Clean 4" })).toBeInTheDocument();
+    expect(screen.getByText("Canonical product · Product revision 2")).toBeInTheDocument();
+    expect(screen.getByText("pet kit")).toBeInTheDocument();
+    expect(screen.getByText(/Observed on source page/)).toBeInTheDocument();
+    expect(screen.getByText("220 AW")).toBeInTheDocument();
+    expect(await screen.findByText("USD 319.00")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Open retailer page/ })).toHaveAttribute("href", "https://shop.example/item");
+    expect(screen.getByText("Retailer link unavailable")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Load older offers" }));
+    await waitFor(() => expect(olderOffersRequested).toBe(true));
+  });
 });
 
 describe("project Home", () => {
