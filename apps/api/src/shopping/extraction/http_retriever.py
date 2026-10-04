@@ -5,6 +5,7 @@ import hashlib
 import ipaddress
 import socket
 import ssl
+import zlib
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from email.message import Message
@@ -144,6 +145,7 @@ class HTTPPageRetriever:
     ) -> None:
         if timeout_seconds <= 0 or max_decoded_bytes <= 0 or max_redirects < 0:
             raise ValueError("retrieval limits must be positive")
+        self._timeout_seconds = timeout_seconds
         self._timeout = httpx.Timeout(timeout_seconds, connect=min(timeout_seconds, 3))
         self._max_decoded_bytes = max_decoded_bytes
         self._max_redirects = max_redirects
@@ -151,6 +153,15 @@ class HTTPPageRetriever:
         self._transport_factory = transport_factory or _PinnedHTTPXTransport
 
     async def retrieve(self, url: str) -> RetrievedDocument:
+        try:
+            async with asyncio.timeout(self._timeout_seconds):
+                return await self._retrieve_with_deadline(url)
+        except TimeoutError as error:
+            raise PageRetrievalError(
+                "timeout", "The source page exceeded its retrieval deadline."
+            ) from error
+
+    async def _retrieve_with_deadline(self, url: str) -> RetrievedDocument:
         requested_url = url
         current_url = url
         seen = set()
@@ -224,12 +235,39 @@ class HTTPPageRetriever:
                                 "The source is not a supported text page.",
                             )
                         body = bytearray()
-                        async for chunk in response.aiter_bytes():
-                            if len(body) + len(chunk) > self._max_decoded_bytes:
+                        encoding = (
+                            response.headers.get("content-encoding", "identity").strip().lower()
+                        )
+                        decoder = _content_decoder(encoding)
+                        encoded_size = 0
+                        async for chunk in response.aiter_raw():
+                            encoded_size += len(chunk)
+                            if encoded_size > self._max_decoded_bytes:
                                 raise PageRetrievalError(
-                                    "page_too_large", "The decoded page exceeds the allowed size."
+                                    "page_too_large", "The encoded page exceeds the allowed size."
                                 )
-                            body.extend(chunk)
+                            if decoder is None:
+                                _append_bounded(body, chunk, self._max_decoded_bytes)
+                            else:
+                                pending = chunk
+                                while pending:
+                                    remaining = self._max_decoded_bytes - len(body)
+                                    try:
+                                        decoded = decoder.decompress(pending, remaining + 1)
+                                    except zlib.error as error:
+                                        raise PageRetrievalError(
+                                            "invalid_content_encoding",
+                                            "The compressed page could not be decoded.",
+                                        ) from error
+                                    _append_bounded(body, decoded, self._max_decoded_bytes)
+                                    pending = decoder.unconsumed_tail
+                                    if not pending:
+                                        break
+                        if decoder is not None and (not decoder.eof or decoder.unused_data):
+                            raise PageRetrievalError(
+                                "invalid_content_encoding",
+                                "The compressed page is invalid or incomplete.",
+                            )
                         encoding = response.encoding or "utf-8"
                         decoded = bytes(body).decode(encoding, errors="replace")
                         return RetrievedDocument(
@@ -250,6 +288,24 @@ class HTTPPageRetriever:
                 ) from error
 
         raise PageRetrievalError("redirect_limit", "The page exceeded the redirect limit.")
+
+
+def _content_decoder(encoding: str):
+    if encoding in {"", "identity"}:
+        return None
+    if encoding in {"gzip", "x-gzip"}:
+        return zlib.decompressobj(16 + zlib.MAX_WBITS)
+    if encoding == "deflate":
+        return zlib.decompressobj()
+    raise PageRetrievalError(
+        "unsupported_content_encoding", "The page uses an unsupported compression format."
+    )
+
+
+def _append_bounded(body: bytearray, chunk: bytes, maximum: int) -> None:
+    if len(body) + len(chunk) > maximum:
+        raise PageRetrievalError("page_too_large", "The decoded page exceeds the allowed size.")
+    body.extend(chunk)
 
 
 def _mime_type(content_type: str | None) -> str | None:

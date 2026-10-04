@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import gzip
 import hashlib
 
@@ -11,6 +12,7 @@ from httpcore._backends.anyio import AnyIOBackend
 from shopping.extraction.http_retriever import (
     HTTPPageRetriever,
     _is_public_address,
+    _PinnedHTTPXTransport,
     _PinnedNetworkBackend,
     html_to_text,
 )
@@ -24,6 +26,14 @@ def _resolver_for(addresses: dict[str, list[str]]):
     return resolve
 
 
+class BytesStream(httpx.AsyncByteStream):
+    def __init__(self, payload: bytes) -> None:
+        self.payload = payload
+
+    async def __aiter__(self):
+        yield self.payload
+
+
 @pytest.mark.asyncio
 async def test_retriever_returns_requested_and_final_url_hash_and_utc_time():
     factories: list[dict[str, str]] = []
@@ -34,7 +44,7 @@ async def test_retriever_returns_requested_and_final_url_hash_and_utc_time():
             lambda request: httpx.Response(
                 200,
                 headers={"content-type": "text/html; charset=utf-8"},
-                content=b"<h1>Product</h1>",
+                stream=BytesStream(b"<h1>Product</h1>"),
                 request=request,
             )
         )
@@ -123,7 +133,9 @@ async def test_network_backend_connects_to_pinned_ip_and_rejects_unpinned_host(m
         return object()
 
     monkeypatch.setattr(AnyIOBackend, "connect_tcp", connect_tcp)
-    backend = _PinnedNetworkBackend({"retailer.example": "93.184.216.34"})
+    transport = _PinnedHTTPXTransport({"retailer.example": "93.184.216.34"})
+    backend = transport._pool._network_backend
+    assert isinstance(backend, _PinnedNetworkBackend)
     await backend.connect_tcp("retailer.example", 443)
     assert connected == [("93.184.216.34", 443)]
 
@@ -131,25 +143,28 @@ async def test_network_backend_connects_to_pinned_ip_and_rejects_unpinned_host(m
         await backend.connect_tcp("other.example", 443)
     assert _is_public_address("93.184.216.34")
     assert not _is_public_address("169.254.169.254")
+    assert transport._pool._ssl_context.verify_mode
+    assert transport._pool._ssl_context.check_hostname
+    await transport.aclose()
 
 
 @pytest.mark.asyncio
 async def test_retriever_caps_decoded_content_and_rejects_unsupported_mime():
-    compressed = gzip.compress(b"x" * 1000)
+    compressed = gzip.compress(b"x" * 5_000_000)
 
     def transport_factory(_pins):
         def handle(request):
             return httpx.Response(
                 200,
                 headers={"content-type": "text/html", "content-encoding": "gzip"},
-                content=compressed,
+                stream=BytesStream(compressed),
                 request=request,
             )
 
         return httpx.MockTransport(handle)
 
     retriever = HTTPPageRetriever(
-        max_decoded_bytes=100,
+        max_decoded_bytes=100_000,
         resolver=_resolver_for({"retailer.example": ["93.184.216.34"]}),
         transport_factory=transport_factory,
     )
@@ -168,6 +183,27 @@ async def test_retriever_caps_decoded_content_and_rejects_unsupported_mime():
     with pytest.raises(PageRetrievalError) as mime:
         await unsupported.retrieve("https://retailer.example/file")
     assert mime.value.code == "unsupported_content_type"
+
+
+@pytest.mark.asyncio
+async def test_retriever_increments_gzip_within_decoded_limit():
+    payload = b"<h1>Product</h1>"
+    compressed = gzip.compress(payload)
+    retriever = HTTPPageRetriever(
+        max_decoded_bytes=100,
+        resolver=_resolver_for({"retailer.example": ["93.184.216.34"]}),
+        transport_factory=lambda _pins: httpx.MockTransport(
+            lambda request: httpx.Response(
+                200,
+                headers={"content-type": "text/html", "content-encoding": "gzip"},
+                stream=BytesStream(compressed),
+                request=request,
+            )
+        ),
+    )
+    result = await retriever.retrieve("https://retailer.example/item")
+    assert result.body == payload.decode()
+    assert result.content_hash == hashlib.sha256(payload).hexdigest()
 
 
 @pytest.mark.asyncio
@@ -201,6 +237,68 @@ async def test_retriever_returns_typed_timeout_and_redirect_limit_failures():
         await loop.retrieve("https://retailer.example/item")
     assert redirect_error.value.code == "redirect_limit"
     assert len(redirects) == 2
+
+
+@pytest.mark.asyncio
+async def test_overall_deadline_includes_stalled_dns_and_slow_drip_body():
+    def stalled_dns(_host, _port):
+        import time
+
+        time.sleep(0.1)
+        return ["93.184.216.34"]
+
+    stalled = HTTPPageRetriever(timeout_seconds=0.02, resolver=stalled_dns)
+    with pytest.raises(PageRetrievalError) as dns_error:
+        await stalled.retrieve("https://retailer.example/item")
+    assert dns_error.value.code == "timeout"
+
+    class SlowStream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield b"<h1>"
+            await asyncio.sleep(0.03)
+            yield b"Product"
+            await asyncio.sleep(0.03)
+            yield b"</h1>"
+
+    async def slow_response(request):
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/html"},
+            stream=SlowStream(),
+            request=request,
+        )
+
+    slow = HTTPPageRetriever(
+        timeout_seconds=0.05,
+        resolver=_resolver_for({"retailer.example": ["93.184.216.34"]}),
+        transport_factory=lambda _pins: httpx.MockTransport(slow_response),
+    )
+    with pytest.raises(PageRetrievalError) as slow_error:
+        await slow.retrieve("https://retailer.example/item")
+    assert slow_error.value.code == "timeout"
+
+    redirect_count = 0
+
+    async def slow_redirect(request):
+        nonlocal redirect_count
+        redirect_count += 1
+        await asyncio.sleep(0.03)
+        return httpx.Response(
+            302,
+            headers={"location": "/step-" + str(redirect_count)},
+            request=request,
+        )
+
+    redirecting = HTTPPageRetriever(
+        timeout_seconds=0.05,
+        max_redirects=3,
+        resolver=_resolver_for({"retailer.example": ["93.184.216.34"]}),
+        transport_factory=lambda _pins: httpx.MockTransport(slow_redirect),
+    )
+    with pytest.raises(PageRetrievalError) as redirect_error:
+        await redirecting.retrieve("https://retailer.example/item")
+    assert redirect_error.value.code == "timeout"
+    assert redirect_count == 2
 
 
 def test_html_to_text_omits_executable_and_nonvisible_content():
