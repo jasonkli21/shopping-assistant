@@ -159,8 +159,6 @@ def classify_source(
                 "manufacturer_specification", "brand host and specification marker detected"
             )
         return SourceClassification("manufacturer_claim", "brand or official host marker detected")
-    if any(marker in sample for marker in ("measured", "tested", "test results", "lab test")):
-        return SourceClassification("independent_measurement", "measured testing language detected")
     return SourceClassification(
         "unknown", "publisher type could not be established from page metadata"
     )

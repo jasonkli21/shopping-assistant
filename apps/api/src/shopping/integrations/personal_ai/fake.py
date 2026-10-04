@@ -46,6 +46,10 @@ class FakePersonalAIClient(PersonalAIClient):
             return AIResponse(output=fixture)
         if request.task == "plan_product_research.v1":
             return AIResponse(output=self._plan_product_research(context))
+        if request.task == "extract_claims.v1":
+            return AIResponse(
+                output={"claims": [], "explanation": "No claim fixture was supplied."}
+            )
         if self.response is not None:
             return AIResponse(output=self.response)
         if request.task == "plan_discovery.v1":

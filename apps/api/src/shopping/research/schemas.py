@@ -132,6 +132,17 @@ class ResearchRunRead(BaseModel):
     replayed: bool = False
     queries: list[SearchQueryRead] = Field(default_factory=list)
     targets: list[ResearchTargetProgressRead] = Field(default_factory=list)
+    stages: list[ResearchStageProgressRead] = Field(default_factory=list)
+
+
+class ResearchStageProgressRead(BaseModel):
+    stage: Literal["planning", "extraction", "relations", "assessment"]
+    target_project_product_id: UUID | None
+    source_snapshot_id: UUID | None
+    attempt_number: int
+    status: Literal["running", "succeeded", "failed", "skipped", "canceled"]
+    error_code: str | None
+    validation_warnings: list[dict[str, object]]
 
 
 class ResearchTargetProgressRead(BaseModel):

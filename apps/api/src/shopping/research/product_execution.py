@@ -14,8 +14,11 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
+from shopping.evidence import claim_task
+from shopping.evidence.assessment import record_assessment
 from shopping.evidence.classification import classify_source, page_metadata
 from shopping.evidence.models import ResearchRunSource, Source, SourceSnapshot
+from shopping.evidence.service import extraction_input, persist_extraction
 from shopping.extraction.http_retriever import MAX_PAGE_BYTES, html_to_text
 from shopping.extraction.retriever import PageRetrievalError, PageRetriever, RetrievedDocument
 from shopping.integrations.personal_ai.client import AIProviderError, PersonalAIClient
@@ -108,6 +111,7 @@ def start_stage_attempt(
     task_name: str,
     prompt_version: str,
     input_chars: int,
+    source_snapshot_id: UUID | None = None,
 ) -> ResearchStageAttempt | None:
     _project, run = _lock_live_run(session, owner_id, project_id, run_id)
     if run.status != "running" or input_chars > 24_000:
@@ -138,6 +142,7 @@ def start_stage_attempt(
                 ResearchStageAttempt.research_run_id == run.id,
                 ResearchStageAttempt.target_project_product_id == target_project_product_id,
                 ResearchStageAttempt.stage == stage,
+                ResearchStageAttempt.source_snapshot_id == source_snapshot_id,
             )
         )
         or 0
@@ -149,6 +154,7 @@ def start_stage_attempt(
         owner_id=owner_id,
         research_run_id=run.id,
         target_project_product_id=target_project_product_id,
+        source_snapshot_id=source_snapshot_id,
         stage=stage,
         attempt_number=number,
         status="running",
@@ -173,6 +179,7 @@ def finish_stage_attempt(
     error_code: str | None = None,
     provider_request_id: str | None = None,
     output_chars: int = 0,
+    validation_warnings: list[dict[str, Any]] | None = None,
 ) -> bool:
     _project, run = _lock_live_run(session, owner_id, project_id, run_id)
     attempt = session.scalar(
@@ -192,6 +199,7 @@ def finish_stage_attempt(
         provider_request_id[:200] if isinstance(provider_request_id, str) else None
     )
     attempt.output_chars = min(max(output_chars, 0), 16_000)
+    attempt.validation_warnings = (validation_warnings or [])[:20]
     attempt.finished_at = datetime.now(UTC)
     session.commit()
     return True
@@ -369,6 +377,7 @@ def finish_source_attempt(
     relevant_text: str | None = None,
     classification: str | None = None,
     classification_basis: str | None = None,
+    bytes_read: int | None = None,
 ) -> bool:
     _project, run = _lock_live_run(session, owner_id, project_id, run_id)
     attempt = session.scalar(
@@ -386,6 +395,8 @@ def finish_source_attempt(
     attempt.status = status
     attempt.reason = (reason or "")[:80] or None
     attempt.retrieved_at = now
+    if bytes_read is not None:
+        attempt.bytes_read = max(bytes_read, 0)
     if document is not None:
         attempt.final_url = document.final_url[:2048]
         attempt.bytes_read = document.decoded_bytes or len(document.body.encode("utf-8"))
@@ -457,6 +468,7 @@ def finish_product_research(
         ).all()
     )
     for target in targets:
+        record_assessment(session, run, target)
         if target.status in {"failed", "skipped"}:
             continue
         failed_sources = (
@@ -471,8 +483,18 @@ def finish_product_research(
             )
             or 0
         )
+        failed_stages = (
+            session.scalar(
+                select(func.count(ResearchStageAttempt.id)).where(
+                    ResearchStageAttempt.research_run_id == run.id,
+                    ResearchStageAttempt.target_project_product_id == target.project_product_id,
+                    ResearchStageAttempt.status == "failed",
+                )
+            )
+            or 0
+        )
         if target.sources_retrieved > 0:
-            target.status = "partial" if failed_sources else "succeeded"
+            target.status = "partial" if failed_sources or failed_stages else "succeeded"
         else:
             target.status = "failed"
             target.error_code = target.error_code or "no_sources_retrieved"
@@ -581,6 +603,7 @@ async def run_product_research(
                 error_code=code,
             )
         )
+
         await _fail_product_run(
             with_session,
             owner_id,
@@ -764,7 +787,7 @@ async def run_product_research(
                             source_attempt_id=source_attempt_id,
                             status="failed",
                             reason="byte_budget_exceeded",
-                            document=document,
+                            bytes_read=actual_bytes,
                         )
                     )
                     continue
@@ -778,7 +801,7 @@ async def run_product_research(
                     brand=target.get("brand"),
                 )
                 bounded_text = _bounded_utf8(text_content, 12_000)
-                await with_session(
+                stored = await with_session(
                     partial(
                         finish_source_attempt,
                         owner_id=owner_id,
@@ -795,6 +818,19 @@ async def run_product_research(
                         classification_basis=classification.basis,
                     )
                 )
+                if stored:
+                    await _extract_source_claims(
+                        with_session=with_session,
+                        owner_id=owner_id,
+                        project_id=project_id,
+                        run_id=run_id,
+                        target=target,
+                        source_attempt_id=source_attempt_id,
+                        client=client,
+                        remaining_seconds=remaining_seconds,
+                        provider_timeout_seconds=provider_timeout_seconds,
+                        max_output_chars=budgets["max_output_chars"],
+                    )
             except PageRetrievalError as error:
                 status = _retrieval_status(error.code)
                 await with_session(
@@ -838,6 +874,121 @@ async def run_product_research(
             session, owner_id=owner_id, project_id=project_id, run_id=run_id
         )
     )
+
+
+async def _extract_source_claims(
+    *,
+    with_session: WithSession,
+    owner_id: UUID,
+    project_id: UUID,
+    run_id: UUID,
+    target: dict[str, Any],
+    source_attempt_id: UUID,
+    client: PersonalAIClient,
+    remaining_seconds: RemainingSeconds,
+    provider_timeout_seconds: int,
+    max_output_chars: int,
+) -> None:
+    target_id = UUID(target["project_product_id"])
+    source_input = await with_session(
+        lambda session: extraction_input(
+            session,
+            owner_id=owner_id,
+            run_id=run_id,
+            target_id=target_id,
+            attempt_id=source_attempt_id,
+        )
+    )
+    if source_input is None:
+        return
+    _identity, source, text_content = source_input
+    if not text_content:
+        return
+    request = claim_task.build_request(target=target, source=source, text=text_content)
+    input_chars = len(json.dumps(request.input, ensure_ascii=False, separators=(",", ":")))
+    stage = await with_session(
+        lambda session: start_stage_attempt(
+            session,
+            owner_id=owner_id,
+            project_id=project_id,
+            run_id=run_id,
+            target_project_product_id=target_id,
+            source_snapshot_id=UUID(source["snapshot_id"]),
+            stage="extraction",
+            task_name=claim_task.TASK_NAME,
+            prompt_version=claim_task.PROMPT_VERSION,
+            input_chars=input_chars,
+        )
+    )
+    if stage is None:
+        return
+    try:
+        timeout = min(provider_timeout_seconds, await remaining_seconds())
+        if timeout <= 0:
+            raise TimeoutError
+        async with asyncio.timeout(timeout):
+            response = await client.generate(request)
+        if response.refused:
+            raise AIProviderError("provider_refused")
+        extraction = claim_task.validate_output(
+            response.output,
+            target=target,
+            source_text=text_content,
+            max_output_chars=max_output_chars,
+        )
+        await with_session(
+            lambda session: persist_extraction(
+                session,
+                owner_id=owner_id,
+                run_id=run_id,
+                target_id=target_id,
+                source_attempt_id=source_attempt_id,
+                extraction=extraction,
+            )
+        )
+        await with_session(
+            lambda session: finish_stage_attempt(
+                session,
+                owner_id=owner_id,
+                project_id=project_id,
+                run_id=run_id,
+                attempt_id=stage.id,
+                status="succeeded",
+                provider_request_id=response.provider_request_id,
+                output_chars=len(json.dumps(response.output, ensure_ascii=False)),
+                validation_warnings=extraction.warnings,
+            )
+        )
+    except (TimeoutError, AIProviderError, ValueError) as error:
+        code = (
+            "provider_timeout"
+            if isinstance(error, TimeoutError)
+            else (error.code if isinstance(error, AIProviderError) else "malformed_response")
+        )
+        await with_session(
+            lambda session: finish_stage_attempt(
+                session,
+                owner_id=owner_id,
+                project_id=project_id,
+                run_id=run_id,
+                attempt_id=stage.id,
+                status="failed",
+                error_code=code,
+            )
+        )
+    except Exception as error:
+        logger.warning("Claim extraction failed for %s (%s)", run_id, type(error).__name__)
+        await with_session(
+            lambda session: finish_stage_attempt(
+                session,
+                owner_id=owner_id,
+                project_id=project_id,
+                run_id=run_id,
+                attempt_id=stage.id,
+                status="failed",
+                error_code="extraction_failed",
+            )
+        )
 
 
 async def service_attempt_failure(

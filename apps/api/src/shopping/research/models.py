@@ -200,13 +200,19 @@ class ResearchStageAttempt(Base):
             "input_chars BETWEEN 0 AND 24000 AND output_chars BETWEEN 0 AND 16000",
             name="ck_research_stage_attempt_chars",
         ),
+        CheckConstraint(
+            "octet_length(validation_warnings::text) <= 4000",
+            name="ck_research_stage_attempt_warnings_size",
+        ),
         Index(
             "uq_research_stage_attempt_global",
             "research_run_id",
             "stage",
             "attempt_number",
             unique=True,
-            postgresql_where=text("target_project_product_id IS NULL"),
+            postgresql_where=text(
+                "target_project_product_id IS NULL AND source_snapshot_id IS NULL"
+            ),
         ),
         Index(
             "uq_research_stage_attempt_target",
@@ -215,7 +221,19 @@ class ResearchStageAttempt(Base):
             "stage",
             "attempt_number",
             unique=True,
-            postgresql_where=text("target_project_product_id IS NOT NULL"),
+            postgresql_where=text(
+                "target_project_product_id IS NOT NULL AND source_snapshot_id IS NULL"
+            ),
+        ),
+        Index(
+            "uq_research_stage_attempt_source",
+            "research_run_id",
+            "target_project_product_id",
+            "stage",
+            "source_snapshot_id",
+            "attempt_number",
+            unique=True,
+            postgresql_where=text("source_snapshot_id IS NOT NULL"),
         ),
     )
 
@@ -227,6 +245,9 @@ class ResearchStageAttempt(Base):
     target_project_product_id: Mapped[UUID | None] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("project_products.id", ondelete="SET NULL")
     )
+    source_snapshot_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("source_snapshots.id", ondelete="RESTRICT")
+    )
     stage: Mapped[str] = mapped_column(String(16), nullable=False)
     attempt_number: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="running")
@@ -236,6 +257,9 @@ class ResearchStageAttempt(Base):
     provider_request_id: Mapped[str | None] = mapped_column(String(200))
     input_chars: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     output_chars: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    validation_warnings: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

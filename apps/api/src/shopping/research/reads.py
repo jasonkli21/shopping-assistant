@@ -17,6 +17,7 @@ from shopping.research.models import (
     CandidateSearchResult,
     DiscoveryCandidate,
     ResearchRun,
+    ResearchStageAttempt,
     SearchQueryRecord,
     SearchResult,
 )
@@ -26,6 +27,7 @@ from shopping.research.schemas import (
     CandidateResultRead,
     ResearchRunPage,
     ResearchRunRead,
+    ResearchStageProgressRead,
     ResearchTargetProgressRead,
     SearchAttemptRead,
     SearchQueryRead,
@@ -81,7 +83,34 @@ def get_run(session: Session, owner_id: UUID, project_id: UUID, run_id: UUID) ->
     )
     if run is None:
         raise _not_found("Research run not found")
-    return _run_read(run)
+    response = _run_read(run)
+    if run.run_type != "product_research":
+        return response
+    stages = session.scalars(
+        select(ResearchStageAttempt)
+        .where(
+            ResearchStageAttempt.owner_id == owner_id,
+            ResearchStageAttempt.research_run_id == run_id,
+        )
+        .order_by(ResearchStageAttempt.started_at, ResearchStageAttempt.id)
+        .limit(100)
+    ).all()
+    return response.model_copy(
+        update={
+            "stages": [
+                ResearchStageProgressRead(
+                    stage=item.stage,
+                    target_project_product_id=item.target_project_product_id,
+                    source_snapshot_id=item.source_snapshot_id,
+                    attempt_number=item.attempt_number,
+                    status=item.status,
+                    error_code=item.error_code,
+                    validation_warnings=item.validation_warnings,
+                )
+                for item in stages
+            ]
+        }
+    )
 
 
 def list_candidates(

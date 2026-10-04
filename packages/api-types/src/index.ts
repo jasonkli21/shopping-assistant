@@ -14,6 +14,19 @@ export interface components {
     ApiErrorEnvelope: {
       "error": components["schemas"]["ApiError"];
     };
+    AssessmentRead: {
+      "id": string;
+      "research_run_id": string;
+      "project_product_id": string;
+      "project_revision": number;
+      "product_revision": number;
+      "variant_revision": number;
+      "generated_at": string;
+      "context_stale": boolean;
+      "summary": string;
+      "conclusions": Array<Record<string, unknown>>;
+      "uncertainties": Array<string>;
+    };
     CancelResult: {
       "run": components["schemas"]["ResearchRunRead"];
       "replayed": boolean;
@@ -123,6 +136,46 @@ export interface components {
       "value": boolean | number | string;
       "unit"?: null | string;
     };
+    ClaimDetailRead: {
+      "id": string;
+      "attribute_key": string;
+      "assertion_text": string;
+      "evidence_category": string;
+      "qualifiers": Record<string, unknown>;
+      "source_id": string;
+      "snapshot_id": string;
+      "source_title": null | string;
+      "source_url": string;
+      "published_at": null | string;
+      "retrieved_at": string;
+      "freshness": "current" | "stale" | "unknown";
+      "normalized_value"?: unknown;
+      "evidence_excerpt": string;
+      "locator": Record<string, unknown>;
+      "content_hash": string;
+      "validation_warnings": Array<Record<string, unknown>>;
+      "relations": Array<components["schemas"]["ClaimRelationRead"]>;
+    };
+    ClaimRelationRead: {
+      "related_claim_id": string;
+      "relation": string;
+      "basis": string;
+      "origin": string;
+    };
+    ClaimSummaryRead: {
+      "id": string;
+      "attribute_key": string;
+      "assertion_text": string;
+      "evidence_category": string;
+      "qualifiers": Record<string, unknown>;
+      "source_id": string;
+      "snapshot_id": string;
+      "source_title": null | string;
+      "source_url": string;
+      "published_at": null | string;
+      "retrieved_at": string;
+      "freshness": "current" | "stale" | "unknown";
+    };
     ConversationPage: {
       "items": Array<components["schemas"]["ConversationRead"]>;
       "next_cursor"?: null | string;
@@ -222,6 +275,11 @@ export interface components {
       "updated_at": string;
       "variants": Array<components["schemas"]["ProductVariantRead"]>;
     };
+    ProductSourcesRead: {
+      "product_id": string;
+      "variant_id": null | string;
+      "sources": Array<components["schemas"]["SourceAttemptRead"]>;
+    };
     ProductVariantRead: {
       "id": string;
       "product_id": string;
@@ -279,6 +337,13 @@ export interface components {
       "discovery_reason": string;
       "created_at": string;
       "offers": Array<components["schemas"]["OfferRead"]>;
+    };
+    ProjectProductResearchRead: {
+      "project_product_id": string;
+      "assessments": Array<components["schemas"]["AssessmentRead"]>;
+      "claims": Array<components["schemas"]["ClaimSummaryRead"]>;
+      "sources": Array<components["schemas"]["SourceAttemptRead"]>;
+      "state": "no_research" | "no_evidence" | "blocked" | "partial" | "researched";
     };
     ProjectRead: {
       "id": string;
@@ -372,16 +437,23 @@ export interface components {
       "max_results"?: null | number;
       "max_results_per_query"?: null | number;
       "max_attempts"?: null | number;
+      "max_products"?: null | number;
+      "max_sources_per_product"?: null | number;
+      "max_pages"?: null | number;
+      "max_total_bytes"?: null | number;
+      "max_ai_calls"?: null | number;
+      "max_output_chars"?: null | number;
       "deadline_seconds"?: null | number;
       "max_concurrent"?: null | number;
     };
     ResearchCreate: {
       "objective": string;
-      "type"?: string;
+      "type"?: "discovery" | "product_research";
       "request_key": string;
       "expected_version": number;
       "budgets"?: components["schemas"]["ResearchBudgets"];
       "manual_queries"?: Array<string> | null;
+      "selected_project_product_ids"?: Array<string> | null;
     };
     ResearchCreated: {
       "run_id": string;
@@ -396,7 +468,7 @@ export interface components {
       "id": string;
       "project_id": string;
       "objective": string;
-      "type": string;
+      "type": "discovery" | "product_research";
       "status": "queued" | "running" | "succeeded" | "partial" | "failed" | "canceled" | "interrupted";
       "snapshot_revision": number;
       "effective_budgets": Record<string, number>;
@@ -414,6 +486,27 @@ export interface components {
       "finished_at"?: null | string;
       "replayed"?: boolean;
       "queries"?: Array<components["schemas"]["SearchQueryRead"]>;
+      "targets"?: Array<components["schemas"]["ResearchTargetProgressRead"]>;
+      "stages"?: Array<components["schemas"]["ResearchStageProgressRead"]>;
+    };
+    ResearchStageProgressRead: {
+      "stage": "planning" | "extraction" | "relations" | "assessment";
+      "target_project_product_id": null | string;
+      "source_snapshot_id": null | string;
+      "attempt_number": number;
+      "status": "running" | "succeeded" | "failed" | "skipped" | "canceled";
+      "error_code": null | string;
+      "validation_warnings": Array<Record<string, unknown>>;
+    };
+    ResearchTargetProgressRead: {
+      "project_product_id": string;
+      "product_id": string;
+      "variant_id": string;
+      "status": "queued" | "running" | "succeeded" | "partial" | "failed" | "skipped";
+      "sources_attempted": number;
+      "sources_retrieved": number;
+      "claims_created": number;
+      "error_code"?: null | string;
     };
     SearchAttemptRead: {
       "id": string;
@@ -429,6 +522,7 @@ export interface components {
     };
     SearchQueryRead: {
       "id": string;
+      "target_project_product_id"?: null | string;
       "ordinal": number;
       "text": string;
       "purpose": string;
@@ -441,6 +535,35 @@ export interface components {
       "started_at"?: null | string;
       "completed_at"?: null | string;
       "attempts": Array<components["schemas"]["SearchAttemptRead"]>;
+    };
+    SourceAttemptRead: {
+      "id": string;
+      "snapshot_id": null | string;
+      "source_id": string;
+      "requested_url": string;
+      "final_url": string;
+      "title": null | string;
+      "publisher": null | string;
+      "classification": string;
+      "classification_basis": null | string;
+      "status": string;
+      "reason": null | string;
+      "retrieved_at": string;
+      "published_at": null | string;
+      "freshness": "current" | "stale" | "unknown";
+      "bytes_read": null | number;
+    };
+    SourceSnapshotRead: {
+      "id": string;
+      "source_id": string;
+      "title": null | string;
+      "final_url": string;
+      "classification": string;
+      "content_hash": string;
+      "published_at": null | string;
+      "retrieved_at": string;
+      "excerpt": string;
+      "claims": Array<components["schemas"]["ClaimSummaryRead"]>;
     };
   };
 }
@@ -457,6 +580,9 @@ export interface paths {
   };
   "/products/{product_id}/offers": {
     "get": operations["list_product_offers_products__product_id__offers_get"];
+  };
+  "/products/{product_id}/sources": {
+    "get": operations["product_sources_products__product_id__sources_get"];
   };
   "/projects": {
     "get": operations["list_projects_projects_get"];
@@ -479,6 +605,9 @@ export interface paths {
   "/projects/{project_id}/candidates/{candidate_id}/normalize": {
     "post": operations["normalize_candidate_projects__project_id__candidates__candidate_id__normalize_post"];
   };
+  "/projects/{project_id}/claims/{claim_id}": {
+    "get": operations["claim_detail_projects__project_id__claims__claim_id__get"];
+  };
   "/projects/{project_id}/conversations": {
     "get": operations["list_conversations_projects__project_id__conversations_get"];
   };
@@ -491,6 +620,9 @@ export interface paths {
   };
   "/projects/{project_id}/products": {
     "get": operations["list_project_products_projects__project_id__products_get"];
+  };
+  "/projects/{project_id}/products/{project_product_id}/research": {
+    "get": operations["product_research_projects__project_id__products__project_product_id__research_get"];
   };
   "/projects/{project_id}/proposals/{proposal_id}/apply": {
     "post": operations["apply_proposal_projects__project_id__proposals__proposal_id__apply_post"];
@@ -515,6 +647,9 @@ export interface paths {
   };
   "/projects/{project_id}/research/{research_run_id}/cancel": {
     "post": operations["cancel_research_projects__project_id__research__research_run_id__cancel_post"];
+  };
+  "/projects/{project_id}/sources/{snapshot_id}": {
+    "get": operations["source_snapshot_projects__project_id__sources__snapshot_id__get"];
   };
 }
 
@@ -578,6 +713,28 @@ export interface operations {
     responses: {
       "200": { content?: {
         "application/json": components["schemas"]["CancelResult"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
+  "claim_detail_projects__project_id__claims__claim_id__get": {
+    parameters: {
+      path: {
+        "claim_id": string;
+        "project_id": string;
+      };
+    };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["ClaimDetailRead"];
       } };
       "404": { content?: {
         "application/json": components["schemas"]["ApiErrorEnvelope"];
@@ -1152,6 +1309,52 @@ export interface operations {
       } };
     };
   };
+  "product_research_projects__project_id__products__project_product_id__research_get": {
+    parameters: {
+      path: {
+        "project_id": string;
+        "project_product_id": string;
+      };
+    };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["ProjectProductResearchRead"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
+  "product_sources_products__product_id__sources_get": {
+    parameters: {
+      path: {
+        "product_id": string;
+      };
+      query: {
+        "variant_id"?: null | string;
+      };
+    };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["ProductSourcesRead"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
   "revert_candidate_correction_projects__project_id__candidates__candidate_id__correction_revert_post": {
     parameters: {
       path: {
@@ -1165,6 +1368,28 @@ export interface operations {
     responses: {
       "200": { content?: {
         "application/json": components["schemas"]["CatalogCorrectionRead"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
+  "source_snapshot_projects__project_id__sources__snapshot_id__get": {
+    parameters: {
+      path: {
+        "project_id": string;
+        "snapshot_id": string;
+      };
+    };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["SourceSnapshotRead"];
       } };
       "404": { content?: {
         "application/json": components["schemas"]["ApiErrorEnvelope"];
