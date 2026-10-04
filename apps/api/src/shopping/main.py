@@ -44,6 +44,9 @@ async def lifespan(application: FastAPI):
     application.state.research_session_factory = getattr(
         application.state, "research_session_factory", SessionLocal
     )
+    application.state.catalog_session_factory = getattr(
+        application.state, "catalog_session_factory", SessionLocal
+    )
     discovery_client = getattr(application.state, "discovery_ai_client", client)
     search_provider = (
         application.state.research_search_provider

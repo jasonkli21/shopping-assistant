@@ -6,6 +6,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from shopping.catalog.schemas import CandidateNormalizationState
+
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
@@ -139,6 +141,7 @@ class CandidateRead(BaseModel):
     indicative_price_text: str | None = None
     observed_at: datetime
     search_results: list[CandidateResultRead]
+    normalization: CandidateNormalizationState | None = None
 
 
 class CandidatePage(BaseModel):

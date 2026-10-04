@@ -67,6 +67,16 @@ class ProductVariant(Base):
             "char_length(identity_key) BETWEEN 1 AND 500", name="ck_variant_identity_key"
         ),
         CheckConstraint("revision >= 1", name="ck_variant_revision"),
+        CheckConstraint(
+            "jsonb_typeof(identity_attributes) = 'object' "
+            "AND octet_length(identity_attributes::text) <= 12000",
+            name="ck_variant_identity_attributes_size",
+        ),
+        CheckConstraint(
+            "jsonb_typeof(category_attributes) = 'object' "
+            "AND octet_length(category_attributes::text) <= 12000",
+            name="ck_variant_category_attributes_size",
+        ),
         UniqueConstraint("product_id", "identity_key", name="uq_variant_product_identity"),
         Index("ix_variants_product", "product_id", "created_at"),
     )
@@ -106,6 +116,9 @@ class CatalogObservation(Base):
         CheckConstraint(
             "char_length(extractor_version) BETWEEN 1 AND 80", name="ck_catalog_extractor_version"
         ),
+        CheckConstraint(
+            "request_hash ~ '^[0-9a-f]{64}$'", name="ck_catalog_observation_request_hash"
+        ),
         UniqueConstraint(
             "candidate_id", "idempotency_key", name="uq_catalog_observation_candidate_key"
         ),
@@ -126,6 +139,7 @@ class CatalogObservation(Base):
         Uuid(as_uuid=True), ForeignKey("research_runs.id", ondelete="CASCADE"), nullable=False
     )
     idempotency_key: Mapped[str] = mapped_column(String(100), nullable=False)
+    request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     requested_url: Mapped[str] = mapped_column(String(2048), nullable=False)
     final_url: Mapped[str] = mapped_column(String(2048), nullable=False)
     retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -263,10 +277,17 @@ class EntityResolutionEvent(Base):
             name="ck_resolution_event_status",
         ),
         CheckConstraint("actor IN ('system', 'owner')", name="ck_resolution_actor"),
+        CheckConstraint(
+            "command_type IN ('normalize', 'correction', 'revert')",
+            name="ck_resolution_command_type",
+        ),
+        CheckConstraint("request_hash ~ '^[0-9a-f]{64}$'", name="ck_resolution_request_hash"),
+        CheckConstraint("catalog_version >= 1", name="ck_resolution_catalog_version"),
+        CheckConstraint("project_version >= 1", name="ck_resolution_project_version"),
         UniqueConstraint(
             "owner_id",
             "project_id",
-            "candidate_id",
+            "command_type",
             "request_key",
             name="uq_resolution_request_key",
         ),
@@ -287,6 +308,14 @@ class EntityResolutionEvent(Base):
         Uuid(as_uuid=True), ForeignKey("catalog_observations.id", ondelete="SET NULL")
     )
     request_key: Mapped[str] = mapped_column(String(100), nullable=False)
+    command_type: Mapped[str] = mapped_column(String(24), nullable=False)
+    request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    catalog_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
+    project_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
     status: Mapped[str] = mapped_column(String(20), nullable=False)
     actor: Mapped[str] = mapped_column(String(16), nullable=False)
     reason: Mapped[str] = mapped_column(String(500), nullable=False)
@@ -301,5 +330,16 @@ class EntityResolutionEvent(Base):
         Uuid(as_uuid=True), ForeignKey("entity_resolution_events.id", ondelete="SET NULL")
     )
     created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class OwnerCatalogState(Base):
+    __tablename__ = "owner_catalog_state"
+    __table_args__ = (CheckConstraint("revision >= 1", name="ck_owner_catalog_revision"),)
+
+    owner_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

@@ -122,12 +122,16 @@ def list_candidates(
     )
     has_more = len(candidates) > limit
     selected = candidates[:limit]
-    output = [_candidate_read(session, candidate) for candidate in selected]
+    output = [_candidate_read(session, owner_id, candidate) for candidate in selected]
     next_cursor = _encode_cursor(selected[-1].created_at, selected[-1].id) if has_more else None
     return CandidatePage(items=output, next_cursor=next_cursor)
 
 
-def _candidate_read(session: Session, candidate: DiscoveryCandidate) -> CandidateRead:
+def _candidate_read(
+    session: Session, owner_id: UUID, candidate: DiscoveryCandidate
+) -> CandidateRead:
+    from shopping.catalog.reads import candidate_normalization_state
+
     rows = session.execute(
         select(SearchResult, SearchQueryRecord)
         .join(CandidateSearchResult, CandidateSearchResult.search_result_id == SearchResult.id)
@@ -161,6 +165,9 @@ def _candidate_read(session: Session, candidate: DiscoveryCandidate) -> Candidat
         indicative_price_text=candidate.indicative_price_text,
         observed_at=min((item.received_at for item in results), default=candidate.created_at),
         search_results=results,
+        normalization=candidate_normalization_state(
+            session, owner_id, candidate.project_id, candidate
+        ),
     )
 
 

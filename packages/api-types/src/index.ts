@@ -18,6 +18,21 @@ export interface components {
       "run": components["schemas"]["ResearchRunRead"];
       "replayed": boolean;
     };
+    CandidateNormalizationState: {
+      "candidate_id": string;
+      "project_product_id": null | string;
+      "product_id": null | string;
+      "variant_id": null | string;
+      "status": "auto_linked" | "manual_linked" | "unresolved" | "reverted" | null;
+      "latest_observation_status": "succeeded" | "failed" | "blocked" | "unsupported" | null;
+      "latest_failure_code": null | string;
+      "catalog_version": number;
+      "project_version": number;
+      "reason"?: null | string;
+      "warnings"?: Array<string>;
+      "observed_at"?: null | string;
+      "can_revert_correction"?: boolean;
+    };
     CandidatePage: {
       "items": Array<components["schemas"]["CandidateRead"]>;
       "next_cursor"?: null | string;
@@ -34,6 +49,7 @@ export interface components {
       "indicative_price_text"?: null | string;
       "observed_at": string;
       "search_results": Array<components["schemas"]["CandidateResultRead"]>;
+      "normalization"?: components["schemas"]["CandidateNormalizationState"] | null;
     };
     CandidateResultRead: {
       "search_result_id": string;
@@ -45,6 +61,67 @@ export interface components {
       "snippet": null | string;
       "result_rank": number;
       "received_at": string;
+    };
+    CatalogCorrectionCommand: {
+      "request_key": string;
+      "expected_catalog_version": number;
+      "expected_project_version": number;
+      "reason": string;
+      "target_variant_id"?: null | string;
+      "new_variant"?: components["schemas"]["NewVariantCorrection"] | null;
+      "new_product"?: components["schemas"]["NewProductCorrection"] | null;
+    };
+    CatalogCorrectionRead: {
+      "candidate_id": string;
+      "event_id": string;
+      "status": "manual_linked" | "reverted";
+      "previous_project_product_id": null | string;
+      "selected_project_product_id": null | string;
+      "catalog_version": number;
+      "project_version": number;
+      "reason": string;
+      "replayed"?: boolean;
+    };
+    CatalogCorrectionRevertCommand: {
+      "request_key": string;
+      "expected_catalog_version": number;
+      "expected_project_version": number;
+    };
+    CatalogNormalizationRead: {
+      "candidate_id": string;
+      "observation_id": string;
+      "event_id": string;
+      "status": "auto_linked" | "unresolved" | "failed" | "blocked" | "unsupported";
+      "project_product_id": null | string;
+      "product_id": null | string;
+      "variant_id": null | string;
+      "catalog_version": number;
+      "project_version": number;
+      "reason": string;
+      "failure_code"?: null | string;
+      "warnings"?: Array<string>;
+      "observed_at": string;
+      "replayed"?: boolean;
+    };
+    CatalogVariantChoice: {
+      "variant_id": string;
+      "product_id": string;
+      "canonical_name": string;
+      "brand": null | string;
+      "category": null | string;
+      "model_family": null | string;
+      "variant_name": string;
+      "identity_attributes": Record<string, unknown>;
+    };
+    CatalogVariantChoicePage: {
+      "items": Array<components["schemas"]["CatalogVariantChoice"]>;
+      "next_cursor": null | string;
+      "catalog_version": number;
+    };
+    CategoryAttributeCorrection: {
+      "key": string;
+      "value": boolean | number | string;
+      "unit"?: null | string;
     };
     ConversationPage: {
       "items": Array<components["schemas"]["ConversationRead"]>;
@@ -89,6 +166,72 @@ export interface components {
       "completed_at": null | string;
       "proposal"?: components["schemas"]["ProposalRead"] | null;
     };
+    NewProductCorrection: {
+      "canonical_name": string;
+      "brand"?: null | string;
+      "category"?: null | string;
+      "model_family"?: null | string;
+      "variant_name"?: string;
+      "identity_attributes"?: Record<string, boolean | number | string>;
+      "category_attributes"?: Array<components["schemas"]["CategoryAttributeCorrection"]>;
+    };
+    NewVariantCorrection: {
+      "product_id": string;
+      "display_name": string;
+      "identity_attributes"?: Record<string, boolean | number | string>;
+      "category_attributes"?: Array<components["schemas"]["CategoryAttributeCorrection"]>;
+    };
+    NormalizeCandidateCommand: {
+      "request_key": string;
+      "expected_catalog_version": number;
+      "expected_project_version": number;
+    };
+    OfferPage: {
+      "items": Array<components["schemas"]["OfferRead"]>;
+      "next_cursor": null | string;
+      "catalog_version": number;
+    };
+    OfferRead: {
+      "id": string;
+      "variant_id": string;
+      "observation_id": null | string;
+      "retailer_name": string;
+      "retailer_domain": null | string;
+      "url": string;
+      "amount": null | string;
+      "currency": null | string;
+      "availability": "in_stock" | "out_of_stock" | "preorder" | "unknown";
+      "condition": "new" | "used" | "refurbished" | "unknown";
+      "observed_at": string;
+    };
+    ProductIdentifierRead: {
+      "id": string;
+      "scheme": "manufacturer_model" | "gtin" | "mpn" | "retailer_sku";
+      "namespace": string;
+      "value": string;
+      "observation_id": null | string;
+    };
+    ProductRead: {
+      "id": string;
+      "canonical_name": string;
+      "brand": null | string;
+      "category": null | string;
+      "model_family": null | string;
+      "revision": number;
+      "created_at": string;
+      "updated_at": string;
+      "variants": Array<components["schemas"]["ProductVariantRead"]>;
+    };
+    ProductVariantRead: {
+      "id": string;
+      "product_id": string;
+      "display_name": string;
+      "identity_attributes": Record<string, unknown>;
+      "category_attributes": Record<string, unknown>;
+      "revision": number;
+      "identifiers": Array<components["schemas"]["ProductIdentifierRead"]>;
+      "offers": Array<components["schemas"]["OfferRead"]>;
+    };
     ProjectCreate: {
       "title": string;
       "goal": string;
@@ -113,6 +256,29 @@ export interface components {
       "budget_maximum"?: null | string;
       "budget_currency"?: null | string;
       "notes"?: null | string;
+    };
+    ProjectProductPage: {
+      "items": Array<components["schemas"]["ProjectProductRead"]>;
+      "next_cursor": null | string;
+      "catalog_version": number;
+      "project_version": number;
+    };
+    ProjectProductRead: {
+      "id": string;
+      "project_id": string;
+      "product_id": string;
+      "variant_id": string;
+      "canonical_name": string;
+      "brand": null | string;
+      "category": null | string;
+      "model_family": null | string;
+      "variant_name": string;
+      "identity_attributes": Record<string, unknown>;
+      "category_attributes": Record<string, unknown>;
+      "first_candidate_id": null | string;
+      "discovery_reason": string;
+      "created_at": string;
+      "offers": Array<components["schemas"]["OfferRead"]>;
     };
     ProjectRead: {
       "id": string;
@@ -283,6 +449,15 @@ export interface paths {
   "/health": {
     "get": operations["health_health_get"];
   };
+  "/products": {
+    "get": operations["list_catalog_variants_products_get"];
+  };
+  "/products/{product_id}": {
+    "get": operations["get_product_products__product_id__get"];
+  };
+  "/products/{product_id}/offers": {
+    "get": operations["list_product_offers_products__product_id__offers_get"];
+  };
   "/projects": {
     "get": operations["list_projects_projects_get"];
     "post": operations["create_project_projects_post"];
@@ -295,6 +470,15 @@ export interface paths {
   "/projects/{project_id}/candidates": {
     "get": operations["list_candidates_projects__project_id__candidates_get"];
   };
+  "/projects/{project_id}/candidates/{candidate_id}/correction": {
+    "post": operations["correct_candidate_projects__project_id__candidates__candidate_id__correction_post"];
+  };
+  "/projects/{project_id}/candidates/{candidate_id}/correction/revert": {
+    "post": operations["revert_candidate_correction_projects__project_id__candidates__candidate_id__correction_revert_post"];
+  };
+  "/projects/{project_id}/candidates/{candidate_id}/normalize": {
+    "post": operations["normalize_candidate_projects__project_id__candidates__candidate_id__normalize_post"];
+  };
   "/projects/{project_id}/conversations": {
     "get": operations["list_conversations_projects__project_id__conversations_get"];
   };
@@ -304,6 +488,9 @@ export interface paths {
   };
   "/projects/{project_id}/messages/stream": {
     "get": operations["attach_message_stream_projects__project_id__messages_stream_get"];
+  };
+  "/projects/{project_id}/products": {
+    "get": operations["list_project_products_projects__project_id__products_get"];
   };
   "/projects/{project_id}/proposals/{proposal_id}/apply": {
     "post": operations["apply_proposal_projects__project_id__proposals__proposal_id__apply_post"];
@@ -391,6 +578,31 @@ export interface operations {
     responses: {
       "200": { content?: {
         "application/json": components["schemas"]["CancelResult"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
+  "correct_candidate_projects__project_id__candidates__candidate_id__correction_post": {
+    parameters: {
+      path: {
+        "candidate_id": string;
+        "project_id": string;
+      };
+    };
+    requestBody: { content: {
+      "application/json": components["schemas"]["CatalogCorrectionCommand"];
+    } };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["CatalogCorrectionRead"];
       } };
       "404": { content?: {
         "application/json": components["schemas"]["ApiErrorEnvelope"];
@@ -570,6 +782,27 @@ export interface operations {
       } };
     };
   };
+  "get_product_products__product_id__get": {
+    parameters: {
+      path: {
+        "product_id": string;
+      };
+    };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["ProductRead"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
   "get_project_projects__project_id__get": {
     parameters: {
       path: {
@@ -657,6 +890,29 @@ export interface operations {
       } };
     };
   };
+  "list_catalog_variants_products_get": {
+    parameters: {
+      query: {
+        "cursor"?: null | string;
+        "limit"?: number;
+        "q"?: string;
+      };
+    };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["CatalogVariantChoicePage"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
   "list_conversations_projects__project_id__conversations_get": {
     parameters: {
       path: {
@@ -691,6 +947,57 @@ export interface operations {
     responses: {
       "200": { content?: {
         "application/json": components["schemas"]["MessagePage"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
+  "list_product_offers_products__product_id__offers_get": {
+    parameters: {
+      path: {
+        "product_id": string;
+      };
+      query: {
+        "cursor"?: null | string;
+        "limit"?: number;
+        "variant_id": string;
+      };
+    };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["OfferPage"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
+  "list_project_products_projects__project_id__products_get": {
+    parameters: {
+      path: {
+        "project_id": string;
+      };
+      query: {
+        "cursor"?: null | string;
+        "limit"?: number;
+      };
+    };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["ProjectProductPage"];
       } };
       "404": { content?: {
         "application/json": components["schemas"]["ApiErrorEnvelope"];
@@ -771,6 +1078,31 @@ export interface operations {
       } };
     };
   };
+  "normalize_candidate_projects__project_id__candidates__candidate_id__normalize_post": {
+    parameters: {
+      path: {
+        "candidate_id": string;
+        "project_id": string;
+      };
+    };
+    requestBody: { content: {
+      "application/json": components["schemas"]["NormalizeCandidateCommand"];
+    } };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["CatalogNormalizationRead"];
+      } };
+      "404": { content?: {
+        "application/json"?: undefined;
+      } };
+      "409": { content?: {
+        "application/json"?: undefined;
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
   "patch_project_projects__project_id__patch": {
     parameters: {
       path: {
@@ -808,6 +1140,31 @@ export interface operations {
     responses: {
       "200": { content?: {
         "application/json": components["schemas"]["ProjectRead"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
+  "revert_candidate_correction_projects__project_id__candidates__candidate_id__correction_revert_post": {
+    parameters: {
+      path: {
+        "candidate_id": string;
+        "project_id": string;
+      };
+    };
+    requestBody: { content: {
+      "application/json": components["schemas"]["CatalogCorrectionRevertCommand"];
+    } };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["CatalogCorrectionRead"];
       } };
       "404": { content?: {
         "application/json": components["schemas"]["ApiErrorEnvelope"];

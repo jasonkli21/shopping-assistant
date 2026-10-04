@@ -13,6 +13,8 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
 
 from shopping.db.session import get_db
+from shopping.extraction.fake import FakePageRetriever
+from shopping.extraction.task import FakeCatalogExtractionTask
 from shopping.integrations.personal_ai.fake import FakePersonalAIClient
 from shopping.main import app
 from shopping.projects.dependencies import get_owner_id
@@ -126,16 +128,24 @@ def project_api(
     app.dependency_overrides[get_owner_id] = override_owner
     previous_factory = getattr(app.state, "conversation_session_factory", None)
     previous_research_factory = getattr(app.state, "research_session_factory", None)
+    previous_catalog_factory = getattr(app.state, "catalog_session_factory", None)
     previous_ai_client = getattr(app.state, "discovery_ai_client", None)
     previous_search_provider = getattr(app.state, "research_search_provider", None)
+    previous_page_retriever = getattr(app.state, "catalog_page_retriever", None)
+    previous_extraction_task = getattr(app.state, "catalog_extraction_task", None)
     app.state.conversation_session_factory = sessionmaker(
         bind=db_engine, autoflush=False, expire_on_commit=False
     )
     app.state.research_session_factory = sessionmaker(
         bind=db_engine, autoflush=False, expire_on_commit=False
     )
+    app.state.catalog_session_factory = sessionmaker(
+        bind=db_engine, autoflush=False, expire_on_commit=False
+    )
     app.state.discovery_ai_client = discovery_ai_client
     app.state.research_search_provider = research_search_provider
+    app.state.catalog_page_retriever = FakePageRetriever()
+    app.state.catalog_extraction_task = FakeCatalogExtractionTask({})
     with TestClient(app) as client:
         try:
             yield client, current_owner, db_engine
@@ -149,6 +159,10 @@ def project_api(
                 delattr(app.state, "research_session_factory")
             else:
                 app.state.research_session_factory = previous_research_factory
+            if previous_catalog_factory is None:
+                delattr(app.state, "catalog_session_factory")
+            else:
+                app.state.catalog_session_factory = previous_catalog_factory
             if previous_ai_client is None:
                 delattr(app.state, "discovery_ai_client")
             else:
@@ -157,3 +171,11 @@ def project_api(
                 delattr(app.state, "research_search_provider")
             else:
                 app.state.research_search_provider = previous_search_provider
+            if previous_page_retriever is None:
+                delattr(app.state, "catalog_page_retriever")
+            else:
+                app.state.catalog_page_retriever = previous_page_retriever
+            if previous_extraction_task is None:
+                delattr(app.state, "catalog_extraction_task")
+            else:
+                app.state.catalog_extraction_task = previous_extraction_task

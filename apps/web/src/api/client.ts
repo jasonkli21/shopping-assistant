@@ -25,6 +25,14 @@ export type ResearchRunRead = components["schemas"]["ResearchRunRead"];
 export type ResearchRunPage = components["schemas"]["ResearchRunPage"];
 export type CandidateRead = components["schemas"]["CandidateRead"];
 export type CandidatePage = components["schemas"]["CandidatePage"];
+export type CatalogNormalizationRead = components["schemas"]["CatalogNormalizationRead"];
+export type CatalogCorrectionCommand = components["schemas"]["CatalogCorrectionCommand"];
+export type CatalogCorrectionRevertCommand = components["schemas"]["CatalogCorrectionRevertCommand"];
+export type CatalogCorrectionRead = components["schemas"]["CatalogCorrectionRead"];
+export type ProjectProductPage = components["schemas"]["ProjectProductPage"];
+export type ProductRead = components["schemas"]["ProductRead"];
+export type OfferPage = components["schemas"]["OfferPage"];
+export type CatalogVariantChoicePage = components["schemas"]["CatalogVariantChoicePage"];
 
 export class ApiRequestError extends Error {
   constructor(
@@ -188,4 +196,64 @@ export const researchApi = {
       signal,
     });
   },
+};
+
+export const catalogApi = {
+  listProjectProducts: (projectId: string, limit = 20, cursor?: string, signal?: AbortSignal) => {
+    const query = new URLSearchParams({ limit: String(limit) });
+    if (cursor) query.set("cursor", cursor);
+    return request<ProjectProductPage>(
+      `/projects/${projectId}/products?${query.toString()}`,
+      { signal },
+    );
+  },
+  listVariants: (queryText = "", limit = 20, cursor?: string, signal?: AbortSignal) => {
+    const query = new URLSearchParams({ q: queryText, limit: String(limit) });
+    if (cursor) query.set("cursor", cursor);
+    return request<CatalogVariantChoicePage>(`/products?${query.toString()}`, { signal });
+  },
+  getProduct: (productId: string, signal?: AbortSignal) =>
+    request<ProductRead>(`/products/${productId}`, { signal }),
+  offers: (
+    productId: string,
+    variantId: string,
+    limit = 20,
+    cursor?: string,
+    signal?: AbortSignal,
+  ) => {
+    const query = new URLSearchParams({ variant_id: variantId, limit: String(limit) });
+    if (cursor) query.set("cursor", cursor);
+    return request<OfferPage>(`/products/${productId}/offers?${query.toString()}`, { signal });
+  },
+  normalizeCandidate: (
+    projectId: string,
+    candidateId: string,
+    command: {
+      request_key: string;
+      expected_catalog_version: number;
+      expected_project_version: number;
+    },
+  ) =>
+    request<CatalogNormalizationRead>(
+      `/projects/${projectId}/candidates/${candidateId}/normalize`,
+      jsonRequest("POST", command),
+    ),
+  correctCandidate: (
+    projectId: string,
+    candidateId: string,
+    command: CatalogCorrectionCommand,
+  ) =>
+    request<CatalogCorrectionRead>(
+      `/projects/${projectId}/candidates/${candidateId}/correction`,
+      jsonRequest("POST", command),
+    ),
+  revertCandidateCorrection: (
+    projectId: string,
+    candidateId: string,
+    command: CatalogCorrectionRevertCommand,
+  ) =>
+    request<CatalogCorrectionRead>(
+      `/projects/${projectId}/candidates/${candidateId}/correction/revert`,
+      jsonRequest("POST", command),
+    ),
 };

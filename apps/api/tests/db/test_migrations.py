@@ -35,6 +35,7 @@ def test_fresh_database_can_upgrade_downgrade_and_upgrade_again(postgres_schema)
             "retail_offers",
             "catalog_observations",
             "entity_resolution_events",
+            "owner_catalog_state",
             "search_queries",
             "search_attempts",
             "search_results",
