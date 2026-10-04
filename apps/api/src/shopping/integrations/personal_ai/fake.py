@@ -23,11 +23,13 @@ class FakePersonalAIClient(PersonalAIClient):
         delay_seconds: float = 0,
         response: dict[str, Any] | None = None,
         error_code: str | None = None,
+        task_fixtures: dict[str, dict[str, dict[str, Any]]] | None = None,
     ) -> None:
         self.scenario = scenario
         self.delay_seconds = delay_seconds
         self.response = response
         self.error_code = error_code
+        self.task_fixtures = task_fixtures or {}
         self.calls = 0
 
     async def generate(self, request: AIRequest) -> AIResponse:
@@ -36,13 +38,20 @@ class FakePersonalAIClient(PersonalAIClient):
             await asyncio.sleep(self.delay_seconds)
         if self.error_code:
             raise AIProviderError(self.error_code)
+        context = request.input.get("context", {})
+        fixtures = self.task_fixtures.get(request.task, {})
+        fixture_key = self._task_fixture_key(context)
+        fixture = fixtures.get(fixture_key) or fixtures.get("*")
+        if fixture is not None:
+            return AIResponse(output=fixture)
+        if request.task == "plan_product_research.v1":
+            return AIResponse(output=self._plan_product_research(context))
         if self.response is not None:
             return AIResponse(output=self.response)
         if request.task == "plan_discovery.v1":
             return AIResponse(output=self._plan_discovery(request.input.get("context", {})))
         if request.task != "interpret_shopping_intent.v1":
             raise AIProviderError("unsupported_task")
-        context = request.input.get("context", {})
         message = str(context.get("new_user_message", ""))
         result = self._interpret(message, context.get("requirements", []))
         return result if isinstance(result, AIResponse) else AIResponse(output=result)
@@ -199,6 +208,47 @@ class FakePersonalAIClient(PersonalAIClient):
             "project_updates": updates,
             "requirement_operations": operations,
         }
+
+    @staticmethod
+    def _task_fixture_key(context: dict[str, Any]) -> str:
+        source = context.get("source", {})
+        if isinstance(source, dict) and isinstance(source.get("final_url"), str):
+            return source["final_url"]
+        target = context.get("target", {})
+        if isinstance(target, dict) and isinstance(target.get("project_product_id"), str):
+            return target["project_product_id"]
+        return "*"
+
+    @staticmethod
+    def _plan_product_research(context: dict[str, Any]) -> dict[str, Any]:
+        targets = context.get("selected_products", [])
+        limit = context.get("limits", {}).get("maximum_queries", 8)
+        queries: list[dict[str, str]] = []
+        for target in targets:
+            if not isinstance(target, dict) or len(queries) >= limit:
+                continue
+            target_id = target.get("project_product_id")
+            name = " ".join(
+                str(target.get(key) or "")
+                for key in ("brand", "product_name", "model_family", "variant_name")
+            ).strip()
+            target_queries = (
+                ("manufacturer_specification", f"{name} manufacturer specifications"),
+                ("independent_measurement", f"{name} independent runtime test measured"),
+                ("retailer_listing", f"{name} retailer listing"),
+            )
+            for source_class, text in target_queries:
+                if len(queries) >= limit:
+                    break
+                queries.append(
+                    {
+                        "project_product_id": target_id,
+                        "text": text[:300],
+                        "purpose": f"Find {source_class.replace('_', ' ')} evidence.",
+                        "source_class": source_class,
+                    }
+                )
+        return {"queries": queries, "explanation": "Searches cover distinct source classes."}
 
     def _plan_discovery(self, context: dict[str, Any]) -> dict[str, Any]:
         """Produce task-shaped fixture plans without inventing product claims."""

@@ -207,6 +207,29 @@ async def test_retriever_increments_gzip_within_decoded_limit():
 
 
 @pytest.mark.asyncio
+async def test_retriever_supports_smaller_per_request_limit_without_mutating_ceiling():
+    payload = b"x" * 50
+    retriever = HTTPPageRetriever(
+        max_decoded_bytes=100,
+        resolver=_resolver_for({"retailer.example": ["93.184.216.34"]}),
+        transport_factory=lambda _pins: httpx.MockTransport(
+            lambda request: httpx.Response(
+                200,
+                headers={"content-type": "text/plain"},
+                stream=BytesStream(payload),
+                request=request,
+            )
+        ),
+    )
+
+    with pytest.raises(PageRetrievalError) as too_large:
+        await retriever.retrieve_with_limit("https://retailer.example/item", 20)
+    assert too_large.value.code == "page_too_large"
+    result = await retriever.retrieve_with_limit("https://retailer.example/item", 75)
+    assert result.decoded_bytes == len(payload)
+
+
+@pytest.mark.asyncio
 async def test_retriever_returns_typed_timeout_and_redirect_limit_failures():
     timeout = HTTPPageRetriever(
         resolver=_resolver_for({"retailer.example": ["93.184.216.34"]}),

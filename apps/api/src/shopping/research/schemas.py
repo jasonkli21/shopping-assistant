@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from shopping.catalog.schemas import CandidateNormalizationState
 
@@ -19,18 +19,27 @@ class ResearchBudgets(StrictModel):
     max_results: int | None = Field(default=None, ge=1, le=200)
     max_results_per_query: int | None = Field(default=None, ge=1, le=20)
     max_attempts: int | None = Field(default=None, ge=1, le=20)
+    max_products: int | None = Field(default=None, ge=1, le=5)
+    max_sources_per_product: int | None = Field(default=None, ge=1, le=12)
+    max_pages: int | None = Field(default=None, ge=1, le=30)
+    max_total_bytes: int | None = Field(default=None, ge=1, le=10_000_000)
+    max_ai_calls: int | None = Field(default=None, ge=1, le=60)
+    max_output_chars: int | None = Field(default=None, ge=1, le=32_000)
     deadline_seconds: int | None = Field(default=None, ge=1, le=300)
     max_concurrent: int | None = Field(default=None, ge=1, le=16)
 
 
 class ResearchCreate(StrictModel):
     objective: str = Field(min_length=1, max_length=2000)
-    type: Literal["discovery"] = "discovery"
+    type: Literal["discovery", "product_research"] = "discovery"
     request_key: str = Field(min_length=8, max_length=100)
     expected_version: int = Field(ge=1)
     budgets: ResearchBudgets = Field(default_factory=ResearchBudgets)
     manual_queries: list[Annotated[str, Field(min_length=1, max_length=300)]] | None = Field(
         default=None, min_length=1, max_length=20
+    )
+    selected_project_product_ids: list[UUID] | None = Field(
+        default=None, min_length=1, max_length=5
     )
 
     @field_validator("objective")
@@ -50,6 +59,23 @@ class ResearchCreate(StrictModel):
             raise ValueError("manual queries must be nonblank and unique")
         return values
 
+    @field_validator("selected_project_product_ids")
+    @classmethod
+    def selected_products_unique(cls, values: list[UUID] | None) -> list[UUID] | None:
+        if values is not None and len(values) != len(set(values)):
+            raise ValueError("selected project products must be unique")
+        return values
+
+    @model_validator(mode="after")
+    def research_type_requires_targets(self):
+        if self.type == "product_research" and not self.selected_project_product_ids:
+            raise ValueError("product research requires selected project products")
+        if self.type == "discovery" and self.selected_project_product_ids is not None:
+            raise ValueError("selected products are only valid for product research")
+        if self.type == "product_research" and self.manual_queries is not None:
+            raise ValueError("manual queries are only valid for discovery")
+        return self
+
 
 class SearchAttemptRead(BaseModel):
     id: UUID
@@ -66,6 +92,7 @@ class SearchAttemptRead(BaseModel):
 
 class SearchQueryRead(BaseModel):
     id: UUID
+    target_project_product_id: UUID | None = None
     ordinal: int
     text: str
     purpose: str
@@ -84,7 +111,7 @@ class ResearchRunRead(BaseModel):
     id: UUID
     project_id: UUID
     objective: str
-    type: Literal["discovery"]
+    type: Literal["discovery", "product_research"]
     status: Literal[
         "queued", "running", "succeeded", "partial", "failed", "canceled", "interrupted"
     ]
@@ -104,6 +131,18 @@ class ResearchRunRead(BaseModel):
     finished_at: datetime | None = None
     replayed: bool = False
     queries: list[SearchQueryRead] = Field(default_factory=list)
+    targets: list[ResearchTargetProgressRead] = Field(default_factory=list)
+
+
+class ResearchTargetProgressRead(BaseModel):
+    project_product_id: UUID
+    product_id: UUID
+    variant_id: UUID
+    status: Literal["queued", "running", "succeeded", "partial", "failed", "skipped"]
+    sources_attempted: int
+    sources_retrieved: int
+    claims_created: int
+    error_code: str | None = None
 
 
 class ResearchCreated(BaseModel):

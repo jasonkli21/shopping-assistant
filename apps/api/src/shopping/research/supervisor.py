@@ -10,6 +10,8 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
+from shopping.extraction.http_retriever import MAX_PAGE_BYTES, HTTPPageRetriever
+from shopping.extraction.retriever import PageRetriever
 from shopping.integrations.personal_ai.client import AIProviderError, PersonalAIClient
 from shopping.research import service
 from shopping.research.executor import (
@@ -43,6 +45,7 @@ class DiscoverySupervisor:
         provider_timeout_seconds: int = 15,
         max_concurrent: int = 2,
         executor: ResearchExecutor | None = None,
+        page_retriever: PageRetriever | None = None,
     ) -> None:
         self.client = client
         self.search_provider = search_provider
@@ -50,6 +53,7 @@ class DiscoverySupervisor:
         self.provider_timeout_seconds = provider_timeout_seconds
         self.max_concurrent = max_concurrent
         self.executor = executor or InProcessResearchExecutor()
+        self.page_retriever = page_retriever or HTTPPageRetriever(max_decoded_bytes=MAX_PAGE_BYTES)
         self._tasks: dict[UUID, asyncio.Task[None]] = {}
         self._reserved = 0
         self._capacity_lock = Lock()
@@ -125,7 +129,26 @@ class DiscoverySupervisor:
             )
             if loaded is None:
                 return
-            snapshot, budgets = loaded
+            snapshot, budgets, run_type = loaded
+            if run_type == "product_research":
+                from shopping.research.product_execution import run_product_research
+
+                await run_product_research(
+                    owner_id=owner_id,
+                    project_id=project_id,
+                    run_id=run_id,
+                    snapshot=snapshot,
+                    budgets=budgets,
+                    client=self.client,
+                    search_provider=self.search_provider,
+                    with_session=self._with_session,
+                    remaining_seconds=lambda: self._remaining_seconds(
+                        owner_id, project_id, run_id, budgets
+                    ),
+                    provider_timeout_seconds=self.provider_timeout_seconds,
+                    page_retriever=self.page_retriever,
+                )
+                return
             if snapshot.get("manual_queries") is not None:
                 plan = {
                     "queries": [

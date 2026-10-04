@@ -35,12 +35,12 @@ from shopping.search.provider import SearchResult as ProviderResult
 
 def load_execution_input(
     session: Session, owner_id: UUID, project_id: UUID, run_id: UUID
-) -> tuple[dict[str, Any], dict[str, int]] | None:
+) -> tuple[dict[str, Any], dict[str, int], str] | None:
     _live_project(session, owner_id, project_id)
     run = _owned_run(session, owner_id, project_id, run_id)
     if run is None or run.status not in ACTIVE_STATES:
         return None
-    return run.input_snapshot, run.effective_budgets
+    return run.input_snapshot, run.effective_budgets, run.run_type
 
 
 def list_run_queries(
@@ -169,7 +169,11 @@ def start_attempt(
         session.commit()
         return None
     remaining_results = budget["max_results"] - run.results_found
-    remaining_candidates = budget["max_candidates"] - run.candidates_found
+    remaining_candidates = (
+        budget["max_candidates"] - run.candidates_found
+        if run.run_type == "discovery"
+        else budget["max_results"]
+    )
     allowance = min(query.max_results, remaining_results, remaining_candidates)
     if allowance < 1:
         _skip_query(run, query, "result_budget_exhausted")
@@ -243,10 +247,15 @@ def complete_attempt(
         session.commit()
         return True
 
+    candidate_allowance = (
+        run.effective_budgets["max_candidates"] - run.candidates_found
+        if run.run_type == "discovery"
+        else run.effective_budgets["max_results"]
+    )
     allowance = min(
         query.max_results,
         run.effective_budgets["max_results"] - run.results_found,
-        run.effective_budgets["max_candidates"] - run.candidates_found,
+        candidate_allowance,
     )
     if allowance < 1:
         _fail_locked_attempt(run, query, attempt, "result_budget_exhausted", now)
@@ -270,29 +279,30 @@ def complete_attempt(
         )
         session.add(search_result)
         session.flush()
-        normalized_url = normalize_candidate_url(result.url)
-        candidate = session.scalar(
-            select(DiscoveryCandidate)
-            .where(
-                DiscoveryCandidate.run_id == run.id,
-                DiscoveryCandidate.normalized_url == normalized_url,
+        if run.run_type == "discovery":
+            normalized_url = normalize_candidate_url(result.url)
+            candidate = session.scalar(
+                select(DiscoveryCandidate)
+                .where(
+                    DiscoveryCandidate.run_id == run.id,
+                    DiscoveryCandidate.normalized_url == normalized_url,
+                )
+                .with_for_update()
             )
-            .with_for_update()
-        )
-        if candidate is None:
-            candidate = DiscoveryCandidate(
-                project_id=project_id,
-                run_id=run.id,
-                provisional_name=result.title or "Unlabelled search result",
-                discovery_reason=f"Found for query: {query.text}"[:300],
-                normalized_url=normalized_url,
+            if candidate is None:
+                candidate = DiscoveryCandidate(
+                    project_id=project_id,
+                    run_id=run.id,
+                    provisional_name=result.title or "Unlabelled search result",
+                    discovery_reason=f"Found for query: {query.text}"[:300],
+                    normalized_url=normalized_url,
+                )
+                session.add(candidate)
+                session.flush()
+                new_candidates += 1
+            session.add(
+                CandidateSearchResult(candidate_id=candidate.id, search_result_id=search_result.id)
             )
-            session.add(candidate)
-            session.flush()
-            new_candidates += 1
-        session.add(
-            CandidateSearchResult(candidate_id=candidate.id, search_result_id=search_result.id)
-        )
 
     attempt.status = "succeeded"
     attempt.error_code = None
@@ -514,6 +524,50 @@ def _cancel_open_work(session: Session, run: ResearchRun, state: str) -> None:
             attempt.status = "canceled"
             attempt.error_code = run.error_code
             attempt.finished_at = now
+    from shopping.evidence.models import ResearchRunSource
+    from shopping.research.models import ResearchRunTarget, ResearchStageAttempt
+
+    source_attempts = list(
+        session.scalars(
+            select(ResearchRunSource)
+            .where(
+                ResearchRunSource.research_run_id == run.id,
+                ResearchRunSource.status == "running",
+            )
+            .with_for_update()
+        ).all()
+    )
+    for source_attempt in source_attempts:
+        source_attempt.status = "skipped"
+        source_attempt.reason = run.error_code or state
+    stage_attempts = list(
+        session.scalars(
+            select(ResearchStageAttempt)
+            .where(
+                ResearchStageAttempt.research_run_id == run.id,
+                ResearchStageAttempt.status == "running",
+            )
+            .with_for_update()
+        ).all()
+    )
+    for stage_attempt in stage_attempts:
+        stage_attempt.status = state if state in {"canceled", "skipped"} else "canceled"
+        stage_attempt.error_code = run.error_code
+        stage_attempt.finished_at = now
+    targets = list(
+        session.scalars(
+            select(ResearchRunTarget)
+            .where(
+                ResearchRunTarget.research_run_id == run.id,
+                ResearchRunTarget.status.in_(["queued", "running"]),
+            )
+            .with_for_update()
+        ).all()
+    )
+    for target in targets:
+        target.status = "skipped" if state == "canceled" else "failed"
+        target.error_code = run.error_code
+        target.updated_at = now
 
 
 def _deadline_expired(run: ResearchRun, budgets: dict[str, int]) -> bool:

@@ -153,15 +153,22 @@ class HTTPPageRetriever:
         self._transport_factory = transport_factory or _PinnedHTTPXTransport
 
     async def retrieve(self, url: str) -> RetrievedDocument:
+        return await self.retrieve_with_limit(url, self._max_decoded_bytes)
+
+    async def retrieve_with_limit(self, url: str, max_decoded_bytes: int) -> RetrievedDocument:
+        if max_decoded_bytes <= 0 or max_decoded_bytes > self._max_decoded_bytes:
+            raise ValueError(
+                "per-request retrieval limit must be positive and within the retriever cap"
+            )
         try:
             async with asyncio.timeout(self._timeout_seconds):
-                return await self._retrieve_with_deadline(url)
+                return await self._retrieve_with_deadline(url, max_decoded_bytes)
         except TimeoutError as error:
             raise PageRetrievalError(
                 "timeout", "The source page exceeded its retrieval deadline."
             ) from error
 
-    async def _retrieve_with_deadline(self, url: str) -> RetrievedDocument:
+    async def _retrieve_with_deadline(self, url: str, max_decoded_bytes: int) -> RetrievedDocument:
         requested_url = url
         current_url = url
         seen = set()
@@ -242,16 +249,16 @@ class HTTPPageRetriever:
                         encoded_size = 0
                         async for chunk in response.aiter_raw():
                             encoded_size += len(chunk)
-                            if encoded_size > self._max_decoded_bytes:
+                            if encoded_size > max_decoded_bytes:
                                 raise PageRetrievalError(
                                     "page_too_large", "The encoded page exceeds the allowed size."
                                 )
                             if decoder is None:
-                                _append_bounded(body, chunk, self._max_decoded_bytes)
+                                _append_bounded(body, chunk, max_decoded_bytes)
                             else:
                                 pending = chunk
                                 while pending:
-                                    remaining = self._max_decoded_bytes - len(body)
+                                    remaining = max_decoded_bytes - len(body)
                                     try:
                                         decoded = decoder.decompress(pending, remaining + 1)
                                     except zlib.error as error:
@@ -259,7 +266,7 @@ class HTTPPageRetriever:
                                             "invalid_content_encoding",
                                             "The compressed page could not be decoded.",
                                         ) from error
-                                    _append_bounded(body, decoded, self._max_decoded_bytes)
+                                    _append_bounded(body, decoded, max_decoded_bytes)
                                     pending = decoder.unconsumed_tail
                                     if not pending:
                                         break
@@ -277,6 +284,7 @@ class HTTPPageRetriever:
                             body=decoded,
                             content_hash=hashlib.sha256(body).hexdigest(),
                             retrieved_at=datetime.now(UTC),
+                            decoded_bytes=len(body),
                         )
             except PageRetrievalError:
                 raise

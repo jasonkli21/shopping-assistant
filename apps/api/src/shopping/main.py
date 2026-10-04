@@ -13,6 +13,7 @@ from shopping.api.router import router
 from shopping.config import get_settings
 from shopping.conversations.supervisor import GenerationSupervisor
 from shopping.db.session import SessionLocal
+from shopping.extraction.http_retriever import HTTPPageRetriever
 from shopping.integrations.personal_ai.client import UnavailablePersonalAIClient
 from shopping.integrations.personal_ai.fake import FakePersonalAIClient
 from shopping.projects.errors import ProjectError
@@ -47,6 +48,9 @@ async def lifespan(application: FastAPI):
     application.state.catalog_session_factory = getattr(
         application.state, "catalog_session_factory", SessionLocal
     )
+    application.state.catalog_page_retriever = (
+        getattr(application.state, "catalog_page_retriever", None) or HTTPPageRetriever()
+    )
     discovery_client = getattr(application.state, "discovery_ai_client", client)
     search_provider = (
         application.state.research_search_provider
@@ -59,6 +63,7 @@ async def lifespan(application: FastAPI):
         session_factory=application.state.research_session_factory,
         provider_timeout_seconds=settings.research_provider_timeout_seconds,
         max_concurrent=settings.research_max_concurrent_runs,
+        page_retriever=application.state.catalog_page_retriever,
     )
     application.state.discovery_supervisor = discovery
     try:

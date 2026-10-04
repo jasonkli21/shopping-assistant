@@ -11,6 +11,7 @@ class RetrievedDocument:
     body: str
     content_hash: str
     retrieved_at: datetime
+    decoded_bytes: int | None = None
 
     @property
     def url(self) -> str:

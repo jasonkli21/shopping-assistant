@@ -91,6 +91,11 @@ class ResearchRun(Base):
     queries: Mapped[list[SearchQueryRecord]] = relationship(
         back_populates="run", cascade="all, delete-orphan", order_by="SearchQueryRecord.ordinal"
     )
+    targets: Mapped[list[ResearchRunTarget]] = relationship(
+        back_populates="run",
+        cascade="all, delete-orphan",
+        order_by="ResearchRunTarget.created_at",
+    )
 
 
 class SearchQueryRecord(Base):
@@ -132,6 +137,109 @@ class SearchQueryRecord(Base):
         cascade="all, delete-orphan",
         order_by="SearchAttempt.attempt_number",
     )
+
+
+class ResearchRunTarget(Base):
+    __tablename__ = "research_run_targets"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('queued', 'running', 'succeeded', 'partial', 'failed', 'skipped')",
+            name="ck_research_run_target_status",
+        ),
+        CheckConstraint(
+            "sources_attempted >= 0 AND sources_retrieved >= 0 AND claims_created >= 0",
+            name="ck_research_run_target_counts",
+        ),
+        UniqueConstraint("research_run_id", "project_product_id", name="uq_research_run_target"),
+        Index("ix_research_run_targets_status", "research_run_id", "status"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    owner_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    research_run_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("research_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    project_product_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("project_products.id", ondelete="RESTRICT"), nullable=False
+    )
+    product_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("products.id", ondelete="RESTRICT"), nullable=False
+    )
+    variant_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("product_variants.id", ondelete="RESTRICT"), nullable=False
+    )
+    product_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    variant_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="queued")
+    sources_attempted: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    sources_retrieved: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    claims_created: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    error_code: Mapped[str | None] = mapped_column(String(60))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    run: Mapped[ResearchRun] = relationship(back_populates="targets")
+
+
+class ResearchStageAttempt(Base):
+    __tablename__ = "research_stage_attempts"
+    __table_args__ = (
+        CheckConstraint(
+            "stage IN ('planning', 'extraction', 'relations', 'assessment')",
+            name="ck_research_stage_attempt_stage",
+        ),
+        CheckConstraint(
+            "status IN ('running', 'succeeded', 'failed', 'skipped', 'canceled')",
+            name="ck_research_stage_attempt_status",
+        ),
+        CheckConstraint("attempt_number BETWEEN 1 AND 3", name="ck_research_stage_attempt_number"),
+        CheckConstraint(
+            "input_chars BETWEEN 0 AND 24000 AND output_chars BETWEEN 0 AND 16000",
+            name="ck_research_stage_attempt_chars",
+        ),
+        Index(
+            "uq_research_stage_attempt_global",
+            "research_run_id",
+            "stage",
+            "attempt_number",
+            unique=True,
+            postgresql_where=text("target_project_product_id IS NULL"),
+        ),
+        Index(
+            "uq_research_stage_attempt_target",
+            "research_run_id",
+            "target_project_product_id",
+            "stage",
+            "attempt_number",
+            unique=True,
+            postgresql_where=text("target_project_product_id IS NOT NULL"),
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    owner_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    research_run_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("research_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    target_project_product_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("project_products.id", ondelete="SET NULL")
+    )
+    stage: Mapped[str] = mapped_column(String(16), nullable=False)
+    attempt_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="running")
+    task_name: Mapped[str] = mapped_column(String(80), nullable=False)
+    prompt_version: Mapped[str] = mapped_column(String(80), nullable=False)
+    error_code: Mapped[str | None] = mapped_column(String(60))
+    provider_request_id: Mapped[str | None] = mapped_column(String(200))
+    input_chars: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    output_chars: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class SearchAttempt(Base):

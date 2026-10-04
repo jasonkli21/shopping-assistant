@@ -26,6 +26,7 @@ from shopping.research.schemas import (
     CandidateResultRead,
     ResearchRunPage,
     ResearchRunRead,
+    ResearchTargetProgressRead,
     SearchAttemptRead,
     SearchQueryRead,
 )
@@ -44,6 +45,7 @@ def list_runs(
     statement = (
         select(ResearchRun)
         .options(selectinload(ResearchRun.queries).selectinload(SearchQueryRecord.attempts))
+        .options(selectinload(ResearchRun.targets))
         .where(ResearchRun.owner_id == owner_id, ResearchRun.project_id == project_id)
     )
     if cursor is not None:
@@ -70,6 +72,7 @@ def get_run(session: Session, owner_id: UUID, project_id: UUID, run_id: UUID) ->
     run = session.scalar(
         select(ResearchRun)
         .options(selectinload(ResearchRun.queries).selectinload(SearchQueryRecord.attempts))
+        .options(selectinload(ResearchRun.targets))
         .where(
             ResearchRun.owner_id == owner_id,
             ResearchRun.project_id == project_id,
@@ -177,6 +180,7 @@ def _run_read_with_queries(
     loaded = session.scalar(
         select(ResearchRun)
         .options(selectinload(ResearchRun.queries).selectinload(SearchQueryRecord.attempts))
+        .options(selectinload(ResearchRun.targets))
         .where(ResearchRun.id == run.id)
     )
     return _run_read(loaded or run, replayed=replayed)
@@ -186,6 +190,7 @@ def _run_read(run: ResearchRun, *, replayed: bool = False) -> ResearchRunRead:
     queries = [
         SearchQueryRead(
             id=query.id,
+            target_project_product_id=query.target_project_product_id,
             ordinal=query.ordinal,
             text=query.text,
             purpose=query.purpose,
@@ -219,7 +224,7 @@ def _run_read(run: ResearchRun, *, replayed: bool = False) -> ResearchRunRead:
         id=run.id,
         project_id=run.project_id,
         objective=run.objective,
-        type="discovery",
+        type=run.run_type,
         status=run.status,
         snapshot_revision=run.snapshot_revision,
         effective_budgets=run.effective_budgets,
@@ -237,4 +242,17 @@ def _run_read(run: ResearchRun, *, replayed: bool = False) -> ResearchRunRead:
         finished_at=run.finished_at,
         replayed=replayed,
         queries=queries,
+        targets=[
+            ResearchTargetProgressRead(
+                project_product_id=target.project_product_id,
+                product_id=target.product_id,
+                variant_id=target.variant_id,
+                status=target.status,
+                sources_attempted=target.sources_attempted,
+                sources_retrieved=target.sources_retrieved,
+                claims_created=target.claims_created,
+                error_code=target.error_code,
+            )
+            for target in run.targets
+        ],
     )

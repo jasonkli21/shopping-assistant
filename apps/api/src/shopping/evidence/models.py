@@ -94,7 +94,8 @@ class ResearchRunSource(Base):
     __tablename__ = "research_run_sources"
     __table_args__ = (
         CheckConstraint(
-            "status IN ('retrieved', 'blocked', 'timeout', 'unsupported', 'failed', 'skipped')",
+            "status IN ('running', 'retrieved', 'blocked', 'timeout', 'unsupported', "
+            "'failed', 'skipped')",
             name="ck_research_run_source_status",
         ),
         CheckConstraint("attempt_number >= 1", name="ck_research_run_source_attempt"),
