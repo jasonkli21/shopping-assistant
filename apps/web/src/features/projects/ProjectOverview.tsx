@@ -68,6 +68,100 @@ function fromRequirement(requirement: Requirement): RequirementDraft {
   };
 }
 
+type RequirementField = keyof RequirementDraft;
+const REQUIREMENT_FIELDS: RequirementField[] = [
+  "kind", "label", "detail", "attributeKey", "operator", "value", "unit",
+];
+const REQUIREMENT_FIELD_LABELS: Record<RequirementField, string> = {
+  kind: "Type",
+  label: "Requirement",
+  detail: "Details",
+  attributeKey: "Attribute key",
+  operator: "Operator",
+  value: "Value",
+  unit: "Unit",
+};
+
+type ConflictChoice = "mine" | "latest";
+
+function reconcileFields<T extends Record<keyof T, string>, Field extends keyof T>(
+  base: T,
+  local: T,
+  latest: T,
+  fields: readonly Field[],
+  choices: Partial<Record<Field, ConflictChoice>> = {},
+): { draft: T; conflicts: Field[] } {
+  const merged = { ...latest };
+  const conflicts: Field[] = [];
+  for (const field of fields) {
+    const localChanged = local[field] !== base[field];
+    const latestChanged = latest[field] !== base[field];
+    if (!localChanged) continue;
+    if (!latestChanged || local[field] === latest[field]) {
+      merged[field] = local[field] as T[Field];
+      continue;
+    }
+    const choice = choices[field];
+    if (choice === "mine") merged[field] = local[field] as T[Field];
+    else if (choice === "latest") merged[field] = latest[field] as T[Field];
+    else {
+      merged[field] = local[field] as T[Field];
+      conflicts.push(field);
+    }
+  }
+  return { draft: merged, conflicts };
+}
+
+function reconcileRequirementDraft(
+  base: RequirementDraft,
+  local: RequirementDraft,
+  latest: RequirementDraft,
+  choices: Partial<Record<RequirementField, ConflictChoice>> = {},
+): { draft: RequirementDraft; conflicts: RequirementField[] } {
+  return reconcileFields(base, local, latest, REQUIREMENT_FIELDS, choices);
+}
+
+function requirementPatch(draft: RequirementDraft, current: RequirementDraft, expectedVersion: number): RequirementPatch {
+  const command: RequirementPatch = { expected_version: expectedVersion };
+  if (draft.kind !== current.kind) command.kind = draft.kind;
+  if (draft.label !== current.label) command.label = draft.label;
+  const detail = draft.detail.trim() || null;
+  if (detail !== (current.detail.trim() || null)) command.detail = detail;
+
+  const structureChanged = draft.attributeKey !== current.attributeKey || draft.operator !== current.operator ||
+    draft.value !== current.value || draft.unit !== current.unit;
+  if (structureChanged) {
+    const criterion = requirementBody(draft);
+    if (draft.attributeKey.trim()) {
+      command.attribute_key = criterion.attribute_key;
+      command.operator = criterion.operator;
+      command.value = criterion.value;
+      command.unit = criterion.unit;
+    } else {
+      command.attribute_key = null;
+      command.operator = null;
+      command.value = null;
+      command.unit = null;
+    }
+  }
+  return command;
+}
+
+function requirementDraftIsDirty(draft: RequirementDraft, current: RequirementDraft): boolean {
+  return REQUIREMENT_FIELDS.some((field) => {
+    if (field === "detail") return (draft.detail.trim() || "") !== (current.detail.trim() || "");
+    return draft[field] !== current[field];
+  });
+}
+
+function sameRequirementDraft(left: RequirementDraft, right: RequirementDraft): boolean {
+  return REQUIREMENT_FIELDS.every((field) => left[field] === right[field]);
+}
+
+function displayRequirementValue(value: string): string {
+  return value.trim() || "(empty)";
+}
+
 function fieldErrors(error: unknown): Record<string, string> {
   if (!(error instanceof ApiRequestError) || !Array.isArray(error.details)) return {};
   return Object.fromEntries(
@@ -91,10 +185,9 @@ function readableError(error: unknown): string {
   return error instanceof Error ? error.message : "The request could not be completed.";
 }
 
-function moneyPatch(draft: ProjectDraft, expectedVersion: number): ProjectPatch {
+function projectValues(draft: ProjectDraft): Omit<ProjectPatch, "expected_version"> {
   const hasBudget = Boolean(draft.budgetTarget.trim() || draft.budgetMaximum.trim());
   return {
-    expected_version: expectedVersion,
     title: draft.title,
     goal: draft.goal,
     category: draft.category.trim() || null,
@@ -104,6 +197,49 @@ function moneyPatch(draft: ProjectDraft, expectedVersion: number): ProjectPatch 
     budget_currency: hasBudget ? draft.budgetCurrency || null : null,
     notes: draft.notes.trim() || null,
   };
+}
+
+type ProjectField = keyof ProjectDraft;
+const PROJECT_FIELDS: ProjectField[] = [
+  "title", "goal", "category", "status", "budgetTarget", "budgetMaximum", "budgetCurrency", "notes",
+];
+const PROJECT_FIELD_LABELS: Record<ProjectField, string> = {
+  title: "Project name",
+  goal: "Goal",
+  category: "Category",
+  status: "Project status",
+  budgetTarget: "Budget target",
+  budgetMaximum: "Budget maximum",
+  budgetCurrency: "Budget currency",
+  notes: "Notes",
+};
+
+function projectPatch(draft: ProjectDraft, current: ProjectDraft, expectedVersion: number): ProjectPatch {
+  const desired = projectValues(draft);
+  const existing = projectValues(current);
+  const patch: ProjectPatch = { expected_version: expectedVersion };
+  if (desired.title !== existing.title) patch.title = desired.title;
+  if (desired.goal !== existing.goal) patch.goal = desired.goal;
+  if (desired.category !== existing.category) patch.category = desired.category;
+  if (desired.status !== existing.status) patch.status = desired.status;
+  if (desired.budget_target !== existing.budget_target) patch.budget_target = desired.budget_target;
+  if (desired.budget_maximum !== existing.budget_maximum) patch.budget_maximum = desired.budget_maximum;
+  if (desired.budget_currency !== existing.budget_currency) patch.budget_currency = desired.budget_currency;
+  if (desired.notes !== existing.notes) patch.notes = desired.notes;
+  return patch;
+}
+
+function reconcileProjectDraft(
+  base: ProjectDraft,
+  local: ProjectDraft,
+  latest: ProjectDraft,
+  choices: Partial<Record<ProjectField, ConflictChoice>> = {},
+): { draft: ProjectDraft; conflicts: ProjectField[] } {
+  return reconcileFields(base, local, latest, PROJECT_FIELDS, choices);
+}
+
+function displayProjectValue(value: string): string {
+  return value.trim() || "(empty)";
 }
 
 function requirementBody(draft: RequirementDraft): Omit<RequirementCreate, "kind" | "label" | "detail"> {
@@ -135,8 +271,10 @@ export function ProjectOverview() {
   const [saveError, setSaveError] = useState("");
   const [saveMessage, setSaveMessage] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [conflictNeedsReview, setConflictNeedsReview] = useState(false);
+  const [conflict, setConflict] = useState<{ base: Project; latest: Project | null } | null>(null);
+  const [conflictChoices, setConflictChoices] = useState<Partial<Record<ProjectField, ConflictChoice>>>({});
   const [requirementResetKey, setRequirementResetKey] = useState(0);
+  const [knownRequirements, setKnownRequirements] = useState<Requirement[]>([]);
 
   const projectQuery = useQuery({
     queryKey: ["project", projectId],
@@ -146,11 +284,15 @@ export function ProjectOverview() {
     refetchOnWindowFocus: false,
   });
   const project = projectQuery.data;
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
 
   useEffect(() => {
     hasFocusedHeading.current = false;
     setDraft(null);
-    setConflictNeedsReview(false);
+    setConflict(null);
+    setConflictChoices({});
+    setKnownRequirements([]);
   }, [projectId]);
 
   useEffect(() => {
@@ -161,68 +303,149 @@ export function ProjectOverview() {
     }
   }, [project, draft]);
 
-  async function reportWriteError(error: unknown, fallback: string) {
+  useEffect(() => {
+    if (project) {
+      setKnownRequirements((current) => {
+        const currentIds = new Set(project.requirements.map((item) => item.id));
+        return [...project.requirements, ...current.filter((item) => !currentIds.has(item.id))];
+      });
+    }
+  }, [project]);
+
+  async function reportWriteError(
+    error: unknown,
+    fallback: string,
+    attemptedProject?: Project,
+  ): Promise<Project | null> {
     if (error instanceof ApiRequestError && error.status === 409 && projectId) {
+      const baseProject = attemptedProject ?? projectQuery.data;
+      if (!baseProject) {
+        setSaveError("The latest project version could not be loaded. Retry the refresh before continuing.");
+        return null;
+      }
       setSaveError("");
       setSaveMessage("");
-      setConflictNeedsReview(true);
-      await queryClient.refetchQueries({ queryKey: ["project", projectId], type: "active" });
-      return;
+      setConflict({ base: baseProject, latest: null });
+      setConflictChoices({});
+      const refreshed = await projectQuery.refetch();
+      const latest = refreshed.isSuccess ? refreshed.data : undefined;
+      if (latest && latest.revision > baseProject.revision) {
+        const local = draftRef.current ?? fromProject(baseProject);
+        const merged = reconcileProjectDraft(fromProject(baseProject), local, fromProject(latest));
+        setDraft(merged.draft);
+        setConflict({ base: baseProject, latest });
+        return latest;
+      }
+      setSaveError("The latest project version could not be loaded. Retry the refresh before continuing.");
+      return null;
     }
     setSaveError(error instanceof Error ? error.message : fallback);
     setErrors(fieldErrors(error));
+    return null;
   }
 
   function acceptProjectUpdate(updated: Project) {
     if (!projectId) return;
     queryClient.setQueryData(["project", projectId], updated);
+    setKnownRequirements((current) => {
+      const currentIds = new Set(updated.requirements.map((item) => item.id));
+      return [...updated.requirements, ...current.filter((item) => !currentIds.has(item.id))];
+    });
     void queryClient.invalidateQueries({ queryKey: ["projects"] });
-    setConflictNeedsReview(false);
+    setConflict(null);
+    setConflictChoices({});
     setSaveError("");
     setSaveMessage(`Saved revision ${updated.revision}.`);
   }
 
   const saveProject = useMutation({
-    mutationFn: (command: ProjectPatch) => projectsApi.patch(projectId!, command),
+    mutationFn: ({ baseProject, localDraft }: { baseProject: Project; localDraft: ProjectDraft }) =>
+      projectsApi.patch(projectId!, projectPatch(localDraft, fromProject(baseProject), baseProject.revision)),
     onSuccess: (updated) => {
       acceptProjectUpdate(updated);
       setDraft(fromProject(updated));
       setErrors({});
     },
-    onError: (error) => reportWriteError(error, "Project changes could not be saved."),
+    onError: (error, variables) => reportWriteError(error, "Project changes could not be saved.", variables.baseProject),
   });
 
   const deleteProject = useMutation({
-    mutationFn: (expectedVersion: number) => projectsApi.delete(projectId!, expectedVersion),
+    mutationFn: ({ baseProject }: { baseProject: Project }) => projectsApi.delete(projectId!, baseProject.revision),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["projects"] });
       navigate("/");
     },
-    onError: (error) => reportWriteError(error, "Project could not be deleted."),
+    onError: (error, variables) => reportWriteError(error, "Project could not be deleted.", variables.baseProject),
   });
 
   function submitProject(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!project || !draft || conflictNeedsReview) return;
+    if (!project || !draft || conflict) return;
     setSaveError("");
     setSaveMessage("");
     setErrors({});
-    saveProject.mutate(moneyPatch(draft, project.revision));
+    saveProject.mutate({ baseProject: project, localDraft: draft });
   }
 
   function updateDraft(field: keyof ProjectDraft, value: string) {
     setDraft((current) => (current ? { ...current, [field]: value } : current));
+    setConflictChoices((current) => {
+      const next = { ...current };
+      delete next[field];
+      return next;
+    });
     setErrors((current) => ({ ...current, [field]: "" }));
     setSaveError("");
     setSaveMessage("");
   }
 
   function confirmDelete() {
-    if (!project || conflictNeedsReview) return;
+    if (!project || conflict) return;
     const confirmed = window.confirm(
       `Delete “${project.title}”? It will disappear from your project list and cannot be restored.`,
     );
-    if (confirmed) deleteProject.mutate(project.revision);
+    if (confirmed) deleteProject.mutate({ baseProject: project });
+  }
+
+  function finishReconciliation() {
+    if (!conflict?.latest || !draft) return;
+    const resolved = reconcileProjectDraft(
+      fromProject(conflict.base),
+      draft,
+      fromProject(conflict.latest),
+      conflictChoices,
+    );
+    if (resolved.conflicts.length) return;
+    setDraft(resolved.draft);
+    setConflict(null);
+    setConflictChoices({});
+    setSaveError("");
+  }
+
+  function discardDraftForLatest() {
+    if (!conflict?.latest) return;
+    setDraft(fromProject(conflict.latest));
+    setKnownRequirements(conflict.latest.requirements);
+    setRequirementResetKey((current) => current + 1);
+    setConflict(null);
+    setConflictChoices({});
+    setSaveError("");
+  }
+
+  async function refreshConflict() {
+    if (!conflict) return;
+    const refreshed = await projectQuery.refetch();
+    const latest = refreshed.isSuccess ? refreshed.data : undefined;
+    if (!latest || latest.revision <= conflict.base.revision) {
+      setSaveError("The latest project version could not be loaded. Retry the refresh before continuing.");
+      return;
+    }
+    const local = draftRef.current ?? fromProject(conflict.base);
+    const merged = reconcileProjectDraft(fromProject(conflict.base), local, fromProject(latest));
+    setDraft(merged.draft);
+    setConflict({ base: conflict.base, latest });
+    setConflictChoices({});
+    setSaveError("");
   }
 
   if (projectQuery.isPending) {
@@ -254,8 +477,23 @@ export function ProjectOverview() {
   }
   if (!project || !draft || !projectId) return null;
 
-  const isDirty = JSON.stringify(draft) !== JSON.stringify(fromProject(project));
-  const saveDisabled = saveProject.isPending || conflictNeedsReview || !isDirty;
+  const isDirty = Object.keys(projectPatch(draft, fromProject(project), project.revision)).length > 1;
+  const conflictPreview = conflict?.latest
+    ? reconcileProjectDraft(fromProject(conflict.base), draft, fromProject(conflict.latest), conflictChoices)
+    : null;
+  const conflictChangedFields = conflict?.latest && draft
+    ? PROJECT_FIELDS.filter((field) => {
+        const base = fromProject(conflict.base)[field];
+        return base !== draft[field] || base !== fromProject(conflict.latest!)[field];
+      })
+    : [];
+  const saveDisabled = saveProject.isPending || Boolean(conflict) || !isDirty;
+  const renderedRequirements = [...knownRequirements].sort((left, right) => {
+    const leftPosition = project.requirements.findIndex((item) => item.id === left.id);
+    const rightPosition = project.requirements.findIndex((item) => item.id === right.id);
+    return (leftPosition < 0 ? Number.MAX_SAFE_INTEGER : leftPosition) -
+      (rightPosition < 0 ? Number.MAX_SAFE_INTEGER : rightPosition);
+  });
 
   return (
     <main className="shell overview-shell">
@@ -286,34 +524,74 @@ export function ProjectOverview() {
         </p>
       )}
 
-      {conflictNeedsReview && (
+      {conflict && (
         <section className="notice conflict-notice" role="alert" aria-labelledby="conflict-title">
           <div>
             <p className="eyebrow">Another edit was saved</p>
-            <h2 id="conflict-title">Review the latest version before saving</h2>
-            <p>
-              The project is now at revision {project.revision}. Your unsaved entries are still in the
-              form. The latest goal is: “{project.goal}”
-            </p>
-            <p>Latest requirements: {project.requirements.map((item) => item.label).join(" · ") || "None yet."}</p>
+            <h2 id="conflict-title">Reconcile your draft with revision {conflict.latest?.revision ?? "…"}</h2>
+            {conflict.latest ? (
+              <>
+                <p>Unchanged fields use the latest saved values. Your edits to other fields stay in the form.</p>
+                {conflictChangedFields.length > 0 && (
+                  <ul className="conflict-differences">
+                    {conflictChangedFields.map((field) => {
+                      const baseValue = fromProject(conflict.base)[field];
+                      const latestValue = fromProject(conflict.latest!)[field];
+                      const localValue = draft[field];
+                      const overlaps = baseValue !== localValue && baseValue !== latestValue && localValue !== latestValue;
+                      return (
+                        <li key={field}>
+                          <strong>{PROJECT_FIELD_LABELS[field]}</strong>
+                          <span>Latest saved: {displayProjectValue(latestValue)}</span>
+                          <span>Your draft: {displayProjectValue(localValue)}</span>
+                          {overlaps && (
+                            <div className="conflict-field-actions" aria-label={`Choose ${PROJECT_FIELD_LABELS[field]}`}>
+                              <button
+                                className="button small-button quiet-button"
+                                type="button"
+                                aria-pressed={conflictChoices[field] === "mine"}
+                                onClick={() => setConflictChoices((current) => ({ ...current, [field]: "mine" }))}
+                              >Keep my {PROJECT_FIELD_LABELS[field].toLowerCase()}</button>
+                              <button
+                                className="button small-button quiet-button"
+                                type="button"
+                                aria-pressed={conflictChoices[field] === "latest"}
+                                onClick={() => setConflictChoices((current) => ({ ...current, [field]: "latest" }))}
+                              >Use latest {PROJECT_FIELD_LABELS[field].toLowerCase()}</button>
+                            </div>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+                <p>
+                  Requirements at the rejected revision: {conflict.base.requirements.map((item) => item.label).join(" · ") || "None"}.
+                  Latest requirements: {conflict.latest.requirements.map((item) => item.label).join(" · ") || "None"}.
+                </p>
+              </>
+            ) : (
+              <>
+                <p>Your entries are preserved. The latest version has not loaded, so saving and deletion are paused.</p>
+                <button className="button quiet-button" type="button" onClick={() => void refreshConflict()}>
+                  Retry loading latest version
+                </button>
+              </>
+            )}
           </div>
-          <div className="conflict-actions">
-            <button
-              className="button quiet-button"
-              type="button"
-              onClick={() => {
-                setDraft(fromProject(project));
-                setRequirementResetKey((current) => current + 1);
-                setConflictNeedsReview(false);
-                setSaveError("");
-              }}
-            >
-              Use latest version
-            </button>
-            <button className="button secondary-button" type="button" onClick={() => setConflictNeedsReview(false)}>
-              I reviewed this version
-            </button>
-          </div>
+          {conflict.latest && (
+            <div className="conflict-actions">
+              <button
+                className="button secondary-button"
+                type="button"
+                disabled={Boolean(conflictPreview?.conflicts.length)}
+                onClick={finishReconciliation}
+              >Apply reconciled draft</button>
+              <button className="button quiet-button" type="button" onClick={discardDraftForLatest}>
+                Discard drafts and use latest
+              </button>
+            </div>
+          )}
         </section>
       )}
 
@@ -442,7 +720,7 @@ export function ProjectOverview() {
               <button className="button primary-button" type="submit" disabled={saveDisabled}>
                 {saveProject.isPending ? "Saving changes…" : "Save changes"}
               </button>
-              {conflictNeedsReview && <span className="field-help">Review the latest version before continuing.</span>}
+              {conflict && <span className="field-help">Apply the reconciled draft before continuing.</span>}
             </div>
           </form>
         </section>
@@ -460,22 +738,29 @@ export function ProjectOverview() {
             <p className="quiet-state">Add a must-have, preference, or constraint when you’re ready.</p>
           )}
           <ol className="requirement-list">
-            {project.requirements.map((requirement, index) => (
+            {renderedRequirements.map((requirement) => {
+              const latestRequirement = project.requirements.find((item) => item.id === requirement.id);
+              const index = latestRequirement?.position ?? requirement.position;
+              return (
               <RequirementEditor
                 key={`${requirement.id}-${requirementResetKey}`}
                 project={project}
                 requirement={requirement}
+                latestRequirement={latestRequirement}
                 index={index}
-                blocked={conflictNeedsReview}
+                blocked={Boolean(conflict)}
                 onProjectUpdate={acceptProjectUpdate}
                 onWriteError={reportWriteError}
+                onForget={() => setKnownRequirements((current) => current.filter((item) => item.id !== requirement.id))}
               />
-            ))}
+              );
+            })}
           </ol>
           {project.requirements.length < 100 && (
             <NewRequirement
+              key={`${project.id}-${requirementResetKey}`}
               project={project}
-              blocked={conflictNeedsReview}
+              blocked={Boolean(conflict)}
               onProjectUpdate={acceptProjectUpdate}
               onWriteError={reportWriteError}
             />
@@ -489,7 +774,7 @@ export function ProjectOverview() {
           <h2 id="delete-title">Delete this project</h2>
           <p>Archived projects can be restored by changing their status. Deleted projects disappear from your list.</p>
         </div>
-        <button className="button danger-button" type="button" disabled={deleteProject.isPending || conflictNeedsReview} onClick={confirmDelete}>
+        <button className="button danger-button" type="button" disabled={deleteProject.isPending || Boolean(conflict)} onClick={confirmDelete}>
           {deleteProject.isPending ? "Deleting…" : "Delete project"}
         </button>
       </section>
@@ -504,90 +789,214 @@ function FieldError({ id, message }: { id: string; message?: string }) {
 function RequirementEditor({
   project,
   requirement,
+  latestRequirement,
   index,
   blocked,
   onProjectUpdate,
   onWriteError,
+  onForget,
 }: {
   project: Project;
   requirement: Requirement;
+  latestRequirement?: Requirement;
   index: number;
   blocked: boolean;
   onProjectUpdate: (project: Project) => void;
-  onWriteError: (error: unknown, fallback: string) => Promise<void>;
+  onWriteError: (error: unknown, fallback: string, attemptedProject?: Project) => Promise<Project | null>;
+  onForget: () => void;
 }) {
   const [draft, setDraft] = useState(() => fromRequirement(requirement));
+  const [base, setBase] = useState(requirement);
   const [problem, setProblem] = useState("");
   const [saved, setSaved] = useState("");
+  const [conflict, setConflict] = useState<{ base: Requirement; latest: Requirement | null } | null>(null);
+  const [conflictChoices, setConflictChoices] = useState<Partial<Record<RequirementField, ConflictChoice>>>({});
+  const hasForgotten = useRef(false);
 
   const patch = useMutation({
-    mutationFn: (command: RequirementPatch) =>
+    mutationFn: ({ command }: { command: RequirementPatch; attemptedProject: Project }) =>
       projectsApi.patchRequirement(project.id, requirement.id, command),
     onSuccess: (updated) => {
       onProjectUpdate(updated);
       const updatedRequirement = updated.requirements.find((item) => item.id === requirement.id);
-      if (updatedRequirement) setDraft(fromRequirement(updatedRequirement));
+      if (updatedRequirement) {
+        setBase(updatedRequirement);
+        setDraft(fromRequirement(updatedRequirement));
+      }
+      setConflict(null);
+      setConflictChoices({});
       setProblem("");
       setSaved("Requirement saved.");
     },
-    onError: (error) => {
+    onError: async (error, variables) => {
       setSaved("");
       setProblem(readableError(error));
-      return onWriteError(error, "Requirement could not be saved.");
+      await onWriteError(error, "Requirement could not be saved.", variables.attemptedProject);
     },
   });
   const remove = useMutation({
-    mutationFn: (expectedVersion: number) =>
+    mutationFn: ({ expectedVersion }: { expectedVersion: number; attemptedProject: Project }) =>
       projectsApi.deleteRequirement(project.id, requirement.id, expectedVersion),
     onSuccess: (updated) => onProjectUpdate(updated),
-    onError: (error) => {
+    onError: async (error, variables) => {
       setProblem(readableError(error));
-      return onWriteError(error, "Requirement could not be removed.");
+      await onWriteError(error, "Requirement could not be removed.", variables.attemptedProject);
     },
   });
 
+  const dirty = requirementDraftIsDirty(draft, fromRequirement(base));
+
+  useEffect(() => {
+    if (patch.isPending || remove.isPending) return;
+    const mergeBase = conflict?.base ?? base;
+    if (!latestRequirement) {
+      if (requirementDraftIsDirty(draft, fromRequirement(mergeBase))) {
+        hasForgotten.current = false;
+        if (!conflict || conflict.latest !== null) {
+          setConflict({ base: mergeBase, latest: null });
+          setConflictChoices({});
+        }
+      } else if (!hasForgotten.current) {
+        hasForgotten.current = true;
+        onForget();
+      }
+      return;
+    }
+
+    hasForgotten.current = false;
+    const latestDraft = fromRequirement(latestRequirement);
+    const merged = reconcileRequirementDraft(fromRequirement(mergeBase), draft, latestDraft);
+    if (merged.conflicts.length) {
+      if (conflict?.latest?.id !== latestRequirement.id || conflict.latest.updated_at !== latestRequirement.updated_at) {
+        setConflict({ base: mergeBase, latest: latestRequirement });
+        setConflictChoices({});
+      }
+      return;
+    }
+
+    setBase(latestRequirement);
+    if (!sameRequirementDraft(draft, merged.draft)) setDraft(merged.draft);
+    if (conflict) {
+      setConflict(null);
+      setConflictChoices({});
+    }
+  }, [base, conflict, draft, latestRequirement, onForget, patch.isPending, project.revision, remove.isPending]);
+
   function update<K extends keyof RequirementDraft>(field: K, value: RequirementDraft[K]) {
     setDraft((current) => ({ ...current, [field]: value }));
+    setConflictChoices((current) => {
+      const next = { ...current };
+      delete next[field];
+      return next;
+    });
     setProblem("");
     setSaved("");
   }
 
   function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    let criterion: Partial<RequirementCreate>;
+    if (!latestRequirement || conflict || blocked || !dirty) return;
     try {
-      criterion = requirementBody(draft);
+      requirementBody(draft);
     } catch (error) {
       setProblem(readableError(error));
       return;
     }
-    const command: RequirementPatch = {
-      expected_version: project.revision,
-      kind: draft.kind,
-      label: draft.label,
-      detail: draft.detail.trim() || null,
-      ...(draft.attributeKey.trim()
-        ? criterion
-        : { attribute_key: null }),
-    };
-    patch.mutate(command);
+    const command = requirementPatch(draft, fromRequirement(base), project.revision);
+    patch.mutate({ command, attemptedProject: project });
   }
 
   function move(position: number) {
-    patch.mutate({ expected_version: project.revision, position });
+    if (!latestRequirement || dirty || conflict || blocked) return;
+    patch.mutate({ command: { expected_version: project.revision, position }, attemptedProject: project });
   }
 
   function confirmRemove() {
+    if (!latestRequirement || dirty || conflict || blocked) return;
     if (window.confirm(`Remove “${requirement.label}” from this project?`)) {
-      remove.mutate(project.revision);
+      remove.mutate({ expectedVersion: project.revision, attemptedProject: project });
     }
+  }
+
+  function finishRequirementReconciliation() {
+    if (!conflict?.latest) return;
+    const resolved = reconcileRequirementDraft(
+      fromRequirement(conflict.base),
+      draft,
+      fromRequirement(conflict.latest),
+      conflictChoices,
+    );
+    if (resolved.conflicts.length) return;
+    setBase(conflict.latest);
+    setDraft(resolved.draft);
+    setConflict(null);
+    setConflictChoices({});
+    setProblem("");
   }
 
   const pending = patch.isPending || remove.isPending;
   const criterionId = `criterion-${requirement.id}`;
 
+  if (!latestRequirement && !dirty && !conflict) return null;
+
   return (
     <li className="requirement-item">
+      {conflict && (
+        <div className="notice conflict-notice requirement-conflict" role="alert">
+          {conflict.latest ? (
+            <>
+              <p><strong>This requirement changed in another edit.</strong> Compare the saved values with your draft.</p>
+              <ul className="conflict-differences">
+                {REQUIREMENT_FIELDS.filter((field) => {
+                  const original = fromRequirement(conflict.base)[field];
+                  const latest = fromRequirement(conflict.latest!)[field];
+                  return original !== latest || original !== draft[field];
+                }).map((field) => {
+                  const original = fromRequirement(conflict.base)[field];
+                  const latest = fromRequirement(conflict.latest!)[field];
+                  const overlaps = original !== draft[field] && original !== latest && draft[field] !== latest;
+                  return (
+                    <li key={field}>
+                      <strong>{REQUIREMENT_FIELD_LABELS[field]}</strong>
+                      <span>Latest saved: {displayRequirementValue(latest)}</span>
+                      <span>Your draft: {displayRequirementValue(draft[field])}</span>
+                      {overlaps && (
+                        <div className="conflict-field-actions" aria-label={`Choose ${REQUIREMENT_FIELD_LABELS[field]}`}>
+                          <button
+                            className="button small-button quiet-button"
+                            type="button"
+                            aria-pressed={conflictChoices[field] === "mine"}
+                            onClick={() => setConflictChoices((current) => ({ ...current, [field]: "mine" }))}
+                          >Keep my {REQUIREMENT_FIELD_LABELS[field].toLowerCase()}</button>
+                          <button
+                            className="button small-button quiet-button"
+                            type="button"
+                            aria-pressed={conflictChoices[field] === "latest"}
+                            onClick={() => setConflictChoices((current) => ({ ...current, [field]: "latest" }))}
+                          >Use latest {REQUIREMENT_FIELD_LABELS[field].toLowerCase()}</button>
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+              <button
+                className="button small-button secondary-button"
+                type="button"
+                disabled={Boolean(reconcileRequirementDraft(
+                  fromRequirement(conflict.base), draft, fromRequirement(conflict.latest), conflictChoices,
+                ).conflicts.length)}
+                onClick={finishRequirementReconciliation}
+              >Apply requirement draft</button>
+            </>
+          ) : (
+            <>
+              <p><strong>This requirement was removed in the latest version.</strong> Your draft is preserved below.</p>
+              <button className="button small-button quiet-button" type="button" onClick={onForget}>Discard this draft</button>
+            </>
+          )}
+        </div>
+      )}
       <form onSubmit={save}>
         <div className="requirement-topline">
           <label className="sr-only" htmlFor={`kind-${requirement.id}`}>Requirement type</label>
@@ -626,14 +1035,14 @@ function RequirementEditor({
         {problem && <p className="field-error" role="alert">{problem}</p>}
         {saved && <p className="save-message" role="status">{saved}</p>}
         <div className="requirement-actions">
-          <button className="button small-button primary-button" type="submit" disabled={pending || blocked}>
+          <button className="button small-button primary-button" type="submit" disabled={pending || blocked || Boolean(conflict) || !latestRequirement || !dirty}>
             {patch.isPending ? "Saving…" : "Save requirement"}
           </button>
           <button
             className="button small-button quiet-button"
             type="button"
             aria-label={`Move ${requirement.label} up`}
-            disabled={pending || blocked || index === 0}
+            disabled={pending || blocked || Boolean(conflict) || dirty || !latestRequirement || index === 0}
             onClick={() => move(index - 1)}
           >
             Move up
@@ -642,7 +1051,7 @@ function RequirementEditor({
             className="button small-button quiet-button"
             type="button"
             aria-label={`Move ${requirement.label} down`}
-            disabled={pending || blocked || index === project.requirements.length - 1}
+            disabled={pending || blocked || Boolean(conflict) || dirty || !latestRequirement || index === project.requirements.length - 1}
             onClick={() => move(index + 1)}
           >
             Move down
@@ -650,7 +1059,7 @@ function RequirementEditor({
           <button
             className="button small-button text-danger-button"
             type="button"
-            disabled={pending || blocked}
+            disabled={pending || blocked || Boolean(conflict) || dirty || !latestRequirement}
             onClick={confirmRemove}
           >
             {remove.isPending ? "Removing…" : "Remove"}
@@ -729,7 +1138,7 @@ function NewRequirement({
   project: Project;
   blocked: boolean;
   onProjectUpdate: (project: Project) => void;
-  onWriteError: (error: unknown, fallback: string) => Promise<void>;
+  onWriteError: (error: unknown, fallback: string, attemptedProject?: Project) => Promise<Project | null>;
 }) {
   const [draft, setDraft] = useState<RequirementDraft>({
     kind: "must_have",
@@ -743,7 +1152,7 @@ function NewRequirement({
   const [problem, setProblem] = useState("");
   const queryClient = useQueryClient();
   const create = useMutation({
-    mutationFn: ({ expectedVersion, command }: { expectedVersion: number; command: RequirementCreate }) =>
+    mutationFn: ({ expectedVersion, command }: { expectedVersion: number; command: RequirementCreate; attemptedProject: Project }) =>
       projectsApi.createRequirement(project.id, expectedVersion, command),
     onSuccess: (updated) => {
       queryClient.setQueryData(["project", project.id], updated);
@@ -752,9 +1161,9 @@ function NewRequirement({
       setDraft({ kind: "must_have", label: "", detail: "", attributeKey: "", operator: "", value: "", unit: "" });
       setProblem("");
     },
-    onError: (error) => {
+    onError: async (error, variables) => {
       setProblem(readableError(error));
-      return onWriteError(error, "Requirement could not be added.");
+      await onWriteError(error, "Requirement could not be added.", variables.attemptedProject);
     },
   });
 
@@ -774,6 +1183,7 @@ function NewRequirement({
     }
     create.mutate({
       expectedVersion: project.revision,
+      attemptedProject: project,
       command: {
         kind: draft.kind,
         label: draft.label,

@@ -6,7 +6,7 @@ Phase 1 was implemented on top of reviewed baseline `5ff030d` and committed in c
 
 | Check | Result |
 |---|---|
-| `make validate` | Passed: Ruff check/format, ESLint, 17 deterministic API tests, 9 frontend interaction tests, generated-type check, TypeScript typecheck and Vite production build. Database/live tests are explicitly excluded from this deterministic target. |
+| `make validate` and review follow-up | The original aggregate run passed with 9 frontend tests. After the conflict-reconciliation fix, all of its constituent checks passed again: Ruff check/format, ESLint, 17 deterministic API tests, 15 frontend interaction tests, generated-type check, TypeScript typecheck and Vite production build. The aggregate wrapper was not rerun because the available bundled pnpm 11.19.0 did not match the pinned 10.34.6 and tried to start an install, which aborted safely when it could not purge `node_modules` without a TTY. Database/live tests are explicitly excluded from this deterministic target. |
 | `make api-types` then `make api-types-check` | Passed. Generated `packages/api-types/src/index.ts` matches the current FastAPI OpenAPI schema. |
 | `make test-db TEST_DATABASE_URL=postgresql+psycopg://postgres@127.0.0.1:55843/shopping_test` | Passed: 15 PostgreSQL-marked tests against isolated PostgreSQL 16.15. Covers migration up/down/re-up, database constraints/types, durability, ownership, revision conflicts, tombstone and pagination. The fixture creates and drops uniquely named schemas and rejects the configured application database and unsafe database names. |
 | `make migrate` with `DATABASE_URL=postgresql+psycopg://postgres@127.0.0.1:55843/shopping_phase1_test` | Passed against a fresh disposable database in the isolated PostgreSQL cluster. |
@@ -16,6 +16,25 @@ Phase 1 was implemented on top of reviewed baseline `5ff030d` and committed in c
 | Hosted/operational checks | GitHub Actions and its PostgreSQL 16 job were updated but not run on a hosted runner. `git remote -v` is empty. Docker Compose was unavailable in the Phase 0 environment and was not used for Phase 1; native PostgreSQL 16.15 provided DB validation. No cloud or credentialed provider calls are in scope. |
 
 The local frontend environment used bundled Node 24.19.0 and pnpm 11.19.0; CI's Node 20 and pinned pnpm 10.34.6 installation path were not separately executed here. The workspace explicitly allows esbuild lifecycle scripts with `allowBuilds` (supported since pnpm 10.26). See the detailed [Phase 1 implementation plan](docs/planning/phase-1-implementation-plan.md) for acceptance-to-code mapping and limitations.
+
+## Phase 1 conflict-reconciliation follow-up — 2026-10-03
+
+The UI now rebases project and requirement drafts against the refreshed revision, sends only fields changed locally, and asks for a field-level choice when both versions changed the same field. A requirement deleted by another edit remains visible while it has a local draft. Save and delete stay paused when a 409 refresh fails. Regression coverage includes a second 409 followed by a failed refresh.
+
+The constituent checks of `make validate` were run directly against the installed dependencies:
+
+| Command | Result |
+|---|---|
+| `cd apps/api && UV_CACHE_DIR=/private/tmp/shopping-uv-cache uv run ruff check src tests migrations` | Passed. |
+| `cd apps/api && UV_CACHE_DIR=/private/tmp/shopping-uv-cache uv run ruff format --check src tests migrations` | Passed: 49 files already formatted. |
+| `cd apps/api && UV_CACHE_DIR=/private/tmp/shopping-uv-cache uv run pytest -m 'not db and not live'` | Passed: 17 tests. |
+| `cd apps/api && UV_CACHE_DIR=/private/tmp/shopping-uv-cache uv run python ../../scripts/generate_api_types.py --check` | Passed: generated types are current. |
+| `cd apps/web && node node_modules/vitest/vitest.mjs run` using bundled Node 24.19.0 | Passed: 15 tests. |
+| `cd apps/web && node node_modules/eslint/bin/eslint.js .` using bundled Node 24.19.0 | Passed. |
+| `cd apps/web && node node_modules/typescript/bin/tsc -b` using bundled Node 24.19.0 | Passed. |
+| `cd apps/web && node node_modules/vite/bin/vite.js build` using bundled Node 24.19.0 | Passed: production bundle built. |
+
+For the direct frontend commands, `node` was `/Users/jasonkli/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node`. The wrapper install was not allowed to relink dependencies; the existing installation remained usable for these checks. The project lock pins pnpm 10.34.6, so use that version when running the aggregate wrapper later.
 
 ## Phase 0 baseline review and validation (historical)
 
