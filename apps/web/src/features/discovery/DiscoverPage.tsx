@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
@@ -25,8 +25,14 @@ function requestStorageKey(projectId: string) {
 
 function readSavedCommand(projectId: string): SavedCommand | null {
   try {
-    const saved = window.localStorage.getItem(requestStorageKey(projectId));
-    return saved ? (JSON.parse(saved) as SavedCommand) : null;
+    const saved = window.sessionStorage.getItem(requestStorageKey(projectId));
+    if (!saved) return null;
+    const value: unknown = JSON.parse(saved);
+    if (!isSavedCommand(value)) {
+      window.sessionStorage.removeItem(requestStorageKey(projectId));
+      return null;
+    }
+    return value;
   } catch {
     return null;
   }
@@ -34,11 +40,46 @@ function readSavedCommand(projectId: string): SavedCommand | null {
 
 function writeSavedCommand(projectId: string, saved: SavedCommand | null) {
   try {
-    if (saved) window.localStorage.setItem(requestStorageKey(projectId), JSON.stringify(saved));
-    else window.localStorage.removeItem(requestStorageKey(projectId));
+    if (saved) window.sessionStorage.setItem(requestStorageKey(projectId), JSON.stringify(saved));
+    else window.sessionStorage.removeItem(requestStorageKey(projectId));
   } catch {
     // The form still works when browser storage is unavailable.
   }
+}
+
+function isSavedCommand(value: unknown): value is SavedCommand {
+  if (!value || typeof value !== "object") return false;
+  const saved = value as Partial<SavedCommand>;
+  const command = saved.command;
+  if (
+    typeof saved.requestKey !== "string" ||
+    saved.requestKey.length < 8 ||
+    saved.requestKey.length > 100 ||
+    !command ||
+    typeof command !== "object" ||
+    command.type !== "discovery" ||
+    typeof command.objective !== "string" ||
+    !command.objective.trim() ||
+    command.objective.length > 2000 ||
+    command.request_key !== saved.requestKey ||
+    !Number.isInteger(command.expected_version) ||
+    command.expected_version < 1
+  ) {
+    return false;
+  }
+  if (command.manual_queries !== undefined) {
+    if (
+      !Array.isArray(command.manual_queries) ||
+      command.manual_queries.length < 1 ||
+      command.manual_queries.length > 20 ||
+      command.manual_queries.some(
+        (query) => typeof query !== "string" || !query.trim() || query.length > 300,
+      )
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function newRequestKey() {
@@ -60,11 +101,15 @@ function DiscoverPageContent({ projectId }: { projectId?: string }) {
   const pollingCount = useRef(0);
   const submittingRef = useRef(false);
   const [isVisible, setIsVisible] = useState(() => document.visibilityState === "visible");
-  const [objective, setObjective] = useState("");
-  const [manualMode, setManualMode] = useState(false);
-  const [manualQueries, setManualQueries] = useState("");
   const [savedCommand, setSavedCommand] = useState<SavedCommand | null>(() =>
     projectId ? readSavedCommand(projectId) : null,
+  );
+  const [objective, setObjective] = useState(() => savedCommand?.command.objective ?? "");
+  const [manualMode, setManualMode] = useState(() =>
+    Boolean(savedCommand?.command.manual_queries),
+  );
+  const [manualQueries, setManualQueries] = useState(
+    () => savedCommand?.command.manual_queries?.join("\n") ?? "",
   );
   const [submitError, setSubmitError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -89,23 +134,27 @@ function DiscoverPageContent({ projectId }: { projectId?: string }) {
   const objectiveInitialized = useRef(false);
   useEffect(() => {
     if (project && !objectiveInitialized.current) {
-      setObjective(project.goal);
+      if (!savedCommand) setObjective(project.goal);
       objectiveInitialized.current = true;
     }
-  }, [project]);
+  }, [project, savedCommand]);
 
   useEffect(() => {
     headingRef.current?.focus();
   }, [projectId]);
 
-  const runsQuery = useQuery({
+  const runsQuery = useInfiniteQuery({
     queryKey: ["research-runs", projectId],
-    queryFn: ({ signal }) => researchApi.list(projectId!, 30, signal),
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ signal, pageParam }) => researchApi.list(projectId!, 20, pageParam, signal),
+    getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
     enabled: Boolean(projectId && project),
     retry: false,
     refetchOnWindowFocus: false,
     refetchInterval: (query) => {
-      const active = query.state.data?.items.some((run) => !TERMINAL.has(run.status));
+      const active = query.state.data?.pages.some((page) =>
+        page.items.some((run) => !TERMINAL.has(run.status)),
+      );
       if (!isVisible || !active) {
         if (!active) pollingCount.current = 0;
         return false;
@@ -115,7 +164,7 @@ function DiscoverPageContent({ projectId }: { projectId?: string }) {
       return pause;
     },
   });
-  const runs = runsQuery.data?.items ?? [];
+  const runs = runsQuery.data?.pages.flatMap((page) => page.items) ?? [];
   const currentRunId = selectedRunId ?? runs[0]?.id ?? null;
   const detailQuery = useQuery({
     queryKey: ["research-run", projectId, currentRunId],
@@ -129,17 +178,34 @@ function DiscoverPageContent({ projectId }: { projectId?: string }) {
       return 1300;
     },
   });
-  const candidatesQuery = useQuery({
-    queryKey: ["discovery-candidates", projectId],
-    queryFn: ({ signal }) => researchApi.candidates(projectId!, 50, signal),
-    enabled: Boolean(projectId && runs.length),
+  const candidatesQuery = useInfiniteQuery({
+    queryKey: ["discovery-candidates", projectId, currentRunId],
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ signal, pageParam }) =>
+      researchApi.candidates(projectId!, currentRunId!, 20, pageParam, signal),
+    getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
+    enabled: Boolean(projectId && currentRunId),
     retry: false,
     refetchOnWindowFocus: false,
     refetchInterval: () => {
-      const active = runs.some((run) => !TERMINAL.has(run.status));
-      return isVisible && active ? 4000 : false;
+      const run = detailQuery.data;
+      return isVisible && run?.id === currentRunId && !TERMINAL.has(run.status) ? 4000 : false;
     },
   });
+
+  const currentRun = detailQuery.data?.id === currentRunId ? detailQuery.data : undefined;
+  const candidateRefreshKey = currentRun
+    ? `${currentRun.id}:${currentRun.status}:${currentRun.results_found}:${currentRun.candidates_found}`
+    : "";
+  const lastCandidateRefresh = useRef("");
+  useEffect(() => {
+    if (!projectId || !currentRunId || !candidateRefreshKey) return;
+    if (lastCandidateRefresh.current === candidateRefreshKey) return;
+    lastCandidateRefresh.current = candidateRefreshKey;
+    void queryClient.invalidateQueries({
+      queryKey: ["discovery-candidates", projectId, currentRunId],
+    });
+  }, [candidateRefreshKey, currentRunId, projectId, queryClient]);
 
   const cancelRun = useMutation({
     mutationFn: (runId: string) => researchApi.cancel(projectId!, runId),
@@ -148,7 +214,9 @@ function DiscoverPageContent({ projectId }: { projectId?: string }) {
       queryClient.setQueryData(["research-run", projectId, result.run.id], result.run);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["research-runs", projectId] }),
-        queryClient.invalidateQueries({ queryKey: ["discovery-candidates", projectId] }),
+        queryClient.invalidateQueries({
+          queryKey: ["discovery-candidates", projectId, result.run.id],
+        }),
       ]);
     },
     onError: (error) => setCancelError(readableError(error, "The run could not be canceled.")),
@@ -185,18 +253,36 @@ function DiscoverPageContent({ projectId }: { projectId?: string }) {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["research-runs", projectId] }),
         queryClient.invalidateQueries({ queryKey: ["research-run", projectId, result.run_id] }),
-        queryClient.invalidateQueries({ queryKey: ["discovery-candidates", projectId] }),
+        queryClient.invalidateQueries({
+          queryKey: ["discovery-candidates", projectId, result.run_id],
+        }),
       ]);
     } catch (error) {
-      if (error instanceof ApiRequestError && [400, 409, 422, 503].includes(error.status)) {
+      const knownPreacceptanceError =
+        error instanceof ApiRequestError &&
+        (error.status === 400 ||
+          error.status === 409 ||
+          error.status === 422 ||
+          (error.status === 503 &&
+            ["research_capacity", "research_unavailable"].includes(error.code)));
+      if (knownPreacceptanceError) {
         writeSavedCommand(projectId, null);
         setSavedCommand(null);
       }
-      setSubmitError(
-        error instanceof ApiRequestError
-          ? `${error.message} Your entries are still here.`
-          : "The response was not received. Retry the same request to safely check whether it started.",
-      );
+      if (error instanceof ApiRequestError && error.code === "revision_conflict") {
+        const refreshed = await projectQuery.refetch();
+        setSubmitError(
+          refreshed.isError
+            ? "The project changed, and its latest revision could not load. Your entries are still here; retry loading the project before starting again."
+            : "The project changed. Its latest revision is loaded, and your entries are still here. Review them and start again with a new request.",
+        );
+      } else {
+        setSubmitError(
+          error instanceof ApiRequestError && knownPreacceptanceError
+            ? `${error.message} Your entries are still here.`
+            : "The response was not received. Retry the same request to safely check whether it started.",
+        );
+      }
     } finally {
       submittingRef.current = false;
       setSubmitting(false);
@@ -226,11 +312,8 @@ function DiscoverPageContent({ projectId }: { projectId?: string }) {
     );
   }
 
-  const currentRun = detailQuery.data;
-  const visibleCandidates = (candidatesQuery.data?.items ?? []).filter(
-    (candidate) => !currentRunId || candidate.research_run_id === currentRunId,
-  );
-  const active = runs.some((run) => !TERMINAL.has(run.status));
+  const visibleCandidates = candidatesQuery.data?.pages.flatMap((page) => page.items) ?? [];
+  const active = Boolean(currentRun && !TERMINAL.has(currentRun.status));
   const controlsLocked = Boolean(savedCommand || cancelRun.isPending);
 
   return (
@@ -369,7 +452,7 @@ function DiscoverPageContent({ projectId }: { projectId?: string }) {
               </div>
               <span className="count-pill">{visibleCandidates.length}</span>
             </div>
-            {candidatesQuery.isPending && runs.length > 0 && <p role="status">Loading search observations…</p>}
+            {candidatesQuery.isPending && currentRunId && <p role="status">Loading search observations…</p>}
             {candidatesQuery.isError && (
               <div className="empty-state compact-empty">
                 <h3>Candidate observations did not load.</h3>
@@ -410,6 +493,16 @@ function DiscoverPageContent({ projectId }: { projectId?: string }) {
                 </li>
               ))}
             </ul>
+            {candidatesQuery.hasNextPage && (
+              <button
+                className="button quiet-button"
+                type="button"
+                disabled={candidatesQuery.isFetchingNextPage}
+                onClick={() => void candidatesQuery.fetchNextPage()}
+              >
+                {candidatesQuery.isFetchingNextPage ? "Loading more candidates…" : "Load more candidates"}
+              </button>
+            )}
           </section>
         </div>
 
@@ -471,6 +564,16 @@ function DiscoverPageContent({ projectId }: { projectId?: string }) {
                 </li>
               ))}
             </ul>
+            {runsQuery.hasNextPage && (
+              <button
+                className="button quiet-button"
+                type="button"
+                disabled={runsQuery.isFetchingNextPage}
+                onClick={() => void runsQuery.fetchNextPage()}
+              >
+                {runsQuery.isFetchingNextPage ? "Loading older runs…" : "Load older runs"}
+              </button>
+            )}
           </section>
         </aside>
       </section>

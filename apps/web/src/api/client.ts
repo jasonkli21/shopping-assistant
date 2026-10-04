@@ -22,6 +22,7 @@ export type ProposalMutationResult = components["schemas"]["ProposalMutationResu
 export type ResearchCreate = components["schemas"]["ResearchCreate"];
 export type ResearchCreated = components["schemas"]["ResearchCreated"];
 export type ResearchRunRead = components["schemas"]["ResearchRunRead"];
+export type ResearchRunPage = components["schemas"]["ResearchRunPage"];
 export type CandidateRead = components["schemas"]["CandidateRead"];
 export type CandidatePage = components["schemas"]["CandidatePage"];
 
@@ -159,11 +160,14 @@ export const researchApi = {
       `/projects/${projectId}/research`,
       jsonRequest("POST", command),
     ),
-  list: (projectId: string, limit = 20, signal?: AbortSignal) =>
-    request<{ items: ResearchRunRead[] }>(
-      `/projects/${projectId}/research?${new URLSearchParams({ limit: String(limit) })}`,
+  list: (projectId: string, limit = 20, cursor?: string, signal?: AbortSignal) => {
+    const query = new URLSearchParams({ limit: String(limit) });
+    if (cursor) query.set("cursor", cursor);
+    return request<ResearchRunPage>(
+      `/projects/${projectId}/research?${query.toString()}`,
       { signal },
-    ),
+    );
+  },
   get: (projectId: string, runId: string, signal?: AbortSignal) =>
     request<ResearchRunRead>(`/projects/${projectId}/research/${runId}`, { signal }),
   cancel: (projectId: string, runId: string) =>
@@ -171,9 +175,17 @@ export const researchApi = {
       `/projects/${projectId}/research/${runId}/cancel`,
       jsonRequest("POST"),
     ),
-  candidates: (projectId: string, limit = 50, signal?: AbortSignal) =>
-    request<CandidatePage>(
-      `/projects/${projectId}/candidates?${new URLSearchParams({ limit: String(limit) })}`,
-      { signal },
-    ),
+  candidates: (
+    projectId: string,
+    runId: string,
+    limit = 20,
+    cursor?: string,
+    signal?: AbortSignal,
+  ) => {
+    const query = new URLSearchParams({ limit: String(limit), run_id: runId });
+    if (cursor) query.set("cursor", cursor);
+    return request<CandidatePage>(`/projects/${projectId}/candidates?${query.toString()}`, {
+      signal,
+    });
+  },
 };

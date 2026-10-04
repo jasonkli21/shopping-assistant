@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -165,7 +165,7 @@ function discoveryFetch(
     const url = String(input);
     if (url.endsWith(`/projects/${PROJECT_ID}`) && !init?.method) return response(project());
     if (url.includes(`/projects/${PROJECT_ID}/research?`)) {
-      return response({ items: runData ? [runData] : [] });
+      return response({ items: runData ? [runData] : [], next_cursor: null });
     }
     if (url.endsWith(`/projects/${PROJECT_ID}/research`) && init?.method === "POST") {
       const body = JSON.parse(String(init.body)) as unknown;
@@ -182,8 +182,9 @@ function discoveryFetch(
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
-  window.localStorage.clear();
+  window.sessionStorage.clear();
 });
 
 describe("Discover", () => {
@@ -290,7 +291,7 @@ describe("Discover", () => {
         manual_queries: ["exact query from previous page"],
       },
     };
-    window.localStorage.setItem(
+    window.sessionStorage.setItem(
       `shopping-assistant:discovery-command:${PROJECT_ID}`,
       JSON.stringify(saved),
     );
@@ -301,11 +302,210 @@ describe("Discover", () => {
     vi.stubGlobal("fetch", discoveryFetch(run(), [candidate], post));
     renderApp();
     await screen.findByRole("heading", { name: "Explore options for Apartment vacuum" });
+    expect(screen.getByLabelText(/What would you like to find/)).toHaveValue(saved.command.objective);
+    expect(screen.getByLabelText("Enter exact search queries myself")).toBeChecked();
+    expect(screen.getByLabelText(/Search queries/)).toHaveValue("exact query from previous page");
     fireEvent.click(screen.getByRole("button", { name: "Retry the same request" }));
     await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(window.localStorage.getItem(
+    await waitFor(() => expect(window.sessionStorage.getItem(
       `shopping-assistant:discovery-command:${PROJECT_ID}`,
     )).toBeNull());
+  });
+
+  it("refreshes a stale project revision and lets the preserved form start with a new key", async () => {
+    const sent: Record<string, unknown>[] = [];
+    let projectLoads = 0;
+    let accepted: ResearchRunRead | null = null;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith(`/projects/${PROJECT_ID}`) && !init?.method) {
+        projectLoads += 1;
+        return response({ ...project(), revision: projectLoads === 1 ? 3 : 4 });
+      }
+      if (url.includes(`/projects/${PROJECT_ID}/research?`)) {
+        return response({ items: accepted ? [accepted] : [], next_cursor: null });
+      }
+      if (url.endsWith(`/projects/${PROJECT_ID}/research`) && init?.method === "POST") {
+        const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+        sent.push(body);
+        if (sent.length === 1) {
+          return response({
+            error: { code: "revision_conflict", message: "The project changed before discovery started." },
+          }, 409);
+        }
+        accepted = run({ status: "running", candidates_found: 0, results_found: 0 });
+        return response({ run_id: RUN_ID, status: "queued", replayed: false }, 202);
+      }
+      if (url.endsWith(`/projects/${PROJECT_ID}/research/${RUN_ID}`)) return response(accepted ?? run());
+      if (url.includes(`/projects/${PROJECT_ID}/candidates?`)) return response({ items: [], next_cursor: null });
+      throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderApp();
+
+    await screen.findByRole("heading", { name: "Explore options for Apartment vacuum" });
+    fireEvent.change(screen.getByLabelText(/What would you like to find/), {
+      target: { value: "Find a quiet vacuum" },
+    });
+    fireEvent.click(screen.getByLabelText("Enter exact search queries myself"));
+    fireEvent.change(screen.getByLabelText(/Search queries/), {
+      target: { value: "quiet vacuum query" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Start discovery" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("latest revision is loaded");
+    expect(projectLoads).toBe(2);
+    expect(screen.getByLabelText(/What would you like to find/)).toHaveValue("Find a quiet vacuum");
+    expect(screen.getByLabelText(/Search queries/)).toHaveValue("quiet vacuum query");
+    fireEvent.click(screen.getByRole("button", { name: "Start discovery" }));
+    await waitFor(() => expect(sent).toHaveLength(2));
+    expect(sent[0]?.expected_version).toBe(3);
+    expect(sent[1]?.expected_version).toBe(4);
+    expect(sent[1]?.request_key).not.toBe(sent[0]?.request_key);
+  });
+
+  it("keeps the same key after an unclassified service-unavailable response", async () => {
+    const sent: Record<string, unknown>[] = [];
+    let attempt = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith(`/projects/${PROJECT_ID}`) && !init?.method) return response(project());
+      if (url.includes(`/projects/${PROJECT_ID}/research?`)) return response({ items: [], next_cursor: null });
+      if (url.endsWith(`/projects/${PROJECT_ID}/research`) && init?.method === "POST") {
+        sent.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+        attempt += 1;
+        return attempt === 1
+          ? response({ error: { code: "unexpected_service_error", message: "Unavailable." } }, 503)
+          : response({ run_id: RUN_ID, status: "queued", replayed: true }, 202);
+      }
+      if (url.endsWith(`/projects/${PROJECT_ID}/research/${RUN_ID}`)) return response(run({ status: "running" }));
+      if (url.includes(`/projects/${PROJECT_ID}/candidates?`)) return response({ items: [], next_cursor: null });
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderApp();
+    await screen.findByRole("heading", { name: "Explore options for Apartment vacuum" });
+    fireEvent.click(screen.getByRole("button", { name: "Start discovery" }));
+    expect(await screen.findByRole("button", { name: "Retry the same request" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Retry the same request" }));
+    await waitFor(() => expect(sent).toHaveLength(2));
+    expect(sent[1]).toEqual(sent[0]);
+  });
+
+  it("ignores malformed saved command storage", async () => {
+    window.sessionStorage.setItem(
+      `shopping-assistant:discovery-command:${PROJECT_ID}`,
+      JSON.stringify({ requestKey: "bad-key", command: { objective: 42 } }),
+    );
+    vi.stubGlobal("fetch", discoveryFetch(null));
+    renderApp();
+    await screen.findByRole("heading", { name: "Explore options for Apartment vacuum" });
+    expect(screen.queryByRole("button", { name: "Retry the same request" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/What would you like to find/)).toHaveValue(project().goal);
+    expect(window.sessionStorage.getItem(`shopping-assistant:discovery-command:${PROJECT_ID}`)).toBeNull();
+  });
+
+  it("refreshes the selected run candidates as soon as terminal results arrive", async () => {
+    vi.useFakeTimers();
+    const running = run({
+      status: "running",
+      finished_at: null,
+      queries_completed: 0,
+      candidates_found: 0,
+      results_found: 0,
+    });
+    const complete = run({
+      status: "succeeded",
+      candidates_found: 1,
+      results_found: 1,
+      summary: "Discovery completed.",
+    });
+    let details = 0;
+    let candidateFetches = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith(`/projects/${PROJECT_ID}`)) return response(project());
+      if (url.includes(`/projects/${PROJECT_ID}/research?`)) {
+        return response({ items: [running], next_cursor: null });
+      }
+      if (url.endsWith(`/projects/${PROJECT_ID}/research/${RUN_ID}`)) {
+        details += 1;
+        return response(details === 1 ? running : complete);
+      }
+      if (url.includes(`/projects/${PROJECT_ID}/candidates?`)) {
+        candidateFetches += 1;
+        return response({ items: details > 1 ? [candidate] : [], next_cursor: null });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    renderApp();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10);
+    });
+    expect(screen.getByText("Search is in progress.")).toBeInTheDocument();
+    const initialFetches = candidateFetches;
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1301);
+    });
+    expect(screen.getByRole("heading", { name: "Cordless vacuum product page" })).toBeInTheDocument();
+    const terminalFetches = candidateFetches;
+    expect(terminalFetches).toBeGreaterThan(initialFetches);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+    expect(candidateFetches).toBe(terminalFetches);
+    vi.useRealTimers();
+  });
+
+  it("loads candidates for an older selected run and pages beyond the first candidate page", async () => {
+    const latestId = "ad9777ac-92f2-4c5b-940f-c54f4aafc044";
+    const olderId = "09272aa4-1e46-48d0-a3a4-7b28c76c6712";
+    const latest = run({ id: latestId, objective: "Latest vacuum search" });
+    const older = run({ id: olderId, objective: "Older saved vacuum search" });
+    const olderCandidate = { ...candidate, id: "older-candidate", research_run_id: olderId, provisional_name: "Older candidate" };
+    const latestCandidates = Array.from({ length: 21 }, (_, index) => ({
+      ...candidate,
+      id: `latest-candidate-${index}`,
+      research_run_id: latestId,
+      provisional_name: `Latest candidate ${index + 1}`,
+    }));
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), "http://localhost");
+      if (url.pathname === `/projects/${PROJECT_ID}`) return response(project());
+      if (url.pathname === `/projects/${PROJECT_ID}/research`) {
+        return url.searchParams.has("cursor")
+          ? response({ items: [older], next_cursor: null })
+          : response({ items: [latest], next_cursor: "older-runs" });
+      }
+      if (url.pathname === `/projects/${PROJECT_ID}/research/${latestId}`) return response(latest);
+      if (url.pathname === `/projects/${PROJECT_ID}/research/${olderId}`) return response(older);
+      if (url.pathname === `/projects/${PROJECT_ID}/candidates`) {
+        const selected = url.searchParams.get("run_id");
+        if (selected === olderId) return response({ items: [olderCandidate], next_cursor: null });
+        const cursor = url.searchParams.get("cursor");
+        return cursor
+          ? response({ items: latestCandidates.slice(20), next_cursor: null })
+          : response({ items: latestCandidates.slice(0, 20), next_cursor: "latest-more" });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderApp();
+
+    expect(await screen.findByRole("heading", { name: "Latest candidate 1" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Load more candidates" }));
+    expect(await screen.findByRole("heading", { name: "Latest candidate 21" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Load older runs" }));
+    const olderRun = await screen.findByRole("button", { name: /Older saved vacuum search/ });
+    fireEvent.click(olderRun);
+    expect(await screen.findByRole("heading", { name: "Older candidate" })).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([input]) => {
+      const url = new URL(String(input), "http://localhost");
+      return url.pathname.endsWith("/candidates") && url.searchParams.get("run_id") === olderId;
+    })).toBe(true);
   });
 
   it("shows an empty result message and cancels a running run", async () => {
