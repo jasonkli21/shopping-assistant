@@ -16,6 +16,13 @@ logger = logging.getLogger(__name__)
 SessionFactory = Callable[[], Session]
 
 
+def _call_in_session[Result](
+    session_factory: SessionFactory, operation: Callable[[Session], Result]
+) -> Result:
+    with session_factory() as session:
+        return operation(session)
+
+
 class GenerationSupervisor:
     """Lifespan-owned, single-process supervisor for bounded generation tasks."""
 
@@ -75,10 +82,11 @@ class GenerationSupervisor:
 
     async def _run(self, owner_id: UUID, project_id: UUID, message_id: UUID) -> None:
         try:
-            with self.session_factory() as session:
-                context, task_name = service.load_generation_input(
+            context, task_name = await self._with_session(
+                lambda session: service.load_generation_input(
                     session, owner_id, project_id, message_id
                 )
+            )
             if context is None or task_name != "interpret_shopping_intent.v1":
                 await self._fail(owner_id, project_id, message_id, "context_too_large")
                 return
@@ -89,8 +97,8 @@ class GenerationSupervisor:
                 await self._fail(owner_id, project_id, message_id, "provider_refused")
                 return
             output = validate_output(response.output, context)
-            with self.session_factory() as session:
-                service.complete_generation(
+            await self._with_session(
+                lambda session: service.complete_generation(
                     session,
                     owner_id=owner_id,
                     project_id=project_id,
@@ -98,6 +106,7 @@ class GenerationSupervisor:
                     output=output,
                     provider_request_id=response.provider_request_id,
                 )
+            )
         except TimeoutError:
             await self._fail(owner_id, project_id, message_id, "provider_timeout")
         except AIProviderError as error:
@@ -112,8 +121,9 @@ class GenerationSupervisor:
             await self._fail(owner_id, project_id, message_id, "invalid_output")
         except asyncio.CancelledError:
             try:
-                with self.session_factory() as session:
-                    service.interrupt_generation(session, message_id)
+                await self._with_session(
+                    lambda session: service.interrupt_generation(session, message_id)
+                )
             except Exception as error:
                 logger.error(
                     "Could not persist interrupted assistant generation (%s)",
@@ -130,11 +140,33 @@ class GenerationSupervisor:
 
     async def _fail(self, owner_id: UUID, project_id: UUID, message_id: UUID, code: str) -> None:
         try:
-            with self.session_factory() as session:
-                service.fail_generation(session, owner_id, project_id, message_id, code)
+            await self._with_session(
+                lambda session: service.fail_generation(
+                    session, owner_id, project_id, message_id, code
+                )
+            )
         except Exception as error:
             logger.error(
                 "Could not persist assistant generation failure for message %s (%s)",
                 message_id,
                 type(error).__name__,
             )
+
+    async def _with_session[Result](self, operation: Callable[[Session], Result]) -> Result:
+        """Run one bounded synchronous database unit off the event loop.
+
+        Shield the worker from task cancellation and wait for its session to
+        close before returning cancellation to the supervisor. This prevents
+        shutdown from abandoning an in-flight database write.
+        """
+        worker = asyncio.create_task(
+            asyncio.to_thread(_call_in_session, self.session_factory, operation)
+        )
+        try:
+            return await asyncio.shield(worker)
+        except asyncio.CancelledError:
+            try:
+                await worker
+            except Exception:
+                pass
+            raise

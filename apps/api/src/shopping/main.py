@@ -7,6 +7,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
+from starlette.concurrency import run_in_threadpool
 
 from shopping.api.router import router
 from shopping.config import get_settings
@@ -39,7 +40,7 @@ async def lifespan(application: FastAPI):
     )
     application.state.generation_supervisor = supervisor
     try:
-        supervisor.recover_after_restart()
+        await run_in_threadpool(supervisor.recover_after_restart)
     except SQLAlchemyError:
         # Liveness remains available while PostgreSQL is starting or migrations
         # have not yet been applied; durable routes will report storage errors.
