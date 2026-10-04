@@ -24,7 +24,7 @@ Complete phases 1–9 sequentially. **User steering: every newly spawned impleme
 
 ## Next action
 
-Active agent `/root/phase2_implementation` (Luna Extra High) implements the entire Phase 2 in scoped logical commits. Wait idle except infrequent health checks. Then main-session independent review of plan + system intent, fix if substantive via fresh Luna Extra High, verify and sign off before Phase 3. Phase 1 sign-off commit29165b4.
+Phase 2 implementation finished commits78ebbfc,4a726e0,44d01ba,1106283. Main independently reviewed command/proposal transactions, generation supervisor, history/SSE, intent schemas/task, UI+retry/cache, tests and docs. Confirmed invalid currency ZZZ, null label, oversized updated JSON value accepted at generation. Other substantive gaps: syncDB work on async eventloop; deleted proposal replay/dismiss; definitive rejected-command retry lock; crossproject panel state; manualdraft/pendingproposal coordination; fakeunit ambiguity. Active fix agent `/root/phase2_review_fixes` (fresh Luna Extra High) handles scoped fixes/regressions/logical commits. Wait idle; then main re-review/verify/signoff before Phase3.
 
 ## Restart schedule correction
 
