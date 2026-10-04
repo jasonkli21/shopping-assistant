@@ -1,5 +1,5 @@
 # API Types
 
-Reserved for generated/shared API contracts once the backend API stabilizes.
+TypeScript API transport types are committed in [`src/index.ts`](src/index.ts) and generated from FastAPI's OpenAPI schema.
 
-Do not manually duplicate domain models across Python and TypeScript. Prefer generating client types from the FastAPI OpenAPI schema once Phase 1 introduces meaningful contracts.
+The API schemas remain the source of truth; do not hand-maintain a duplicate domain model here. From the repository root, run `make api-types` to regenerate and `make api-types-check` to verify the committed output. CI runs the check.

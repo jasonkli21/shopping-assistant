@@ -125,7 +125,9 @@ class ProjectRequirement(Base):
     detail: Mapped[str | None] = mapped_column(String(2000))
     attribute_key: Mapped[str | None] = mapped_column(String(100))
     operator: Mapped[str | None] = mapped_column(String(16))
-    value: Mapped[dict | list | str | int | float | bool | None] = mapped_column(JSONB)
+    value: Mapped[dict | list | str | int | float | bool | None] = mapped_column(
+        JSONB(none_as_null=True)
+    )
     unit: Mapped[str | None] = mapped_column(String(50))
     position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     origin: Mapped[str] = mapped_column(

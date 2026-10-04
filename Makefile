@@ -1,4 +1,4 @@
-.PHONY: db-up db-down install api web migrate test test-db lint typecheck build validate format
+.PHONY: db-up db-down install api web migrate test test-db lint typecheck build validate format api-types api-types-check
 
 install:
 	cd apps/api && uv sync --locked --extra dev
@@ -24,6 +24,12 @@ test:
 test-db:
 	cd apps/api && TEST_DATABASE_URL="$(TEST_DATABASE_URL)" uv run pytest -m db
 
+api-types:
+	cd apps/api && uv run python ../../scripts/generate_api_types.py
+
+api-types-check:
+	cd apps/api && uv run python ../../scripts/generate_api_types.py --check
+
 lint:
 	cd apps/api && uv run ruff check src tests migrations
 	cd apps/api && uv run ruff format --check src tests migrations
@@ -41,4 +47,4 @@ typecheck:
 build:
 	cd apps/web && pnpm build
 
-validate: lint test typecheck build
+validate: lint test api-types-check typecheck build

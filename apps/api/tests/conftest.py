@@ -50,7 +50,7 @@ def postgres_schema() -> Iterator[tuple[Engine, str]]:
             pool_pre_ping=True,
             connect_args={"options": f"-csearch_path={schema}"},
         )
-        repository_root = Path(__file__).resolve().parents[4]
+        repository_root = Path(__file__).resolve().parents[3]
         api_root = repository_root / "apps" / "api"
         config = Config(str(api_root / "alembic.ini"))
         config.attributes["connection"] = schema_engine.connect()

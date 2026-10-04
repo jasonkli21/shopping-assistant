@@ -21,6 +21,7 @@ jobs:
       - run: uv run ruff format --check src tests migrations
       - run: uv run pytest -m 'not db and not live'
       - run: uv run alembic upgrade head --sql
+      - run: uv run python ../../scripts/generate_api_types.py --check
 
   backend-db:
     runs-on: ubuntu-latest
