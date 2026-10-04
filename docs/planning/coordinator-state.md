@@ -8,7 +8,7 @@ Updated: 2026-10-04. This file is a resumable operational record, not completion
 - Phase 1 accepted/signed off in `29165b4` after fixes `09200ed`, `4b6b8d8`, `e7aad12`. Root verified 17 offline API, 17 frontend, 23 PG tests and generated types.
 - Phase 2 implemented `78ebbfc`, `4a726e0`, `44d01ba`, `1106283`; independent main-session review fixes `a6b3c42`, `793b34a`, `7521b5c`, `a645e0a`. Root independently re-reviewed and verified 39 offline API, 50 PG, 31 frontend tests and generated types on October 4. Accepted deterministic local path; external structured Personal AI contract unavailable, browser smoke/hosted CI/multi-instance not verified.
 - Phase 3 accepted after implementation `e66d0d6` and review fixes `af01fcb`, `0eb78d6`, `c5f9387`. Main independently reviewed budget/deadline gates, strict cursor/run pagination, final candidate refresh, command restoration/revision retry, URL semantics and module split; verified 66 offline API/eval, 68 PostgreSQL and 42 frontend tests plus generated types. Live providers, hosted CI, mobile visual inspection and multi-instance execution remain unverified. Original implementation commit remains intact; review fixes are three logical commits.
-- Phase 4 is next: catalog persistence/mapping; guarded retrieval and extraction fixtures; deterministic resolution/correction; API/types/UI; evidence. Phases 4–9 have no implementation yet.
+- Phase 4 in progress: `cf59ab8` catalog schema and `e51fa1c` guarded retrieval/extraction committed. Original implementer errored at usage limit; fresh `/root/phase4_implementation_resume` owns remaining matching/correction/API/UI/evidence from preserved partial work. Phases 5–9 have no implementation yet.
 
 ## Operating contract
 
@@ -23,7 +23,7 @@ Complete phases 1–9 sequentially. **User steering: every newly spawned impleme
 
 ## Next action
 
-Dispatch fresh Luna Extra High for all of Phase 4, then remain idle while it implements. Scope the five logical commits listed above; read the Phase 4 plan and architecture references. Security requires pinned/validated destinations or explicit public host allowlists; arbitrary URLs must never bypass these checks. Preserve unknown identity and variant discriminators, source/search lineage, immutable offers, owner boundaries, revision/idempotency semantics and reversible manual mapping. Main independently reviews after completion before Phase 5. Search candidates remain unverified observations until validated normalization. Preserve the external structured Personal AI contract limitation; never invent an endpoint or call model providers directly.
+Wait for `/root/phase4_implementation_resume`, then independently review all Phase 4 including predecessor commits. Original agent stopped at usage limit; partial catalog models, schemas/resolution, migration 0007 and extraction task/fixtures were preserved for replacement. Root has not reviewed Phase 4 yet. Security requires pinned/validated destinations or explicit public host allowlists; arbitrary URLs must never bypass these checks. Preserve unknown identity and variant discriminators, source/search lineage, immutable offers, owner boundaries, revision/idempotency semantics and reversible manual mapping. Search candidates remain unverified observations until validated normalization. Preserve the external structured Personal AI contract limitation; never invent an endpoint or call model providers directly.
 
 ## Restart schedule correction
 
