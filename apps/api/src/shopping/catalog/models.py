@@ -138,6 +138,9 @@ class CatalogObservation(Base):
     run_id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("research_runs.id", ondelete="CASCADE"), nullable=False
     )
+    snapshot_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("source_snapshots.id", ondelete="RESTRICT")
+    )
     idempotency_key: Mapped[str] = mapped_column(String(100), nullable=False)
     request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     requested_url: Mapped[str] = mapped_column(String(2048), nullable=False)

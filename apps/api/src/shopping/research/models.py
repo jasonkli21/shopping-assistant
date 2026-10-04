@@ -24,7 +24,9 @@ from shopping.db.base import Base
 class ResearchRun(Base):
     __tablename__ = "research_runs"
     __table_args__ = (
-        CheckConstraint("run_type = 'discovery'", name="ck_research_run_type"),
+        CheckConstraint(
+            "run_type IN ('discovery', 'product_research')", name="ck_research_run_type"
+        ),
         CheckConstraint(
             "status IN ('queued', 'running', 'succeeded', 'partial', 'failed', "
             "'canceled', 'interrupted')",
@@ -106,6 +108,9 @@ class SearchQueryRecord(Base):
     id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
     run_id: Mapped[UUID] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("research_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    target_project_product_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("project_products.id", ondelete="SET NULL")
     )
     ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
     text: Mapped[str] = mapped_column(String(300), nullable=False)

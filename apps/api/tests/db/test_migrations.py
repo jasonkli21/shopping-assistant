@@ -1,3 +1,4 @@
+from datetime import UTC
 from pathlib import Path
 from uuid import uuid4
 
@@ -57,6 +58,14 @@ def test_fresh_database_can_upgrade_downgrade_and_upgrade_again(postgres_schema)
             "search_results",
             "discovery_candidates",
             "candidate_search_results",
+            "sources",
+            "source_snapshots",
+            "research_run_sources",
+            "claims",
+            "claim_evidence",
+            "claim_relations",
+            "product_assessments",
+            "assessment_citations",
             "alembic_version",
         } <= tables
     finally:
@@ -295,6 +304,129 @@ def test_catalog_migration_preserves_phase_three_candidate_and_search_lineage(po
             connection.execute(
                 text("SELECT count(*) FROM discovery_candidates WHERE id = :id"),
                 {"id": candidate_id},
+            ).scalar_one()
+            == 1
+        )
+    finally:
+        connection.close()
+
+
+def test_phase_four_observation_backfills_only_saved_snapshot_provenance(postgres_schema):
+    engine, _schema = postgres_schema
+    config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
+    connection = engine.connect()
+    config.attributes["connection"] = connection
+    owner_id, project_id, run_id, candidate_id = uuid4(), uuid4(), uuid4(), uuid4()
+    product_id, variant_id, project_product_id = uuid4(), uuid4(), uuid4()
+    observation_id = uuid4()
+    content_hash = "a" * 64
+    retrieved_at = "2026-10-04T18:00:00+00:00"
+    try:
+        command.downgrade(config, "0008_offer_amount_currency_pair")
+        connection.execute(
+            text(
+                "INSERT INTO shopping_projects (id, owner_id, title, goal, revision) "
+                "VALUES (:id, :owner_id, 'Vacuum', 'Find a vacuum', 1)"
+            ),
+            {"id": project_id, "owner_id": owner_id},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO research_runs (id, project_id, owner_id, objective, run_type, "
+                "status, request_key, request_hash, snapshot_revision, input_snapshot, "
+                "effective_budgets, task_name, prompt_version, schema_version, ai_provider, "
+                "search_provider) VALUES (:id, :project_id, :owner_id, 'Normalize product', "
+                "'discovery', 'succeeded', 'request-0001', :hash, 1, '{}'::jsonb, "
+                "'{}'::jsonb, 'plan_discovery.v1', 'v1', 1, 'fake', 'fake')"
+            ),
+            {
+                "id": run_id,
+                "project_id": project_id,
+                "owner_id": owner_id,
+                "hash": "b" * 64,
+            },
+        )
+        connection.execute(
+            text(
+                "INSERT INTO discovery_candidates "
+                "(id, project_id, run_id, provisional_name, discovery_reason, normalized_url) "
+                "VALUES (:id, :project_id, :run_id, 'Example Vacuum', 'Search result', "
+                "'https://shop.example/vacuum')"
+            ),
+            {"id": candidate_id, "project_id": project_id, "run_id": run_id},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO products (id, owner_id, canonical_name) "
+                "VALUES (:id, :owner_id, 'Example Vacuum')"
+            ),
+            {"id": product_id, "owner_id": owner_id},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO product_variants "
+                "(id, product_id, display_name, identity_key, identity_attributes, "
+                "category_attributes) "
+                "VALUES (:id, :product_id, 'Unspecified', 'unspecified', '{}'::jsonb, '{}'::jsonb)"
+            ),
+            {"id": variant_id, "product_id": product_id},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO project_products (id, project_id, variant_id, discovery_reason) "
+                "VALUES (:id, :project_id, :variant_id, 'Search result')"
+            ),
+            {"id": project_product_id, "project_id": project_id, "variant_id": variant_id},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO catalog_observations "
+                "(id, owner_id, project_id, candidate_id, run_id, idempotency_key, request_hash, "
+                "requested_url, final_url, retrieved_at, content_hash, content_type, status, "
+                "extractor_version, task_version, extraction, excerpts, warnings) "
+                "VALUES (:id, :owner_id, :project_id, :candidate_id, :run_id, 'request-0001', "
+                ":request_hash, 'https://shop.example/vacuum', 'https://shop.example/vacuum', "
+                "CAST(:retrieved_at AS timestamptz), :content_hash, 'text/html', 'succeeded', "
+                "'httpx-page-retriever.v1', 'normalize_catalog_candidate.v1', '{}'::jsonb, "
+                "CAST(:excerpts AS jsonb), '[]'::jsonb)"
+            ),
+            {
+                "id": observation_id,
+                "owner_id": owner_id,
+                "project_id": project_id,
+                "candidate_id": candidate_id,
+                "run_id": run_id,
+                "request_hash": "c" * 64,
+                "retrieved_at": retrieved_at,
+                "content_hash": content_hash,
+                "excerpts": '["Example Vacuum", "Runtime up to 60 minutes"]',
+            },
+        )
+        connection.commit()
+
+        command.upgrade(config, "head")
+        linked = connection.execute(
+            text(
+                "SELECT source.domain, source.classification, snapshot.content_hash, "
+                "snapshot.published_at, snapshot.retrieved_at, snapshot.excerpts, "
+                "snapshot.relevant_text FROM catalog_observations observation "
+                "JOIN source_snapshots snapshot ON snapshot.id = observation.snapshot_id "
+                "JOIN sources source ON source.id = snapshot.source_id "
+                "WHERE observation.id = :id"
+            ),
+            {"id": observation_id},
+        ).one()
+        assert linked.domain == "shop.example"
+        assert linked.classification == "unknown"
+        assert linked.content_hash == content_hash
+        assert linked.published_at is None
+        assert linked.retrieved_at.astimezone(UTC).isoformat() == retrieved_at
+        assert linked.excerpts == ["Example Vacuum", "Runtime up to 60 minutes"]
+        assert "Runtime up to 60 minutes" in linked.relevant_text
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM sources WHERE owner_id = :owner_id"),
+                {"owner_id": owner_id},
             ).scalar_one()
             == 1
         )
