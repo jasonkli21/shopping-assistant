@@ -6,7 +6,7 @@ Updated: 2026-10-03. This file is a resumable operational record, not completion
 
 - Baseline: Phase 0 scaffold and validation documented in `VALIDATION.md`.
 - Git was initialized for this extracted checkout by the coordinating task. Baseline commit: `5ff030d`.
-- Phase 1: implementation complete in commits `0ff4fd1`, `c0aadc9`, `6a1e673`, `5bb4079`; independent review found stale-form reconciliation can overwrite concurrent edits after a 409. Phases 2–9 have not started.
+- Phase 1: implementation complete in commits `0ff4fd1`, `c0aadc9`, `6a1e673`, `5bb4079`; independent review found stale-form reconciliation can overwrite concurrent edits after a 409. Phase 2 dispatched to fresh Luna Extra High; Phases 3–9 have not started.
 - Phase 1 accepted after main-session independent review and fixes 09200ed, 4b6b8d8, e7aad12. Root independently reran 17 offline API tests, 17 UI tests, generated-type check and 23 PG16 database tests: passed. Main reviewed migrations, owner/revision transactions, rollback/tombstones, API errors/pagination, CI separation, draft reconciliation/pending controls, feature organization, docs/evidence. Small root submit guard added; tested UI suite again. External/manual limitations remain explicitly recorded. Phase 2 is next.
 - Phase 1A commit `0ff4fd1` reported by agent: migration, PostgreSQL test harness and dedicated CI DB job; isolated native PostgreSQL 16.15 migration/constraint suite reported 7 passing. Coordinator review is pending the complete phase.
 - Phase 1 reported validation: `make validate` green (17 offline API and 9 UI tests, lint, generated types, typecheck, build); `make test-db` 15 passed on isolated PostgreSQL 16.15; fresh migration and Alembic check passed. Local browser exercised create, $400 budget, requirement reorder/reload, archive/restore, and 390px layout/focus. Native confirm bridge prevented manual delete click; UI test and API tombstone passed. Hosted CI and full keyboard traversal unrun.
@@ -24,7 +24,7 @@ Complete phases 1–9 sequentially. **User steering: every newly spawned impleme
 
 ## Next action
 
-Assess and dispatch Phase 2 to a fresh Luna Extra High agent. Main-session review only; remain idle during implementation.
+Active agent `/root/phase2_implementation` (Luna Extra High) implements the entire Phase 2 in scoped logical commits. Wait idle except infrequent health checks. Then main-session independent review of plan + system intent, fix if substantive via fresh Luna Extra High, verify and sign off before Phase 3. Phase 1 sign-off commit29165b4.
 
 ## Restart schedule correction
 
