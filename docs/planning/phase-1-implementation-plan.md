@@ -70,3 +70,7 @@ Run `make validate`, `uv run pytest -m 'not db and not live'`, `TEST_DATABASE_UR
 Completion questions: Can transport models diverge from ORM without accidental leaks? Are owners checked on nested resources? Can two tabs corrupt requirements? Is manual entry pleasant without AI? Does the migration import all models? Did the phase avoid catalog/assistant infrastructure?
 
 Handoff: durable project IDs/revisions, validated requirement/budget shapes, ownership dependency, service transaction boundary, generated API types and PostgreSQL test harness. Phase 2 may propose changes through these services only. No unresolved external provider decision blocks this phase.
+
+### Main-session sign-off
+
+2026-10-03: independent main-session review accepted Phase 1 after review fixes `09200ed`, `4b6b8d8`, `e7aad12`. Re-ran 17 offline API tests, 17 frontend tests, generated type check, and 23 PostgreSQL 16 tests successfully. Reviewed the API/ORM separation, scoped transactions, conflict reconciliation, error paths, migrations, feature organization and CI gates. Added a small pending guard to the project submit handler. Previously recorded manual/hosted limitations remain. Phase 2 may begin.

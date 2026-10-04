@@ -138,7 +138,7 @@ export function ProjectOverview() {
 
   function submitProject(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!project || !draft || conflict) return;
+    if (!project || !draft || conflict || saveProject.isPending || deleteProject.isPending) return;
     setSaveError("");
     setSaveMessage("");
     setErrors({});
