@@ -83,6 +83,7 @@ input[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: #bc615
 .button { display: inline-flex; min-height: 42px; align-items: center; justify-content: center; padding: 10px 16px; border: 1px solid transparent; border-radius: 10px; font-size: .9rem; font-weight: 600; text-decoration: none; cursor: pointer; transition: background .15s, border-color .15s, transform .15s; }
 .button:not(:disabled):active { transform: translateY(1px); }
 .button:disabled { opacity: .55; cursor: not-allowed; }
+.pending-fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
 .primary-button { background: var(--green); color: white; }
 .primary-button:not(:disabled):hover { background: var(--green-dark); }
 .create-card form > .primary-button { width: 100%; margin-top: 22px; }

@@ -53,6 +53,7 @@ export function ProjectHome() {
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (createProject.isPending) return;
     const command: ProjectCreate = { title: title.trim(), goal: goal.trim() };
     createProject.mutate(command);
   }
@@ -86,6 +87,8 @@ export function ProjectHome() {
             </div>
           </div>
           <form onSubmit={submit}>
+            <fieldset className="pending-fieldset" disabled={createProject.isPending}>
+              <legend className="sr-only">New project details</legend>
             <label className="field-label" htmlFor="project-title">Project name</label>
             <input
               ref={titleRef}
@@ -117,6 +120,7 @@ export function ProjectHome() {
             {fieldMessage(createProject.error, "goal") && (
               <p id="goal-error" className="field-error">{fieldMessage(createProject.error, "goal")}</p>
             )}
+            </fieldset>
 
             {createProject.isError && (
               <p className="notice error-notice" role="alert">

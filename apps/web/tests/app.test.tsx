@@ -58,6 +58,12 @@ function response(body: unknown, status = 200) {
   };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
 function renderApp(path = "/") {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -141,6 +147,7 @@ describe("project Home", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create project" }));
 
     expect(await screen.findByRole("button", { name: "Creating project…" })).toBeDisabled();
+    fireEvent.submit(screen.getByRole("button", { name: "Creating project…" }).closest("form")!);
     expect(screen.getByRole("status")).toHaveTextContent("Saving your project");
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
   });
@@ -191,6 +198,31 @@ describe("project Overview", () => {
       expected_version: 1,
       title: "Quiet apartment vacuum",
     });
+  });
+
+  it("locks project fields during a delayed successful save", async () => {
+    const initial = project();
+    const saved = project({ title: "Quiet apartment vacuum", revision: 2 });
+    const pendingResponse = deferred<ReturnType<typeof response>>();
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith(`/projects/${PROJECT_ID}`) && !init?.method) return Promise.resolve(response(initial));
+      if (url.endsWith(`/projects/${PROJECT_ID}`) && init?.method === "PATCH") return pendingResponse.promise;
+      throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderApp(`/projects/${PROJECT_ID}`);
+
+    const title = await screen.findByLabelText("Project name");
+    fireEvent.change(title, { target: { value: saved.title } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(true));
+
+    expect(title).toBeDisabled();
+    expect(screen.getByLabelText("Goal")).toBeDisabled();
+    pendingResponse.resolve(response(saved));
+    expect(await screen.findByRole("status")).toHaveTextContent("Saved revision 2");
+    expect(screen.getByLabelText("Project name")).toHaveValue(saved.title);
   });
 
   it("keeps a project draft after a failed save so the user can retry", async () => {
@@ -445,6 +477,49 @@ describe("project Overview", () => {
     const mutationCalls = fetchMock.mock.calls.filter(([, init]) => ["POST", "PATCH"].includes(init?.method ?? ""));
     expect(mutationCalls).toHaveLength(2);
     expect(JSON.parse(String(mutationCalls[1][1]?.body))).toMatchObject({ expected_version: 2, position: 0 });
+  });
+
+  it("locks requirement drafts during delayed save and create requests", async () => {
+    const initialRequirement = requirement();
+    const initial = project({ requirements: [initialRequirement] });
+    const updatedRequirement = requirement({ label: "My requirement" });
+    const afterPatch = project({ requirements: [updatedRequirement], revision: 2 });
+    const addedRequirement = requirement({
+      id: SECOND_REQUIREMENT_ID,
+      label: "Quiet operation",
+      position: 1,
+    });
+    const afterCreate = project({ requirements: [updatedRequirement, addedRequirement], revision: 3 });
+    const pendingPatch = deferred<ReturnType<typeof response>>();
+    const pendingCreate = deferred<ReturnType<typeof response>>();
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith(`/projects/${PROJECT_ID}`) && !init?.method) return Promise.resolve(response(initial));
+      if (url.endsWith(`/requirements/${REQUIREMENT_ID}`) && init?.method === "PATCH") return pendingPatch.promise;
+      if (url.endsWith(`/projects/${PROJECT_ID}/requirements?expected_version=2`) && init?.method === "POST") {
+        return pendingCreate.promise;
+      }
+      throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderApp(`/projects/${PROJECT_ID}`);
+
+    const requirementLabel = await screen.findByDisplayValue(initialRequirement.label);
+    const row = requirementLabel.closest("li")!;
+    fireEvent.change(requirementLabel, { target: { value: updatedRequirement.label } });
+    fireEvent.click(within(row).getByRole("button", { name: "Save requirement" }));
+    await waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(true));
+    expect(requirementLabel).toBeDisabled();
+    pendingPatch.resolve(response(afterPatch));
+    expect(await within(row).findByRole("status")).toHaveTextContent("Requirement saved");
+
+    const newRequirementLabel = screen.getByPlaceholderText("Works well on pet hair");
+    fireEvent.change(newRequirementLabel, { target: { value: addedRequirement.label } });
+    fireEvent.click(screen.getByRole("button", { name: "Add requirement" }));
+    await waitFor(() => expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(true));
+    expect(newRequirementLabel).toBeDisabled();
+    pendingCreate.resolve(response(afterCreate));
+    await waitFor(() => expect(screen.getByPlaceholderText("Works well on pet hair")).toHaveValue(""));
   });
 
   it("confirms a delete before sending a tombstone request and returns home", async () => {
