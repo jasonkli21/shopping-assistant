@@ -10,7 +10,7 @@ Use this repository as the starting point for implementing a personal shopping a
 - Architecture and technology decisions are defined in `docs/architecture/`.
 - Detailed Phase 0–9 plans and shared contracts are in [the index](docs/planning/implementation-plans-index.md); `docs/planning/implementation-plan.md` is the roadmap summary.
 - Phase 0 foundation work is recorded at baseline commit `5ff030d`; Phase 1 persistence, API/types, and UI are in commits `0ff4fd1`, `c0aadc9`, and `6a1e673`. See [Phase 1 acceptance evidence](docs/planning/phase-1-implementation-plan.md) and [validation record](VALIDATION.md).
-- Phase 1 implements durable manual projects and requirements. Phase 2 adds durable conversation history and explicitly confirmed intent proposals. Phase 3–9 remain planned; the API contract labels implemented Phase 0–2 routes separately from later drafts.
+- Phase 1 implements durable manual projects and requirements. Phase 2 adds durable conversation history and explicitly confirmed intent proposals. Phase 3 adds bounded discovery runs, search lineage, provisional candidates, and the Discover UI; Phases 4–9 remain planned.
 - Phase 2 is locally validated. Its external Personal AI adapter remains unavailable because the checked upstream contract does not expose structured shopping-task generation; default development uses a deterministic fake. See [Phase 2 acceptance evidence](docs/planning/phase-2-implementation-plan.md), [integration contract note](apps/api/src/shopping/integrations/personal_ai/CONTRACT.md), and [validation record](VALIDATION.md).
 - The checkout is a local Git repository on `main`; `git remote -v` returned no configured remote. Hosted CI has not been run.
 
@@ -23,9 +23,9 @@ Use this repository as the starting point for implementing a personal shopping a
 5. Update phase status with plan → code → test evidence and explicitly outstanding external checks.
 6. Review the completed phase and stop before its successor. Phase 6 requires the documented repository-wide gate.
 
-The next implementation phase is Phase 3 discovery/research. Do not add search/catalog behavior to the Phase 2 assistant; its proposals only edit existing Phase 1 project fields and requirements. The Phase 2 generation supervisor is local single-process execution, and Phase 9 must revisit lifetime/recovery before multi-instance hosting. Do not claim live Personal AI compatibility from fake responses.
+The next implementation phase is Phase 4 product, variant, and offer normalization. Reuse Phase 3 candidate/search lineage and retain its provisional observations; do not implement evidence synthesis, project-fit assessments, or decisions in Phase 4. The Phase 3 discovery supervisor is local single-process execution, and Phase 9 must revisit lifetime/recovery before multi-instance hosting. Do not claim live Tavily compatibility or Personal AI query quality from fixtures; both remain unverified.
 
-The Phase 1 and Phase 2 features are implemented and locally validated. PostgreSQL integration, deterministic offline tests, generated API types, and frontend checks are recorded in `VALIDATION.md`. Hosted CI, Phase 2 browser smoke, live Personal AI compatibility, and full keyboard-only traversal remain unverified. Do not report those checks as passed.
+The Phase 1–3 features are implemented and locally validated. PostgreSQL integration, deterministic offline tests, generated API types, and frontend checks are recorded in `VALIDATION.md`. Hosted CI, live Tavily discovery quality, live Personal AI compatibility, multi-instance behavior, and full keyboard-only traversal remain unverified. Do not report those checks as passed.
 
 ## Non-negotiable boundaries
 

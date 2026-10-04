@@ -19,6 +19,11 @@ export type MessageRead = components["schemas"]["MessageRead"];
 export type MessagePage = components["schemas"]["MessagePage"];
 export type ProposalRead = components["schemas"]["ProposalRead"];
 export type ProposalMutationResult = components["schemas"]["ProposalMutationResult"];
+export type ResearchCreate = components["schemas"]["ResearchCreate"];
+export type ResearchCreated = components["schemas"]["ResearchCreated"];
+export type ResearchRunRead = components["schemas"]["ResearchRunRead"];
+export type CandidateRead = components["schemas"]["CandidateRead"];
+export type CandidatePage = components["schemas"]["CandidatePage"];
 
 export class ApiRequestError extends Error {
   constructor(
@@ -69,7 +74,8 @@ export const projectsApi = {
   },
   create: (command: ProjectCreate) =>
     request<Project>("/projects", jsonRequest("POST", command)),
-  get: (projectId: string) => request<Project>(`/projects/${projectId}`),
+  get: (projectId: string, signal?: AbortSignal) =>
+    request<Project>(`/projects/${projectId}`, { signal }),
   patch: (projectId: string, command: ProjectPatch) =>
     request<Project>(`/projects/${projectId}`, jsonRequest("PATCH", command)),
   delete: (projectId: string, expectedVersion: number) =>
@@ -144,5 +150,30 @@ export const projectsApi = {
     request<ProposalMutationResult>(
       `/projects/${projectId}/proposals/${proposalId}/dismiss`,
       jsonRequest("POST"),
+    ),
+};
+
+export const researchApi = {
+  create: (projectId: string, command: ResearchCreate) =>
+    request<ResearchCreated>(
+      `/projects/${projectId}/research`,
+      jsonRequest("POST", command),
+    ),
+  list: (projectId: string, limit = 20, signal?: AbortSignal) =>
+    request<{ items: ResearchRunRead[] }>(
+      `/projects/${projectId}/research?${new URLSearchParams({ limit: String(limit) })}`,
+      { signal },
+    ),
+  get: (projectId: string, runId: string, signal?: AbortSignal) =>
+    request<ResearchRunRead>(`/projects/${projectId}/research/${runId}`, { signal }),
+  cancel: (projectId: string, runId: string) =>
+    request<{ run: ResearchRunRead; replayed: boolean }>(
+      `/projects/${projectId}/research/${runId}/cancel`,
+      jsonRequest("POST"),
+    ),
+  candidates: (projectId: string, limit = 50, signal?: AbortSignal) =>
+    request<CandidatePage>(
+      `/projects/${projectId}/candidates?${new URLSearchParams({ limit: String(limit) })}`,
+      { signal },
     ),
 };

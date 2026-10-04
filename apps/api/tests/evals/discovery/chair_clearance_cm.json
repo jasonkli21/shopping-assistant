@@ -1,0 +1,7 @@
+{
+  "name": "chair_clearance_centimeters",
+  "objective": "Find a chair that fits under the desk",
+  "project": {"goal": "Chair for a home office", "category": "Office chair", "budget_maximum": null, "budget_currency": null},
+  "requirements": [{"kind": "constraint", "label": "Must fit under a desk with 68 centimeters clearance", "unit": "cm"}],
+  "expected_terms": ["chair", "68 centimeters"]
+}

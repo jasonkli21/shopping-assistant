@@ -13,6 +13,10 @@ User
       ├── Requirement
       ├── ResearchRun
       │    ├── SearchQuery
+      │    │    ├── SearchAttempt
+      │    │    └── SearchResult
+      │    ├── DiscoveryCandidate
+      │    │    └── CandidateSearchResult
       │    └── RetrievedSource
       ├── ProjectProduct
       │    ├── Assessment
@@ -138,6 +142,10 @@ Expected over the implementation phases:
 - `retail_offers`
 - `research_runs`
 - `search_queries`
+- `search_attempts`
+- `search_results`
+- `discovery_candidates`
+- `candidate_search_results`
 - `sources`
 - `claims`
 - `claim_evidence`

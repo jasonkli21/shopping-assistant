@@ -33,6 +33,8 @@ Use real PostgreSQL for repositories, transactions, migrations, and nontrivial q
 
 Keep a small number of live/recorded tests for provider adapters such as Tavily and personal-AI integration.
 
+Default tests use MockHTTP, task-aware AI fakes and keyed search fixtures; they do not make external calls. Tavily's credentialed compatibility smoke is explicitly selected with `pytest -m live --run-live`, a dedicated `TAVILY_LIVE_API_KEY` and an acknowledgment value. Its result is separate from offline tests and does not establish real discovery quality. See the [Tavily search contract](search-provider-contract.md).
+
 ### End-to-end tests
 
 Cover only major user journeys.
@@ -56,6 +58,8 @@ Evaluate structured intent, requirements, candidate quality, and known tricky ca
 Persist research-run counters/metadata such as:
 
 - query count;
+- attempt count, status, sanitized error and provider request ID;
+- provider-reported usage units where supplied;
 - search result count;
 - sources retrieved;
 - products discovered;

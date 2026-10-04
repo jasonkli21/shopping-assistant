@@ -38,6 +38,8 @@ class FakePersonalAIClient(PersonalAIClient):
             raise AIProviderError(self.error_code)
         if self.response is not None:
             return AIResponse(output=self.response)
+        if request.task == "plan_discovery.v1":
+            return AIResponse(output=self._plan_discovery(request.input.get("context", {})))
         if request.task != "interpret_shopping_intent.v1":
             raise AIProviderError("unsupported_task")
         context = request.input.get("context", {})
@@ -196,6 +198,54 @@ class FakePersonalAIClient(PersonalAIClient):
             "clarification_questions": questions,
             "project_updates": updates,
             "requirement_operations": operations,
+        }
+
+    def _plan_discovery(self, context: dict[str, Any]) -> dict[str, Any]:
+        """Produce task-shaped fixture plans without inventing product claims."""
+        objective = str(context.get("objective", ""))
+        project = context.get("project", {})
+        requirements = context.get("requirements", [])
+        combined = " ".join(
+            [objective, str(project.get("goal", "")), str(project.get("category", ""))]
+        ).casefold()
+        if "monitor" in combined and not any(
+            token in combined for token in ("inch", "resolution", "gaming", "office")
+        ):
+            return {
+                "queries": [],
+                "clarification": (
+                    "What monitor size, resolution, or main use should guide discovery?"
+                ),
+                "explanation": "The request needs one more detail to create useful searches.",
+            }
+        if "impossible" in combined or ("quiet" in combined and "maximum suction" in combined):
+            return {
+                "queries": [],
+                "clarification": "Which requirement should take priority for this search?",
+                "explanation": "The current requirements may conflict.",
+            }
+
+        base_parts = [
+            str(project.get("category") or "product"),
+            objective or str(project.get("goal") or "shopping options"),
+        ]
+        max_budget = project.get("budget_maximum") or project.get("budget_target")
+        currency = project.get("budget_currency")
+        if max_budget and currency:
+            base_parts.append(f"under {max_budget} {currency}")
+        for requirement in requirements:
+            if requirement.get("kind") in {"must_have", "constraint"}:
+                base_parts.append(str(requirement.get("label", "")))
+        text = " ".join(part for part in base_parts if part).strip()[:300]
+        return {
+            "queries": [
+                {
+                    "text": text,
+                    "purpose": "Find products matching the project goal and required constraints.",
+                }
+            ],
+            "clarification": None,
+            "explanation": "The search phrase preserves the saved project requirements.",
         }
 
 

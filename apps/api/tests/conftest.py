@@ -13,8 +13,10 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session, sessionmaker
 
 from shopping.db.session import get_db
+from shopping.integrations.personal_ai.fake import FakePersonalAIClient
 from shopping.main import app
 from shopping.projects.dependencies import get_owner_id
+from shopping.search.fake import FakeSearchProvider
 
 
 def pytest_addoption(parser) -> None:
@@ -96,7 +98,21 @@ def db_engine(postgres_schema: tuple[Engine, str]) -> Engine:
 
 
 @pytest.fixture
-def project_api(db_engine: Engine) -> Iterator[tuple[TestClient, dict[str, uuid.UUID], Engine]]:
+def discovery_ai_client() -> FakePersonalAIClient:
+    return FakePersonalAIClient()
+
+
+@pytest.fixture
+def research_search_provider() -> FakeSearchProvider:
+    return FakeSearchProvider()
+
+
+@pytest.fixture
+def project_api(
+    db_engine: Engine,
+    discovery_ai_client: FakePersonalAIClient,
+    research_search_provider: FakeSearchProvider,
+) -> Iterator[tuple[TestClient, dict[str, uuid.UUID], Engine]]:
     current_owner = {"id": uuid.uuid4()}
 
     def override_db():
@@ -109,9 +125,17 @@ def project_api(db_engine: Engine) -> Iterator[tuple[TestClient, dict[str, uuid.
     app.dependency_overrides[get_db] = override_db
     app.dependency_overrides[get_owner_id] = override_owner
     previous_factory = getattr(app.state, "conversation_session_factory", None)
+    previous_research_factory = getattr(app.state, "research_session_factory", None)
+    previous_ai_client = getattr(app.state, "discovery_ai_client", None)
+    previous_search_provider = getattr(app.state, "research_search_provider", None)
     app.state.conversation_session_factory = sessionmaker(
         bind=db_engine, autoflush=False, expire_on_commit=False
     )
+    app.state.research_session_factory = sessionmaker(
+        bind=db_engine, autoflush=False, expire_on_commit=False
+    )
+    app.state.discovery_ai_client = discovery_ai_client
+    app.state.research_search_provider = research_search_provider
     with TestClient(app) as client:
         try:
             yield client, current_owner, db_engine
@@ -121,3 +145,15 @@ def project_api(db_engine: Engine) -> Iterator[tuple[TestClient, dict[str, uuid.
                 delattr(app.state, "conversation_session_factory")
             else:
                 app.state.conversation_session_factory = previous_factory
+            if previous_research_factory is None:
+                delattr(app.state, "research_session_factory")
+            else:
+                app.state.research_session_factory = previous_research_factory
+            if previous_ai_client is None:
+                delattr(app.state, "discovery_ai_client")
+            else:
+                app.state.discovery_ai_client = previous_ai_client
+            if previous_search_provider is None:
+                delattr(app.state, "research_search_provider")
+            else:
+                app.state.research_search_provider = previous_search_provider

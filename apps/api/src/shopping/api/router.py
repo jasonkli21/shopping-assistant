@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from shopping.conversations.router import router as conversations_router
 from shopping.projects.router import router as projects_router
+from shopping.research.router import router as research_router
 
 router = APIRouter()
 
@@ -13,3 +14,4 @@ async def health() -> dict[str, str]:
 
 router.include_router(projects_router)
 router.include_router(conversations_router)
+router.include_router(research_router)

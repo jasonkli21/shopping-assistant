@@ -2,7 +2,7 @@
 
 Detailed execution contracts and work packages are in [the Phase 0–9 plans index](implementation-plans-index.md). This document is the summary roadmap; the selected detailed plan and index govern implementation. Phase 0 foundation and Phase 1 project workflows are implemented; validation evidence and remaining checks are in [VALIDATION.md](../../VALIDATION.md). Phases 2–9 are planned, not implemented.
 
-Implement phases in order. Complete and review each phase before starting the next. Do not pull later infrastructure forward without a demonstrated need.
+Phases 0–3 are implemented and locally validated. Implement remaining phases in order; complete and review each phase before starting the next. Do not pull later infrastructure forward without a demonstrated need.
 
 ## Phase 0 — Repository and technical foundation
 
@@ -84,6 +84,8 @@ A message such as “I need a lightweight vacuum under $400 that is good with ha
 ---
 
 ## Phase 3 — Live product discovery
+
+Status: implemented on the deterministic local path; see [Phase 3 evidence](phase-3-implementation-plan.md). Live Tavily credentials/query quality and structured Personal AI planning remain unverified.
 
 ### Goal
 

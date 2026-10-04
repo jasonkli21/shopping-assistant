@@ -1,0 +1,7 @@
+{
+  "name": "impossible_constraints",
+  "objective": "Find a product with an impossible combination of requirements",
+  "project": {"goal": "Vacuum with quiet operation and maximum suction", "category": "Vacuum", "budget_maximum": null, "budget_currency": null},
+  "requirements": [],
+  "expected_clarification": true
+}

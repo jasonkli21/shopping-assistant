@@ -1,0 +1,7 @@
+{
+  "name": "vacuum_pet_hair_budget",
+  "objective": "Find an apartment vacuum under budget",
+  "project": {"goal": "Vacuum for a small apartment", "category": "Vacuum", "budget_maximum": "400.00", "budget_currency": "USD"},
+  "requirements": [{"kind": "must_have", "label": "Works well on pet hair"}],
+  "expected_terms": ["vacuum", "pet hair", "400.00", "USD"]
+}

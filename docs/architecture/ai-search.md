@@ -60,6 +60,8 @@ All web search goes through `SearchProvider`. The initial live provider is Tavil
 
 Shopping logic must not depend on Tavily-specific response types.
 
+Phase 3 persists bounded run, query, attempt and result records plus provisional candidates. A candidate is a URL-grouped search observation within one run; it is not a normalized product or a verified source. Duplicate observations retain every result/query reference. See the [implemented Tavily wire and error contract](search-provider-contract.md), which records the live contract check date and the still-unverified credentialed smoke.
+
 ## Retrieval
 
 `PageRetriever` retrieves source content. Extraction is a separate responsibility.

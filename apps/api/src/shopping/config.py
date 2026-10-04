@@ -21,11 +21,16 @@ class Settings(BaseSettings):
     conversation_max_concurrent_generations: int = Field(default=4, gt=0, le=32)
     search_provider: str = "fake"
     tavily_api_key: str | None = None
-    brave_api_key: str | None = None
     cors_origins: str = "http://localhost:5173"
-    research_max_queries: int = Field(default=8, gt=0)
-    research_max_candidates: int = Field(default=20, gt=0)
-    research_max_sources_per_product: int = Field(default=5, gt=0)
+    research_max_queries: int = Field(default=8, gt=0, le=20)
+    research_max_candidates: int = Field(default=20, gt=0, le=100)
+    research_max_results: int = Field(default=60, gt=0, le=200)
+    research_max_results_per_query: int = Field(default=10, gt=0, le=20)
+    research_max_attempts: int = Field(default=8, gt=0, le=20)
+    research_deadline_seconds: int = Field(default=60, gt=0, le=300)
+    research_provider_timeout_seconds: int = Field(default=15, gt=0, le=60)
+    research_max_concurrent_searches: int = Field(default=1, gt=0, le=16)
+    research_max_concurrent_runs: int = Field(default=2, gt=0, le=16)
 
     model_config = SettingsConfigDict(env_file=REPOSITORY_ROOT / ".env", extra="ignore")
 

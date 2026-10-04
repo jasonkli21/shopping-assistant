@@ -87,6 +87,21 @@ Follow-up review tightened generated-output validation, generation-worker lifecy
 
 `make validate` was not run as an aggregate because the local pnpm wrapper does not match the pinned version; all constituent offline checks are listed above. Browser smoke, hosted CI, multi-instance behavior, and live Personal AI compatibility were not run. The fake is deterministic test/local behavior, not evidence of external provider compatibility.
 
+## Phase 3 bounded discovery — 2026-10-04
+
+Phase 3 adds bounded owner-scoped discovery runs, the provider-neutral search/Tavily adapter, provisional candidates with preserved result lineage, and the project Discover route. The implementation-to-acceptance mapping and known external limits are in the [Phase 3 implementation plan](docs/planning/phase-3-implementation-plan.md).
+
+| Check | Result |
+|---|---|
+| `cd apps/api && UV_CACHE_DIR=/private/tmp/shopping-uv-cache /opt/homebrew/bin/uv run pytest -m 'not db and not live'` | Passed: 66 deterministic API/evaluation tests. Tavily HTTP behavior is exercised with mocked transport; default collection makes no external calls. Planner fixtures include category/constraint and exact decimal budget/currency omission checks. |
+| `cd apps/api && UV_CACHE_DIR=/private/tmp/shopping-uv-cache TEST_DATABASE_URL=postgresql+psycopg://postgres@127.0.0.1:55843/shopping_test /opt/homebrew/bin/uv run pytest -m db` | Passed: 61 tests against the isolated PostgreSQL 16.15 test database. Research tests cover request replay/version gates, competing runs, ownership, budgets that include failed attempts, partial durability, result lineage, deadlines, cancellation/deletion/restart races and planner fallback. Migration tests upgrade, downgrade and re-upgrade fresh schemas and run Alembic's model-drift check. |
+| Ruff and generated API types | Passed: `ruff check`, `ruff format --check` (81 API source/test/migration files) and `scripts/generate_api_types.py --check`. |
+| Frontend | Passed: 37 Vitest tests, ESLint, TypeScript project build and Vite production build using bundled Node 24.19.0. The six Discover tests cover provisional rendering, duplicate submission, definitive rejection, uncertain acknowledgement replay, cancellation and empty/history states. |
+| Manual desktop browser smoke | Passed on local fake configuration: opened a project, submitted an explicit manual query, observed running and terminal counters, and verified the empty result state and run history. The default fake intentionally returned no search results. Mobile viewport inspection was not run. |
+| Aggregate/hosted/live checks | `make validate` was not run because the installed pnpm wrapper is 11.19.0 while the project pins 10.34.6; its applicable constituents above were run directly using installed dependencies. No Tavily credential or verified external structured-task endpoint was available, so live search and live Personal AI planning remain unverified. Hosted CI and multi-instance execution were not run. |
+
+The manual browser smoke used only fake providers. It is evidence for the route and progress/empty-state interaction, not for search quality or returned products. Discovery execution is intentionally single-process and local until the later durable-job phase.
+
 ## Phase 0 baseline review and validation (historical)
 
 Reviewed 2026-10-03 in `/Users/jasonkli/projects/shopping-assistant` before local Git history was established. The original supplied directory had no `.git`; it is now recorded at baseline commit `5ff030d`. No Phase 1+ functionality existed at the time of that review.

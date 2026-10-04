@@ -305,7 +305,12 @@ function ProjectOverviewContent({ projectId }: { projectId?: string }) {
           <h1 ref={headingRef} tabIndex={-1}>{project.title}</h1>
           <p className="overview-lede">A clear place for your goal, requirements, and budget.</p>
         </div>
-        <span className={`status-pill status-${project.status}`}>{project.status}</span>
+        <div className="project-title-actions">
+          <Link className="button secondary-button" to={`/projects/${project.id}/discover`}>
+            Discover products
+          </Link>
+          <span className={`status-pill status-${project.status}`}>{project.status}</span>
+        </div>
       </section>
 
       {projectQuery.isError && (

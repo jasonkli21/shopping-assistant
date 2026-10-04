@@ -17,6 +17,8 @@ from shopping.integrations.personal_ai.client import UnavailablePersonalAIClient
 from shopping.integrations.personal_ai.fake import FakePersonalAIClient
 from shopping.projects.errors import ProjectError
 from shopping.projects.schemas import ApiError, ApiErrorEnvelope
+from shopping.research.supervisor import DiscoverySupervisor
+from shopping.search.factory import create_search_provider
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -39,6 +41,23 @@ async def lifespan(application: FastAPI):
         max_concurrent=settings.conversation_max_concurrent_generations,
     )
     application.state.generation_supervisor = supervisor
+    application.state.research_session_factory = getattr(
+        application.state, "research_session_factory", SessionLocal
+    )
+    discovery_client = getattr(application.state, "discovery_ai_client", client)
+    search_provider = (
+        application.state.research_search_provider
+        if hasattr(application.state, "research_search_provider")
+        else create_search_provider(settings)
+    )
+    discovery = DiscoverySupervisor(
+        client=discovery_client,
+        search_provider=search_provider,
+        session_factory=application.state.research_session_factory,
+        provider_timeout_seconds=settings.research_provider_timeout_seconds,
+        max_concurrent=settings.research_max_concurrent_runs,
+    )
+    application.state.discovery_supervisor = discovery
     try:
         await run_in_threadpool(supervisor.recover_after_restart)
     except SQLAlchemyError:
@@ -46,8 +65,13 @@ async def lifespan(application: FastAPI):
         # have not yet been applied; durable routes will report storage errors.
         logger.warning("Conversation restart recovery skipped because the database is unavailable")
     try:
+        await run_in_threadpool(discovery.recover_after_restart)
+    except SQLAlchemyError:
+        logger.warning("Research restart recovery skipped because the database is unavailable")
+    try:
         yield
     finally:
+        await discovery.shutdown()
         await supervisor.shutdown()
 
 

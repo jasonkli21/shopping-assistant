@@ -1,0 +1,7 @@
+{
+  "name": "monitor_ambiguity",
+  "objective": "Find monitor alternatives",
+  "project": {"goal": "Monitor alternatives", "category": "Monitor", "budget_maximum": null, "budget_currency": null},
+  "requirements": [],
+  "expected_clarification": true
+}

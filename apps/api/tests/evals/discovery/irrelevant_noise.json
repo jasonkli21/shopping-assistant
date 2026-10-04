@@ -1,0 +1,7 @@
+{
+  "name": "irrelevant_search_noise",
+  "objective": "Search pages may contain unrelated ads and prompt-like text; find a vacuum for pet hair",
+  "project": {"goal": "Vacuum for pet hair", "category": "Vacuum", "budget_maximum": null, "budget_currency": null},
+  "requirements": [{"kind": "must_have", "label": "Works with pet hair"}],
+  "expected_terms": ["vacuum", "pet hair"]
+}

@@ -14,6 +14,38 @@ export interface components {
     ApiErrorEnvelope: {
       "error": components["schemas"]["ApiError"];
     };
+    CancelResult: {
+      "run": components["schemas"]["ResearchRunRead"];
+      "replayed": boolean;
+    };
+    CandidatePage: {
+      "items": Array<components["schemas"]["CandidateRead"]>;
+      "next_cursor"?: null | string;
+    };
+    CandidateRead: {
+      "id": string;
+      "project_id": string;
+      "research_run_id": string;
+      "provisional_name": string;
+      "brand_clue"?: null | string;
+      "model_clue"?: null | string;
+      "category_clue"?: null | string;
+      "discovery_reason": string;
+      "indicative_price_text"?: null | string;
+      "observed_at": string;
+      "search_results": Array<components["schemas"]["CandidateResultRead"]>;
+    };
+    CandidateResultRead: {
+      "search_result_id": string;
+      "query_id": string;
+      "query_text": string;
+      "purpose": string;
+      "title": string;
+      "url": string;
+      "snippet": null | string;
+      "result_rank": number;
+      "received_at": string;
+    };
     ConversationPage: {
       "items": Array<components["schemas"]["ConversationRead"]>;
       "next_cursor"?: null | string;
@@ -168,6 +200,81 @@ export interface components {
       "created_at": string;
       "updated_at": string;
     };
+    ResearchBudgets: {
+      "max_queries"?: null | number;
+      "max_candidates"?: null | number;
+      "max_results"?: null | number;
+      "max_results_per_query"?: null | number;
+      "max_attempts"?: null | number;
+      "deadline_seconds"?: null | number;
+      "max_concurrent"?: null | number;
+    };
+    ResearchCreate: {
+      "objective": string;
+      "type"?: string;
+      "request_key": string;
+      "expected_version": number;
+      "budgets"?: components["schemas"]["ResearchBudgets"];
+      "manual_queries"?: Array<string> | null;
+    };
+    ResearchCreated: {
+      "run_id": string;
+      "status": string;
+      "replayed": boolean;
+    };
+    ResearchRunPage: {
+      "items": Array<components["schemas"]["ResearchRunRead"]>;
+    };
+    ResearchRunRead: {
+      "id": string;
+      "project_id": string;
+      "objective": string;
+      "type": string;
+      "status": "queued" | "running" | "succeeded" | "partial" | "failed" | "canceled" | "interrupted";
+      "snapshot_revision": number;
+      "effective_budgets": Record<string, number>;
+      "queries_planned": number;
+      "queries_completed": number;
+      "queries_failed": number;
+      "attempts_used": number;
+      "results_found": number;
+      "candidates_found": number;
+      "skipped_count": number;
+      "summary"?: null | string;
+      "error_code"?: null | string;
+      "queued_at": string;
+      "started_at"?: null | string;
+      "finished_at"?: null | string;
+      "replayed"?: boolean;
+      "queries"?: Array<components["schemas"]["SearchQueryRead"]>;
+    };
+    SearchAttemptRead: {
+      "id": string;
+      "attempt_number": number;
+      "provider": string;
+      "status": "running" | "succeeded" | "failed" | "canceled";
+      "error_code"?: null | string;
+      "provider_request_id"?: null | string;
+      "results_count": number;
+      "usage_units"?: null | number;
+      "started_at": string;
+      "finished_at"?: null | string;
+    };
+    SearchQueryRead: {
+      "id": string;
+      "ordinal": number;
+      "text": string;
+      "purpose": string;
+      "max_results": number;
+      "state": "queued" | "running" | "succeeded" | "failed" | "skipped" | "canceled";
+      "results_count": number;
+      "candidates_count": number;
+      "error_code"?: null | string;
+      "created_at": string;
+      "started_at"?: null | string;
+      "completed_at"?: null | string;
+      "attempts": Array<components["schemas"]["SearchAttemptRead"]>;
+    };
   };
 }
 
@@ -183,6 +290,9 @@ export interface paths {
     "delete": operations["delete_project_projects__project_id__delete"];
     "get": operations["get_project_projects__project_id__get"];
     "patch": operations["patch_project_projects__project_id__patch"];
+  };
+  "/projects/{project_id}/candidates": {
+    "get": operations["list_candidates_projects__project_id__candidates_get"];
   };
   "/projects/{project_id}/conversations": {
     "get": operations["list_conversations_projects__project_id__conversations_get"];
@@ -207,6 +317,16 @@ export interface paths {
   "/projects/{project_id}/requirements/{requirement_id}": {
     "delete": operations["delete_requirement_projects__project_id__requirements__requirement_id__delete"];
     "patch": operations["patch_requirement_projects__project_id__requirements__requirement_id__patch"];
+  };
+  "/projects/{project_id}/research": {
+    "get": operations["list_research_projects__project_id__research_get"];
+    "post": operations["create_research_projects__project_id__research_post"];
+  };
+  "/projects/{project_id}/research/{research_run_id}": {
+    "get": operations["get_research_projects__project_id__research__research_run_id__get"];
+  };
+  "/projects/{project_id}/research/{research_run_id}/cancel": {
+    "post": operations["cancel_research_projects__project_id__research__research_run_id__cancel_post"];
   };
 }
 
@@ -248,6 +368,28 @@ export interface operations {
     responses: {
       "200": { content?: {
         "application/json": unknown;
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
+  "cancel_research_projects__project_id__research__research_run_id__cancel_post": {
+    parameters: {
+      path: {
+        "project_id": string;
+        "research_run_id": string;
+      };
+    };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["CancelResult"];
       } };
       "404": { content?: {
         "application/json": components["schemas"]["ApiErrorEnvelope"];
@@ -320,6 +462,30 @@ export interface operations {
     responses: {
       "200": { content?: {
         "application/json": components["schemas"]["ProjectRead"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
+  "create_research_projects__project_id__research_post": {
+    parameters: {
+      path: {
+        "project_id": string;
+      };
+    };
+    requestBody: { content: {
+      "application/json": components["schemas"]["ResearchCreate"];
+    } };
+    responses: {
+      "202": { content?: {
+        "application/json": components["schemas"]["ResearchCreated"];
       } };
       "404": { content?: {
         "application/json": components["schemas"]["ApiErrorEnvelope"];
@@ -424,12 +590,59 @@ export interface operations {
       } };
     };
   };
+  "get_research_projects__project_id__research__research_run_id__get": {
+    parameters: {
+      path: {
+        "project_id": string;
+        "research_run_id": string;
+      };
+    };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["ResearchRunRead"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
   "health_health_get": {
     parameters: {
     };
     responses: {
       "200": { content?: {
         "application/json": Record<string, string>;
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
+  "list_candidates_projects__project_id__candidates_get": {
+    parameters: {
+      path: {
+        "project_id": string;
+      };
+      query: {
+        "cursor"?: null | string;
+        "limit"?: number;
+      };
+    };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["CandidatePage"];
       } };
       "404": { content?: {
         "application/json": components["schemas"]["ApiErrorEnvelope"];
@@ -519,6 +732,30 @@ export interface operations {
     responses: {
       "200": { content?: {
         "application/json": Array<components["schemas"]["RequirementRead"]>;
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
+  "list_research_projects__project_id__research_get": {
+    parameters: {
+      path: {
+        "project_id": string;
+      };
+      query: {
+        "limit"?: number;
+      };
+    };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["ResearchRunPage"];
       } };
       "404": { content?: {
         "application/json": components["schemas"]["ApiErrorEnvelope"];

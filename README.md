@@ -10,7 +10,7 @@ This repository is intentionally scaffolded as a **modular monolith** with a Rea
 
 ## Status
 
-**Phases 1 and 2 are complete locally:** projects, requirements, conversations, and confirmed intent proposals persist in PostgreSQL behind owner-scoped APIs. AI suggestions remain reviewable until explicitly applied. The upstream Personal AI task contract is not yet available, so local development uses a deterministic fake and live compatibility remains pending. See the [Phase 2 evidence](docs/planning/phase-2-implementation-plan.md), [API contract](docs/api/api-contract.md), and [validation record](VALIDATION.md).
+**Phases 1–3 are complete on the deterministic local path:** projects, requirements, conversations, confirmed intent proposals, bounded discovery runs, search lineage, provisional candidates, and the Discover UI are implemented. AI suggestions remain reviewable until explicitly applied. Discovery uses a task-aware fake planner by default; explicit user queries work without Personal AI. Tavily's current API contract has an adapter and mocked HTTP coverage, but live credentials and query quality remain unverified. See the [Phase 3 evidence](docs/planning/phase-3-implementation-plan.md), [search provider contract](docs/architecture/search-provider-contract.md), [API contract](docs/api/api-contract.md), and [validation record](VALIDATION.md).
 
 ## Quick start
 
@@ -35,6 +35,8 @@ The API and Alembic load repository-root `.env`; process environment variables o
 
 Assistant generation defaults to `PERSONAL_AI_MODE=fake` for deterministic local work. `PERSONAL_AI_MODE=external` stays unavailable until the separate Personal AI service publishes a verified structured shopping-task contract; see the [contract check](apps/api/src/shopping/integrations/personal_ai/CONTRACT.md).
 
+Search defaults to `SEARCH_PROVIDER=fake`. Tavily is opt-in with `SEARCH_PROVIDER=tavily` and a server-side `TAVILY_API_KEY`; there is no silent fallback to fake results. The [provider contract note](docs/architecture/search-provider-contract.md) documents the guarded live smoke.
+
 ### 2. Start PostgreSQL
 
 ```bash
@@ -56,7 +58,7 @@ API health endpoint:
 GET http://localhost:8000/health
 ```
 
-The Home page at `/` creates projects; `/projects/{project_id}` opens their Overview. Project and requirement routes are listed in the [API contract](docs/api/api-contract.md). Apply database migrations before starting the API.
+The Home page at `/` creates projects; `/projects/{project_id}` opens their Overview; `/projects/{project_id}/discover` starts bounded discovery and displays provisional search observations. Project, discovery, and requirement routes are listed in the [API contract](docs/api/api-contract.md). Apply database migrations before starting the API.
 
 ### 4. Start the web app
 

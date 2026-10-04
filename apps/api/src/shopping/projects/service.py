@@ -117,6 +117,9 @@ def delete_project(
     project = _lock_project(session, owner_id, project_id, expected_version)
     project.deleted_at = datetime.now(UTC)
     _advance_revision(project)
+    from shopping.research.service import interrupt_project_runs
+
+    interrupt_project_runs(session, owner_id, project_id)
     _commit(session)
 
 

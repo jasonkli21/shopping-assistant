@@ -1,6 +1,6 @@
-# API Contract (Phases 0–2 Implemented; Later Phases Planned)
+# API Contract (Phases 0–3 Implemented; Later Phases Planned)
 
-`GET /health`, the Phase 1 project/requirement API, and the Phase 2 conversation/proposal API are implemented. Phase 3 onward remains a planning contract; the [plans index](../planning/implementation-plans-index.md) and selected phase plans define those future commands. OpenAPI is the source for committed TypeScript transport types in `packages/api-types/src/index.ts`; regenerate with `make api-types` and verify with `make api-types-check`.
+`GET /health`, the Phase 1 project/requirement API, Phase 2 conversation/proposal API, and Phase 3 discovery API are implemented. Phase 4 onward remains a planning contract; the [plans index](../planning/implementation-plans-index.md) and selected phase plans define those future commands. OpenAPI is the source for committed TypeScript transport types in `packages/api-types/src/index.ts`; regenerate with `make api-types` and verify with `make api-types-check`.
 
 ## Shared conventions
 
@@ -68,6 +68,16 @@ GET  /projects/{project_id}/candidates
 ```
 
 Research is a bounded command, with objective/type/request_key/expected_version and server-capped optional limits; POST returns 202 and run ID. Phase 3 type is discovery; Phase 5 adds selected-product research; Phase 7 adds mode/refresh/source targets/jobs. Candidate observations are not canonical products, offers or evidence. Progress initially polls durable run state.
+
+`POST /research` accepts optional `budgets` fields `max_queries`, `max_candidates`, `max_results`, `max_results_per_query`, `max_attempts`, `deadline_seconds`, and `max_concurrent`; each value can only lower its server cap. An optional `manual_queries` list bypasses only AI query planning. It does not bypass ownership, revision, idempotency, budget, or timeout checks. `GET /research` accepts a bounded limit; candidate paging uses `limit` and an opaque `cursor`.
+
+At run creation, the API snapshots the project and requirement set at `snapshot_revision` and persists the command before returning. Research activity never increments project revision. A query and attempt are committed before provider I/O; each query's results, candidates, and candidate-to-result references commit atomically. Duplicate safe URLs are grouped within that run while retaining every result reference. Candidate fields are provisional clues only; no canonical identity, normalized price, source classification, or fit score is asserted. `SearchAttemptRead.usage_units` is nullable provider-reported usage, not currency.
+
+Runs are `queued|running|succeeded|partial|failed|canceled|interrupted`. Partial means there is at least one persisted candidate plus failed/skipped planned work. Empty successful search and explicit clarification are both terminal success with a useful summary. Cancellation is repeatable and late provider results cannot revive a terminal run. Deleted projects hide all project resources and interrupt active runs. The lifespan-owned runner uses an in-process executor; startup marks unfinished runs interrupted, and multi-instance deployment is not supported by this execution model.
+
+Exact request replay is checked before the project revision; a matching body returns the original run, while a changed body with the same key conflicts. The run snapshots project requirements/revision without changing that revision. Optional query/candidate/result/result-per-query/attempt/deadline/concurrency budgets are capped by server settings. Manual queries skip the unavailable Personal AI planner but use the same snapshots and budgets. Different concurrent runs for a project conflict. Queries and attempts persist before provider I/O; result/candidate lineage commits per query. Failed or skipped work yields `partial` when candidates were saved, otherwise `failed` unless all work completed successfully or the planner asks for clarification. Cancellation is idempotent; project deletion and single-process restart interrupt unfinished runs, and terminal runs cannot accept late writes.
+
+The local lifespan-owned supervisor uses the existing `ResearchExecutor` boundary, distinct from conversation generation, and synchronous database operations run in worker threads with short-lived sessions. It is deliberately single-process local execution, not a distributed job system. Search defaults to the deterministic fake; Tavily is an opt-in adapter documented in [the search contract](../architecture/search-provider-contract.md). Current live Tavily credentials and live Personal AI structured planning are not verified.
 
 ## Catalog and normalization — Phase 4
 
