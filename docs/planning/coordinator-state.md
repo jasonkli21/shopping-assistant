@@ -1,6 +1,6 @@
 # Implementation coordinator state
 
-Updated: 2026-10-03. This file is a resumable operational record, not completion evidence.
+Updated: 2026-10-04. This file is a resumable operational record, not completion evidence.
 
 ## Current position
 
@@ -24,7 +24,7 @@ Complete phases 1–9 sequentially. **User steering: every newly spawned impleme
 
 ## Next action
 
-Phase 2 implementation finished commits78ebbfc,4a726e0,44d01ba,1106283. Main independently reviewed command/proposal transactions, generation supervisor, history/SSE, intent schemas/task, UI+retry/cache, tests and docs. Confirmed invalid currency ZZZ, null label, oversized updated JSON value accepted at generation. Other substantive gaps: syncDB work on async eventloop; deleted proposal replay/dismiss; definitive rejected-command retry lock; crossproject panel state; manualdraft/pendingproposal coordination; fakeunit ambiguity. Active fix agent `/root/phase2_review_fixes` (fresh Luna Extra High) handles scoped fixes/regressions/logical commits. Wait idle; then main re-review/verify/signoff before Phase3.
+Phase 2 implementation finished commits78ebbfc,4a726e0,44d01ba,1106283. Main independently reviewed command/proposal transactions, generation supervisor, history/SSE, intent schemas/task, UI+retry/cache, tests and docs. Confirmed invalid currency ZZZ, null label, oversized updated JSON value accepted at generation. Other substantive gaps: syncDB work on async eventloop; deleted proposal replay/dismiss; definitive rejected-command retry lock; crossproject panel state; manualdraft/pendingproposal coordination; fakeunit ambiguity. Prior fix agent `/root/phase2_review_fixes` errored at usage limit, leaving uncommitted partial backend safety/lifecycle changes and migration0004. Replacement active agent `/root/phase2_review_fixes_resume` (fresh Luna Extra High) finishes all review findings including remaining frontend/fake tests, checks and logical commits. October4 corrected heartbeat delivered at 03:54 PDT; resumed from current repository without overlap. Wait idle; then main re-review/verify/signoff before Phase3.
 
 ## Restart schedule correction
 
