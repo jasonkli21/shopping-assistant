@@ -67,12 +67,10 @@ class StructuredDataCatalogExtractionTask:
         brand, brand_excerpt = _brand(product.get("brand"))
         category = _string(product.get("category"))
         model = _string(product.get("model"))
+        warnings: list[str] = []
         identifiers = []
-        if model:
-            namespace = (
-                f"brand:{(brand or 'unknown').casefold()}|"
-                f"category:{(category or 'unknown').casefold()}"
-            )
+        if model and brand and category:
+            namespace = f"brand:{brand.casefold()}|category:{category.casefold()}"
             identifiers.append(
                 {
                     "scheme": "manufacturer_model",
@@ -87,22 +85,22 @@ class StructuredDataCatalogExtractionTask:
             ("gtin12", "gtin"),
             ("gtin13", "gtin"),
             ("gtin14", "gtin"),
-            ("mpn", "mpn"),
             ("sku", "retailer_sku"),
         ):
             value = _string(product.get(key))
             if not value:
                 continue
             host = urlsplit(document.final_url).hostname or "unknown"
-            namespace = (
-                host.casefold()
-                if scheme == "retailer_sku"
-                else ("global" if scheme == "gtin" else (brand or "unknown").casefold())
-            )
+            namespace = host.casefold() if scheme == "retailer_sku" else "global"
             identifiers.append(
                 {"scheme": scheme, "namespace": namespace, "value": value, "excerpt": value}
             )
-        warnings: list[str] = []
+        mpn = _string(product.get("mpn"))
+        if mpn and brand:
+            identifiers.append(
+                {"scheme": "mpn", "namespace": brand.casefold(), "value": mpn, "excerpt": mpn}
+            )
+        variant_attributes, variant_excerpts = _variant_dimensions(product, warnings)
         offer = _extract_offer(product.get("offers"), document, warnings)
         data = {
             "product_name": name,
@@ -113,6 +111,8 @@ class StructuredDataCatalogExtractionTask:
             "category_excerpt": category,
             "model_family": model,
             "model_family_excerpt": model,
+            "variant_attributes": variant_attributes,
+            "variant_attribute_excerpts": variant_excerpts,
             "identifiers": identifiers,
             "offer": offer,
             "warnings": warnings,
@@ -123,12 +123,15 @@ class StructuredDataCatalogExtractionTask:
             raise CatalogExtractionError(
                 "invalid_structured_data", "The structured product data is invalid."
             ) from error
-        validate_extraction_evidence(result, document)
+        validate_extraction_evidence(result, document, structured_source=True)
         return result
 
 
 def validate_extraction_evidence(
-    extraction: CatalogExtraction, document: RetrievedDocument
+    extraction: CatalogExtraction,
+    document: RetrievedDocument,
+    *,
+    structured_source: bool = False,
 ) -> None:
     excerpts = [extraction.product_name_excerpt]
     excerpts.extend(
@@ -150,11 +153,77 @@ def validate_extraction_evidence(
     if structured_products:
         visible_and_structured += json.dumps(structured_products, ensure_ascii=False)
     page = _normalize_evidence(visible_and_structured)
-    if any(_normalize_evidence(excerpt) not in page for excerpt in excerpts):
+    if not structured_source and any(
+        _normalize_evidence(excerpt) not in page for excerpt in excerpts
+    ):
         raise CatalogExtractionError(
             "unsupported_extraction",
             "The extraction included a value without matching page text.",
         )
+    supported_values = [
+        (extraction.product_name, extraction.product_name_excerpt),
+        *[
+            (value, excerpt)
+            for value, excerpt in (
+                (extraction.brand, extraction.brand_excerpt),
+                (extraction.category, extraction.category_excerpt),
+                (extraction.model_family, extraction.model_family_excerpt),
+            )
+            if value is not None
+        ],
+        *[(item.value, item.excerpt) for item in extraction.identifiers],
+        *[
+            (value, extraction.variant_attribute_excerpts[key])
+            for key, value in extraction.variant_attributes.items()
+        ],
+        *[(item.value, item.excerpt) for item in extraction.attributes],
+    ]
+    if any(not _excerpt_supports(value, excerpt) for value, excerpt in supported_values):
+        raise CatalogExtractionError(
+            "unsupported_extraction",
+            "An extracted value is not present in its own supporting excerpt.",
+        )
+    for item in extraction.attributes:
+        if item.unit and _normalize_evidence(item.unit) not in _normalize_evidence(item.excerpt):
+            raise CatalogExtractionError(
+                "unsupported_extraction",
+                "An extracted measurement unit is not present in its supporting excerpt.",
+            )
+    if extraction.offer:
+        offer_values = []
+        if extraction.offer.amount is not None:
+            offer_values.append((extraction.offer.amount, extraction.offer.excerpt))
+        if extraction.offer.currency is not None:
+            offer_values.append((extraction.offer.currency, extraction.offer.excerpt))
+        if any(not _excerpt_supports(value, excerpt) for value, excerpt in offer_values):
+            raise CatalogExtractionError(
+                "unsupported_extraction",
+                "An extracted offer value is not present in its supporting excerpt.",
+            )
+        if extraction.offer.availability != "unknown":
+            availability_tokens = {
+                "in_stock": ("instock", "in_stock"),
+                "out_of_stock": ("outofstock", "out_of_stock"),
+                "preorder": ("preorder", "presale"),
+            }[extraction.offer.availability]
+            excerpt = _normalize_evidence(extraction.offer.excerpt)
+            if not any(token in excerpt for token in availability_tokens):
+                raise CatalogExtractionError(
+                    "unsupported_extraction",
+                    "Offer availability is not present in its supporting excerpt.",
+                )
+        if extraction.offer.condition != "unknown":
+            condition_tokens = {
+                "new": ("newcondition", "new"),
+                "used": ("usedcondition", "used"),
+                "refurbished": ("refurbishedcondition", "refurbished"),
+            }[extraction.offer.condition]
+            excerpt = _normalize_evidence(extraction.offer.excerpt)
+            if not any(token in excerpt for token in condition_tokens):
+                raise CatalogExtractionError(
+                    "unsupported_extraction",
+                    "Offer condition is not present in its supporting excerpt.",
+                )
     if extraction.offer and _origin(extraction.offer.url) != _origin(document.final_url):
         raise CatalogExtractionError(
             "unrelated_offer",
@@ -169,12 +238,21 @@ def _product_objects(html: str) -> list[dict]:
         flags=re.IGNORECASE | re.DOTALL,
     )
     products: list[dict] = []
+    total_chars = 0
     for raw in scripts[:20]:
-        try:
-            data = json.loads(raw.strip())
-        except (json.JSONDecodeError, RecursionError):
+        total_chars += len(raw)
+        if len(raw) > 250_000 or total_chars > 750_000:
             continue
-        for item in _walk_json(data):
+        try:
+            data = json.loads(
+                raw.strip(),
+                object_pairs_hook=_unique_object,
+                parse_constant=lambda _value: (_ for _ in ()).throw(ValueError()),
+            )
+            nodes = list(_walk_json(data))
+        except (json.JSONDecodeError, RecursionError, ValueError, _UnsafeStructuredData):
+            continue
+        for item in nodes:
             types = item.get("@type", [])
             if isinstance(types, str):
                 types = [types]
@@ -183,15 +261,80 @@ def _product_objects(html: str) -> list[dict]:
     return products
 
 
+class _UnsafeStructuredData(ValueError):
+    pass
+
+
+def _unique_object(pairs):
+    value = {}
+    for key, item in pairs:
+        if key in value:
+            raise _UnsafeStructuredData("duplicate JSON-LD key")
+        value[key] = item
+    return value
+
+
 def _walk_json(value):
-    if isinstance(value, dict):
-        yield value
-        for child in value.values():
-            if isinstance(child, (dict, list)):
-                yield from _walk_json(child)
-    elif isinstance(value, list):
-        for child in value:
-            yield from _walk_json(child)
+    stack = [(value, 0)]
+    visited = 0
+    while stack:
+        item, depth = stack.pop()
+        visited += 1
+        if depth > 32 or visited > 5000:
+            raise _UnsafeStructuredData("JSON-LD structure exceeds supported bounds")
+        if isinstance(item, dict):
+            yield item
+            stack.extend(
+                (child, depth + 1) for child in item.values() if isinstance(child, (dict, list))
+            )
+        elif isinstance(item, list):
+            stack.extend((child, depth + 1) for child in item if isinstance(child, (dict, list)))
+
+
+def _variant_dimensions(product: dict, warnings: list[str]) -> tuple[dict, dict]:
+    aliases = {
+        "bundle": "bundle",
+        "package": "bundle",
+        "package contents": "bundle",
+        "region": "region",
+        "market region": "region",
+        "regional variant": "region",
+        "color": "color",
+        "colour": "color",
+        "capacity": "capacity",
+        "storage capacity": "capacity",
+        "generation": "generation",
+        "condition": "condition",
+        "size": "size",
+        "screen size": "size",
+    }
+    observed: dict[str, set[str]] = {}
+    for key in ("bundle", "region", "color", "capacity", "generation", "condition", "size"):
+        value = _string(product.get(key))
+        if value:
+            observed.setdefault(key, set()).add(value)
+    additional = product.get("additionalProperty")
+    properties = additional if isinstance(additional, list) else [additional]
+    for item in properties:
+        if not isinstance(item, dict):
+            continue
+        name = _string(item.get("name")) or _string(item.get("propertyID"))
+        value = _string(item.get("value"))
+        if not name or not value:
+            continue
+        key = aliases.get(" ".join(name.casefold().replace("_", " ").split()))
+        if key:
+            observed.setdefault(key, set()).add(value)
+    dimensions = {}
+    excerpts = {}
+    for key, values in observed.items():
+        if len(values) == 1:
+            value = next(iter(values))
+            dimensions[key] = value
+            excerpts[key] = value
+        else:
+            warnings.append(f"conflicting_{key}_variant_values_unresolved")
+    return dimensions, excerpts
 
 
 def _brand(value) -> tuple[str | None, str | None]:
@@ -255,11 +398,14 @@ def _extract_offer(
     seller = raw.get("seller") if isinstance(raw, dict) else None
     seller_name = _string(seller.get("name")) if isinstance(seller, dict) else _string(seller)
     host = urlsplit(document.final_url).hostname or "Retailer"
-    excerpt = (
-        price or availability_url or _string(raw.get("priceCurrency"))
-        if isinstance(raw, dict)
-        else None
-    )
+    excerpt = None
+    if isinstance(raw, dict):
+        excerpt_parts = [
+            part for part in (price, currency, availability_url, condition_url) if part
+        ]
+        if seller_name:
+            excerpt_parts.append(seller_name)
+        excerpt = " ".join(excerpt_parts) or None
     if not excerpt:
         warnings.append("offer_without_supporting_value")
         return None
@@ -290,6 +436,18 @@ def _enum_tail(value: str | None, options: dict[str, str], fallback: str) -> str
 
 def _normalize_evidence(value: str) -> str:
     return "".join(value.casefold().split())
+
+
+def _excerpt_supports(value, excerpt: str) -> bool:
+    if isinstance(value, bool):
+        rendered = "true" if value else "false"
+    elif isinstance(value, float):
+        rendered = format(Decimal(str(value)).normalize(), "f")
+    elif isinstance(value, Decimal):
+        rendered = format(value.normalize(), "f")
+    else:
+        rendered = str(value)
+    return bool(rendered) and _normalize_evidence(rendered) in _normalize_evidence(excerpt)
 
 
 def _origin(value: str) -> tuple[str, str, int | None]:

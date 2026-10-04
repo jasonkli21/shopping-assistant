@@ -4,6 +4,7 @@ import hashlib
 import json
 import time
 from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import Lock
@@ -65,6 +66,18 @@ def _install_fixtures(project_api, fixture_indexes: list[int]):
         for index in fixture_indexes
     }
     outputs = {FIXTURES[index]["url"]: FIXTURES[index]["extraction"] for index in fixture_indexes}
+    retriever = CountingRetriever(documents)
+    from shopping.main import app
+
+    app.state.catalog_page_retriever = retriever
+    app.state.catalog_extraction_task = FakeCatalogExtractionTask(outputs)
+    return client, retriever
+
+
+def _install_custom_documents(project_api, records):
+    client, _owner, _engine = project_api
+    documents = {url: _document(url, page) for url, page, _extraction in records}
+    outputs = {url: extraction for url, _page, extraction in records}
     retriever = CountingRetriever(documents)
     from shopping.main import app
 
@@ -301,6 +314,117 @@ def test_bundle_region_and_unknown_dimensions_remain_distinct(project_api):
         assert session.scalar(select(func.count()).select_from(ProductVariant)) == 4
 
 
+def test_disjoint_gtin_and_same_namespace_sku_stay_unresolved_but_exact_pair_reuses_variant(
+    project_api,
+):
+    url_a = "https://shop-a.example/vacuum?sku=123"
+    url_conflict = "https://shop-a.example/vacuum?sku=999"
+    url_exact = "https://shop-a.example/vacuum?sku=123&campaign=spring"
+    gtin_a, gtin_b = "4006381333931", "5901234123457"
+
+    def extraction(url: str, sku: str, gtin: str):
+        result = deepcopy(FIXTURES[0]["extraction"])
+        result["identifiers"] = [
+            *result["identifiers"],
+            {"scheme": "gtin", "namespace": "global", "value": gtin, "excerpt": gtin},
+        ]
+        result["identifiers"][1]["value"] = sku
+        result["identifiers"][1]["excerpt"] = sku
+        result["offer"]["url"] = url
+        result["offer"]["excerpt"] = "$299.99 USD. In stock. New condition."
+        return result
+
+    body_a = (
+        "<h1>Acme Clean 4</h1><p>Vacuum model AX-400 SKU A-123 GTIN 4006381333931 "
+        "$299.99 USD. In stock. New condition.</p>"
+    )
+    body_conflict = (
+        "<h1>Acme Clean 4</h1><p>Vacuum model AX-400 SKU A-999 GTIN 5901234123457 "
+        "$299.99 USD. In stock. New condition.</p>"
+    )
+    body_exact = (
+        "<h1>Acme Clean 4</h1><p>Vacuum model AX-400 SKU A-123 GTIN 4006381333931 "
+        "$299.99 USD. In stock. New condition.</p>"
+    )
+    client, _retriever = _install_custom_documents(
+        project_api,
+        [
+            (url_a, body_a, extraction(url_a, "A-123", gtin_a)),
+            (url_conflict, body_conflict, extraction(url_conflict, "A-999", gtin_b)),
+            (url_exact, body_exact, extraction(url_exact, "A-123", gtin_a)),
+        ],
+    )
+    project, first_candidate = _seed_candidate(project_api, url_a)
+    first = _normalize(
+        client,
+        project,
+        first_candidate,
+        key="exact-identifiers-first-0001",
+        catalog_version=1,
+        project_version=1,
+    )
+    assert first.status_code == 200, first.text
+    first_result = first.json()
+
+    with Session(project_api[2]) as session:
+        run_id = session.scalar(
+            select(ResearchRun.id).where(ResearchRun.project_id == UUID(project["id"]))
+        )
+        conflict_candidate = uuid4()
+        exact_candidate = uuid4()
+        session.add_all(
+            [
+                DiscoveryCandidate(
+                    id=conflict_candidate,
+                    project_id=UUID(project["id"]),
+                    run_id=run_id,
+                    provisional_name="Acme Clean 4",
+                    discovery_reason="Conflicting exact item identifiers.",
+                    normalized_url=url_conflict,
+                ),
+                DiscoveryCandidate(
+                    id=exact_candidate,
+                    project_id=UUID(project["id"]),
+                    run_id=run_id,
+                    provisional_name="Acme Clean 4",
+                    discovery_reason="Same exact retailer item.",
+                    normalized_url=url_exact,
+                ),
+            ]
+        )
+        session.commit()
+
+    conflict = _normalize(
+        client,
+        {**project, "revision": first_result["project_version"]},
+        conflict_candidate,
+        key="exact-identifiers-conflict-0001",
+        catalog_version=first_result["catalog_version"],
+        project_version=first_result["project_version"],
+    )
+    assert conflict.status_code == 200, conflict.text
+    conflict_result = conflict.json()
+    assert conflict_result["status"] == "unresolved", conflict_result
+    assert conflict_result["reason"] == "authoritative_identifier_conflict"
+    assert conflict_result["variant_id"] is None
+
+    exact = _normalize(
+        client,
+        {**project, "revision": conflict_result["project_version"]},
+        exact_candidate,
+        key="exact-identifiers-repeat-0001",
+        catalog_version=conflict_result["catalog_version"],
+        project_version=conflict_result["project_version"],
+    )
+    assert exact.status_code == 200, exact.text
+    assert exact.json()["status"] == "auto_linked"
+    assert exact.json()["variant_id"] == first_result["variant_id"]
+    with Session(project_api[2]) as session:
+        assert session.scalar(select(func.count()).select_from(Product)) == 1
+        assert session.scalar(select(func.count()).select_from(ProductVariant)) == 1
+        assert session.scalar(select(func.count()).select_from(RetailOffer)) == 2
+
+
 def test_correction_refresh_and_revert_preserve_mapping_and_offer_provenance(project_api):
     client, retriever = _install_fixtures(project_api, [0])
     project, candidate_id = _seed_candidate(project_api, FIXTURES[0]["url"])
@@ -398,6 +522,108 @@ def test_correction_refresh_and_revert_preserve_mapping_and_offer_provenance(pro
         assert manual_variant.identity_attributes["bundle"]["origin"] == "user_correction"
         assert session.scalar(select(func.count()).select_from(EntityResolutionEvent)) == 4
         assert session.scalar(select(func.count()).select_from(RetailOffer)) == 1
+
+
+def test_nested_reverts_replay_only_effective_corrections_and_allow_refresh_after_revert(
+    project_api,
+):
+    client, _retriever = _install_fixtures(project_api, [0])
+    project, candidate_id = _seed_candidate(project_api, FIXTURES[0]["url"])
+    normalized = _normalize(
+        client,
+        project,
+        candidate_id,
+        key="nested-correction-normalize-0001",
+        catalog_version=1,
+        project_version=1,
+    )
+    assert normalized.status_code == 200, normalized.text
+    original = normalized.json()
+
+    def correct(name, key, catalog_version, project_version):
+        return client.post(
+            f"/projects/{project['id']}/candidates/{candidate_id}/correction",
+            json={
+                "request_key": key,
+                "expected_catalog_version": catalog_version,
+                "expected_project_version": project_version,
+                "reason": "The candidate belongs to this reviewed product.",
+                "new_product": {
+                    "canonical_name": name,
+                    "variant_name": "Unspecified",
+                    "identity_attributes": {},
+                },
+            },
+        )
+
+    first = correct("Reviewed product A", "nested-correction-a-0001", 2, 2)
+    assert first.status_code == 200, first.text
+    second = correct(
+        "Reviewed product B",
+        "nested-correction-b-0001",
+        first.json()["catalog_version"],
+        first.json()["project_version"],
+    )
+    assert second.status_code == 200, second.text
+    second_event = second.json()
+
+    revert_second_command = {
+        "request_key": "nested-correction-revert-b-0001",
+        "expected_catalog_version": second_event["catalog_version"],
+        "expected_project_version": second_event["project_version"],
+    }
+    reverted_second = client.post(
+        f"/projects/{project['id']}/candidates/{candidate_id}/correction/revert",
+        json=revert_second_command,
+    )
+    assert reverted_second.status_code == 200, reverted_second.text
+    active_mapping = first.json()["selected_project_product_id"]
+    assert reverted_second.json()["selected_project_product_id"] == active_mapping
+
+    replay_second = client.post(
+        f"/projects/{project['id']}/candidates/{candidate_id}/correction/revert",
+        json=revert_second_command,
+    )
+    assert replay_second.status_code == 200, replay_second.text
+    assert replay_second.json()["replayed"] is True
+    assert replay_second.json()["event_id"] == reverted_second.json()["event_id"]
+
+    refresh = _normalize(
+        client,
+        {**project, "revision": reverted_second.json()["project_version"]},
+        candidate_id,
+        key="nested-correction-refresh-active-0001",
+        catalog_version=reverted_second.json()["catalog_version"],
+        project_version=reverted_second.json()["project_version"],
+    )
+    assert refresh.status_code == 200, refresh.text
+    assert refresh.json()["reason"] == "manual_mapping_preserved"
+    assert refresh.json()["project_product_id"] == active_mapping
+
+    revert_first_command = {
+        "request_key": "nested-correction-revert-a-0001",
+        "expected_catalog_version": refresh.json()["catalog_version"],
+        "expected_project_version": refresh.json()["project_version"],
+    }
+    reverted_first = client.post(
+        f"/projects/{project['id']}/candidates/{candidate_id}/correction/revert",
+        json=revert_first_command,
+    )
+    assert reverted_first.status_code == 200, reverted_first.text
+    assert reverted_first.json()["selected_project_product_id"] == original["project_product_id"]
+    final_refresh = _normalize(
+        client,
+        {**project, "revision": reverted_first.json()["project_version"]},
+        candidate_id,
+        key="nested-correction-refresh-reverted-0001",
+        catalog_version=reverted_first.json()["catalog_version"],
+        project_version=reverted_first.json()["project_version"],
+    )
+    assert final_refresh.status_code == 200, final_refresh.text
+    assert final_refresh.json()["reason"] == "matched_authoritative_identifier"
+    assert final_refresh.json()["project_product_id"] == original["project_product_id"]
+    with Session(project_api[2]) as session:
+        assert session.scalar(select(func.count()).select_from(RetailOffer)) == 2
 
 
 def test_unsupported_page_stays_a_candidate_without_normalized_facts(project_api):

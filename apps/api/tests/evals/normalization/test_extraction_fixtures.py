@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from shopping.catalog.resolution import _prepared_identifiers
 from shopping.extraction.retriever import RetrievedDocument
 from shopping.extraction.schemas import AttributeExtraction, CatalogExtraction, OfferExtraction
 from shopping.extraction.task import (
@@ -110,6 +111,12 @@ async def test_structured_data_task_ignores_page_instructions_and_reads_one_prod
         "brand": {"@type": "Brand", "name": "Acme"},
         "category": "vacuum",
         "model": "AX-400",
+        "color": "Blue",
+        "size": "27-inch",
+        "additionalProperty": [
+            {"@type": "PropertyValue", "name": "Bundle", "value": "Pet kit"},
+            {"@type": "PropertyValue", "name": "Color", "value": "Blue"},
+        ],
         "sku": "SHOP-1",
         "offers": {
             "@type": "Offer",
@@ -132,6 +139,13 @@ async def test_structured_data_task_ignores_page_instructions_and_reads_one_prod
     assert result.offer is not None
     assert result.offer.amount == Decimal("299.99")
     assert result.offer.availability == "in_stock"
+    assert result.offer.condition == "new"
+    assert result.variant_attributes == {
+        "bundle": "Pet kit",
+        "color": "Blue",
+        "size": "27-inch",
+    }
+    assert result.variant_attribute_excerpts == result.variant_attributes
     assert "imaginary" not in result.product_name.casefold()
 
 
@@ -182,3 +196,76 @@ def test_manufacturer_identifier_must_agree_with_extracted_model_family():
     extraction["model_family"] = "AX-401"
     with pytest.raises(ValidationError, match="must agree with the model family"):
         CatalogExtraction.model_validate(extraction)
+
+    conflicting = dict(FIXTURES[0]["extraction"])
+    conflicting["identifiers"] = [
+        *conflicting["identifiers"],
+        {
+            "scheme": "retailer_sku",
+            "namespace": "shop-a.example",
+            "value": "A-999",
+            "excerpt": "A-999",
+        },
+    ]
+    with pytest.raises(ValidationError, match="authoritative identifiers conflict"):
+        CatalogExtraction.model_validate(conflicting)
+
+
+@pytest.mark.parametrize(
+    "namespace",
+    [
+        "brand:unknown|category:vacuum",
+        "brand:unbranded|category:vacuum",
+        "brand:acme|category:unknown",
+        "brand:acme|category:unbranded",
+    ],
+)
+def test_unknown_or_unbranded_manufacturer_namespaces_are_not_authoritative(namespace):
+    data = dict(FIXTURES[0]["extraction"])
+    data["identifiers"] = [dict(identifier) for identifier in data["identifiers"]]
+    data["identifiers"][0]["namespace"] = namespace
+    identifiers = _prepared_identifiers(CatalogExtraction.model_validate(data))
+    assert not any(scheme == "manufacturer_model" for scheme, *_ in identifiers)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("identifier", "A-124"), ("offer", "399.99"), ("variant", "pet kit")],
+)
+async def test_fake_extractor_rejects_values_not_supported_by_their_own_excerpt(field, value):
+    case = FIXTURES[0 if field != "variant" else 2]
+    output = dict(case["extraction"])
+    output["identifiers"] = [dict(item) for item in output["identifiers"]]
+    if field == "identifier":
+        output["identifiers"][1]["value"] = value
+    elif field == "offer":
+        output["offer"] = {**output["offer"], "amount": value}
+    else:
+        output["variant_attributes"] = {"bundle": value}
+        output["variant_attribute_excerpts"] = {"bundle": "body only"}
+    task = FakeCatalogExtractionTask({case["url"]: output})
+    with pytest.raises(CatalogExtractionError) as error:
+        await task.extract(document(case["url"], case["page"]))
+    assert error.value.code == "unsupported_extraction"
+
+
+@pytest.mark.asyncio
+async def test_structured_extractor_ignores_duplicate_and_pathologically_nested_json():
+    duplicate = document(
+        "https://shop.example/item",
+        '<script type="application/ld+json">{"@type":"Product","name":"first",'
+        '"name":"second"}</script>',
+    )
+    with pytest.raises(CatalogExtractionError) as duplicate_error:
+        await StructuredDataCatalogExtractionTask().extract(duplicate)
+    assert duplicate_error.value.code == "no_product_data"
+
+    nested_json = "[" * 40 + '{"@type":"Product","name":"Nested"}' + "]" * 40
+    nested = document(
+        "https://shop.example/item",
+        '<script type="application/ld+json">' + nested_json + "</script>",
+    )
+    with pytest.raises(CatalogExtractionError) as nested_error:
+        await StructuredDataCatalogExtractionTask().extract(nested)
+    assert nested_error.value.code == "no_product_data"

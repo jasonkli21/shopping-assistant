@@ -195,6 +195,18 @@ class CatalogExtraction(StrictExtractionModel):
             if self.model_family
             else None
         )
+        authority_values: dict[tuple[str, str], set[str]] = {}
+        for identifier in self.identifiers:
+            namespace = " ".join(
+                unicodedata.normalize("NFKC", identifier.namespace).casefold().split()
+            )
+            value = " ".join(unicodedata.normalize("NFKC", identifier.value).casefold().split())
+            if identifier.scheme == "gtin":
+                namespace = "global"
+                value = "".join(character for character in value if character.isdigit())
+            authority_values.setdefault((identifier.scheme, namespace), set()).add(value)
+        if any(len(values) > 1 for values in authority_values.values()):
+            raise ValueError("authoritative identifiers conflict within the same namespace")
         if any(
             identifier.scheme == "manufacturer_model"
             and (

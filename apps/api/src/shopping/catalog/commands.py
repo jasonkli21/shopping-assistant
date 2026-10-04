@@ -507,18 +507,29 @@ def _event_for_request(
 def _has_owner_correction(
     session: Session, owner_id: UUID, project_id: UUID, candidate_id: UUID
 ) -> bool:
-    return (
-        session.scalar(
-            select(EntityResolutionEvent.id)
-            .where(
-                EntityResolutionEvent.owner_id == owner_id,
-                EntityResolutionEvent.project_id == project_id,
-                EntityResolutionEvent.candidate_id == candidate_id,
-                EntityResolutionEvent.actor == "owner",
-            )
-            .limit(1)
+    candidate = _owned_candidate(session, owner_id, project_id, candidate_id)
+    reversed_events = select(EntityResolutionEvent.reversed_event_id).where(
+        EntityResolutionEvent.owner_id == owner_id,
+        EntityResolutionEvent.project_id == project_id,
+        EntityResolutionEvent.candidate_id == candidate_id,
+        EntityResolutionEvent.reversed_event_id.is_not(None),
+    )
+    active_correction = session.scalar(
+        select(EntityResolutionEvent)
+        .where(
+            EntityResolutionEvent.owner_id == owner_id,
+            EntityResolutionEvent.project_id == project_id,
+            EntityResolutionEvent.candidate_id == candidate_id,
+            EntityResolutionEvent.actor == "owner",
+            EntityResolutionEvent.status == "manual_linked",
+            EntityResolutionEvent.id.not_in(reversed_events),
         )
-        is not None
+        .order_by(EntityResolutionEvent.created_at.desc(), EntityResolutionEvent.id.desc())
+        .limit(1)
+    )
+    return bool(
+        active_correction
+        and candidate.canonical_mapping_id == active_correction.selected_project_product_id
     )
 
 

@@ -2,7 +2,7 @@
   {
     "case": "same_model_retailer_a",
     "url": "https://shop-a.example/vacuum?sku=123",
-    "page": "<h1>Acme Clean 4</h1><p>Vacuum model AX-400. SKU A-123. $299.99 USD. In stock.</p>",
+    "page": "<h1>Acme Clean 4</h1><p>Vacuum model AX-400. SKU A-123. $299.99 USD. In stock. New condition.</p>",
     "extraction": {
       "product_name": "Acme Clean 4",
       "product_name_excerpt": "Acme Clean 4",
@@ -16,15 +16,15 @@
         {"scheme": "manufacturer_model", "namespace": "brand:acme|category:vacuum", "value": "AX-400", "excerpt": "AX-400"},
         {"scheme": "retailer_sku", "namespace": "shop-a.example", "value": "A-123", "excerpt": "A-123"}
       ],
-      "offer": {"retailer_name": "Shop A", "url": "https://shop-a.example/vacuum?sku=123", "amount": "299.99", "currency": "USD", "availability": "in_stock", "condition": "new", "excerpt": "$299.99 USD"}
+      "offer": {"retailer_name": "Shop A", "url": "https://shop-a.example/vacuum?sku=123", "amount": "299.99", "currency": "USD", "availability": "in_stock", "condition": "new", "excerpt": "$299.99 USD. In stock. New condition."}
     }
   },
   {
     "case": "same_model_retailer_b",
     "url": "https://shop-b.example/products/clean-4?variant=standard",
-    "page": "<h1>Clean 4 by Acme</h1><p>Vacuum model AX-400. Retail SKU B-555. $319.00 USD.</p>",
+    "page": "<h1>Clean 4 by Acme</h1><p>Vacuum model AX-400. Retail SKU B-555. $319.00 USD. New condition.</p>",
     "extraction": {
-      "product_name": "Acme Clean 4",
+      "product_name": "Clean 4 by Acme",
       "product_name_excerpt": "Clean 4 by Acme",
       "brand": "Acme",
       "brand_excerpt": "Acme",
@@ -36,7 +36,7 @@
         {"scheme": "manufacturer_model", "namespace": "brand:acme|category:vacuum", "value": "AX-400", "excerpt": "AX-400"},
         {"scheme": "retailer_sku", "namespace": "shop-b.example", "value": "B-555", "excerpt": "B-555"}
       ],
-      "offer": {"retailer_name": "Shop B", "url": "https://shop-b.example/products/clean-4?variant=standard", "amount": "319.00", "currency": "USD", "availability": "unknown", "condition": "new", "excerpt": "$319.00 USD"}
+      "offer": {"retailer_name": "Shop B", "url": "https://shop-b.example/products/clean-4?variant=standard", "amount": "319.00", "currency": "USD", "availability": "unknown", "condition": "new", "excerpt": "$319.00 USD. New condition."}
     }
   },
   {
@@ -145,13 +145,13 @@
   {
     "case": "sale_price_not_crossed_out_price",
     "url": "https://store.example/monitor-sale",
-    "page": "<h1>ViewPoint display</h1><p>Was $599.99. Sale price $349.99 USD.</p>",
+    "page": "<h1>ViewPoint display</h1><p>Was $599.99. Sale price $349.99 USD. In stock. New condition.</p>",
     "extraction": {
       "product_name": "ViewPoint display",
       "product_name_excerpt": "ViewPoint display",
       "brand": "ViewPoint",
       "brand_excerpt": "ViewPoint",
-      "offer": {"retailer_name": "Store", "url": "https://store.example/monitor-sale", "amount": "349.99", "currency": "USD", "availability": "in_stock", "condition": "new", "excerpt": "$349.99 USD"},
+      "offer": {"retailer_name": "Store", "url": "https://store.example/monitor-sale", "amount": "349.99", "currency": "USD", "availability": "in_stock", "condition": "new", "excerpt": "$349.99 USD. In stock. New condition."},
       "warnings": ["crossed_out_price_not_used"]
     }
   },

@@ -67,6 +67,13 @@ def resolve_or_create(
     if exact_variants:
         variant_id = next(iter(exact_variants))
         row = next(row for row in exact_variant_identifiers if row[1].id == variant_id)
+        if _has_conflicting_authoritative_identifier(session, row[1], identifiers):
+            return ResolutionDecision(
+                product=None,
+                variant=None,
+                reason="authoritative_identifier_conflict",
+                evidence=_match_evidence(matched),
+            )
         if not _compatible(row[1], extraction.variant_attributes):
             return ResolutionDecision(
                 product=None,
@@ -106,8 +113,15 @@ def resolve_or_create(
             )
         )
         compatible = []
+        conflicts = []
         for variant in variants:
             known_identity = _plain_identity(variant.identity_attributes)
+            identifier_conflict = _has_conflicting_authoritative_identifier(
+                session, variant, identifiers
+            )
+            if identifier_conflict:
+                conflicts.append(variant)
+                continue
             if not extraction.variant_attributes:
                 if not known_identity:
                     compatible.append(variant)
@@ -130,6 +144,13 @@ def resolve_or_create(
                 variant=None,
                 reason="ambiguous_variant_dimensions",
                 evidence=_variant_evidence(compatible),
+            )
+        if conflicts:
+            return ResolutionDecision(
+                product=None,
+                variant=None,
+                reason="authoritative_identifier_conflict",
+                evidence=_variant_evidence(conflicts),
             )
         if not extraction.variant_attributes:
             return ResolutionDecision(
@@ -217,11 +238,59 @@ def _prepared_identifiers(extraction: CatalogExtraction):
         if item.scheme == "gtin":
             namespace = "global"
         elif item.scheme == "retailer_sku":
-            namespace = item.namespace.casefold().removeprefix("www.")
+            namespace = item.namespace.casefold().removeprefix("www.").rstrip(".")
         else:
             namespace = normalize_text(item.namespace)
+        if not namespace or namespace in {
+            "unknown",
+            "unbranded",
+            "brand:unknown",
+            "category:unknown",
+        }:
+            continue
+        if item.scheme == "manufacturer_model" and any(
+            part
+            in {
+                "brand:unknown",
+                "brand:unbranded",
+                "category:unknown",
+                "category:unbranded",
+            }
+            for part in namespace.split("|")
+        ):
+            continue
         prepared.append((item.scheme, namespace, item.value, normalized))
     return prepared
+
+
+def _has_conflicting_authoritative_identifier(
+    session: Session,
+    variant: ProductVariant,
+    candidate_identifiers: list[tuple[str, str, str, str]],
+) -> bool:
+    candidate_exact: dict[tuple[str, str], set[str]] = {}
+    for scheme, namespace, _value, normalized in candidate_identifiers:
+        if scheme in {"gtin", "retailer_sku"}:
+            candidate_exact.setdefault((scheme, namespace), set()).add(normalized)
+    if not candidate_exact:
+        return False
+    if any(len(values) > 1 for values in candidate_exact.values()):
+        return True
+    existing = session.execute(
+        select(
+            ProductIdentifier.scheme,
+            ProductIdentifier.namespace,
+            ProductIdentifier.normalized_value,
+        ).where(
+            ProductIdentifier.variant_id == variant.id,
+            ProductIdentifier.scheme.in_(["gtin", "retailer_sku"]),
+        )
+    ).all()
+    return any(
+        (scheme, namespace) in candidate_exact
+        and normalized not in candidate_exact[(scheme, namespace)]
+        for scheme, namespace, normalized in existing
+    )
 
 
 def _find_exact_model_family(
