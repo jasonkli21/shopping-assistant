@@ -121,6 +121,21 @@ The Phase 4 acceptance map is in the [implementation plan](docs/planning/phase-4
 
 Not run: live retailer/manufacturer page retrieval, credentialed Tavily or Personal AI calls, a manual desktop/mobile browser smoke for catalog screens, hosted CI, cloud deployment and multi-instance execution. Mocked transport and local fixtures do not establish retailer access or extraction quality on current live pages. Phase 5 must reuse the guarded `PageRetriever`; it should keep source snapshots/claims distinct from catalog observations, normalized attributes and user corrections.
 
+## Phase 4 independent-review fixes — 2026-10-04
+
+The Phase 4 review fixes preserve conservative catalog matching and evidence, put a total deadline and pre-allocation decompression cap around retrieval, make correction history effective-state aware, require amount/currency as a pair in PostgreSQL, and complete the correction/detail variant flows. The full acceptance map and code links are in the [Phase 4 plan](docs/planning/phase-4-implementation-plan.md#independent-review-follow-up--2026-10-04).
+
+| Check | Result |
+|---|---|
+| `cd apps/api && UV_CACHE_DIR=/private/tmp/shopping-uv-cache /opt/homebrew/bin/uv run pytest -m 'not db and not live'` | Passed: 96 tests; 81 database/live tests deselected. |
+| `cd apps/api && TEST_DATABASE_URL=postgresql+psycopg://postgres@127.0.0.1:55843/shopping_test UV_CACHE_DIR=/private/tmp/shopping-uv-cache /opt/homebrew/bin/uv run pytest -m db` | Passed: 80 PostgreSQL tests on isolated PostgreSQL 16. Includes raw half-known offer pair rejection, catalog authority conflicts, nested correction/revert replay and migration down/up/re-up plus Alembic consistency. |
+| `cd apps/api && UV_CACHE_DIR=/private/tmp/shopping-uv-cache /opt/homebrew/bin/uv run ruff check src tests migrations` and `ruff format --check src tests migrations` | Passed. |
+| `cd apps/api && UV_CACHE_DIR=/private/tmp/shopping-uv-cache /opt/homebrew/bin/uv run python ../../scripts/generate_api_types.py --check` | Passed; generated API contracts are current. |
+| `cd apps/web && <bundled-node> node node_modules/vitest/vitest.mjs run` | Passed: 46 tests, including variant pagination, duplicate correction locking, lost-ack review/replay and variant-specific product detail. |
+| `cd apps/web && <bundled-node> node node_modules/eslint/bin/eslint.js src tests`, `node_modules/typescript/bin/tsc --noEmit` and `node_modules/vite/bin/vite.js build` | Passed: lint, typecheck and production build. The bundled Node path is recorded in the Phase 4 evidence above. |
+
+The first PostgreSQL invocation was blocked by the execution sandbox's loopback restriction; the same test run was executed with local database access and passed. The test database is isolated and its fixture creates/drops per-test schemas. Implementation fixes are committed in `0d7c7ae`, `6787e1b`, `a270343` and `3a7d279`; the parent session's light review remains.
+
 ## Phase 0 baseline review and validation (historical)
 
 Reviewed 2026-10-03 in `/Users/jasonkli/projects/shopping-assistant` before local Git history was established. The original supplied directory had no `.git`; it is now recorded at baseline commit `5ff030d`. No Phase 1+ functionality existed at the time of that review.
