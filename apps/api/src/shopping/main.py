@@ -1,21 +1,60 @@
+import logging
+from contextlib import asynccontextmanager
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import SQLAlchemyError
 
 from shopping.api.router import router
 from shopping.config import get_settings
+from shopping.conversations.supervisor import GenerationSupervisor
+from shopping.db.session import SessionLocal
+from shopping.integrations.personal_ai.client import UnavailablePersonalAIClient
+from shopping.integrations.personal_ai.fake import FakePersonalAIClient
 from shopping.projects.errors import ProjectError
 from shopping.projects.schemas import ApiError, ApiErrorEnvelope
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    application.state.conversation_session_factory = getattr(
+        application.state, "conversation_session_factory", SessionLocal
+    )
+    client = (
+        FakePersonalAIClient()
+        if settings.personal_ai_mode == "fake"
+        else UnavailablePersonalAIClient()
+    )
+    supervisor = GenerationSupervisor(
+        client=client,
+        session_factory=application.state.conversation_session_factory,
+        timeout_seconds=settings.conversation_generation_timeout_seconds,
+        max_concurrent=settings.conversation_max_concurrent_generations,
+    )
+    application.state.generation_supervisor = supervisor
+    try:
+        supervisor.recover_after_restart()
+    except SQLAlchemyError:
+        # Liveness remains available while PostgreSQL is starting or migrations
+        # have not yet been applied; durable routes will report storage errors.
+        logger.warning("Conversation restart recovery skipped because the database is unavailable")
+    try:
+        yield
+    finally:
+        await supervisor.shutdown()
+
 
 app = FastAPI(
     title="Shopping Assistant API",
     version="0.1.0",
     description="Search, discovery, research, comparison, and shortlisting API.",
+    lifespan=lifespan,
     responses={
         404: {"model": ApiErrorEnvelope, "description": "Resource not found"},
         409: {"model": ApiErrorEnvelope, "description": "Revision conflict"},

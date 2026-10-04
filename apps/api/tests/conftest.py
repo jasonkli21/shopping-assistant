@@ -7,8 +7,32 @@ from pathlib import Path
 import pytest
 from alembic import command
 from alembic.config import Config
+from fastapi.testclient import TestClient
 from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.engine import make_url
+from sqlalchemy.orm import Session, sessionmaker
+
+from shopping.db.session import get_db
+from shopping.main import app
+from shopping.projects.dependencies import get_owner_id
+
+
+def pytest_addoption(parser) -> None:
+    parser.addoption(
+        "--run-live",
+        action="store_true",
+        default=False,
+        help="Explicitly select credentialed external-provider compatibility tests",
+    )
+
+
+def pytest_collection_modifyitems(config, items) -> None:
+    if config.getoption("--run-live"):
+        return
+    skip_live = pytest.mark.skip(reason="pass --run-live to select external-provider checks")
+    for item in items:
+        if item.get_closest_marker("live"):
+            item.add_marker(skip_live)
 
 
 @pytest.fixture
@@ -69,3 +93,31 @@ def postgres_schema() -> Iterator[tuple[Engine, str]]:
 @pytest.fixture
 def db_engine(postgres_schema: tuple[Engine, str]) -> Engine:
     return postgres_schema[0]
+
+
+@pytest.fixture
+def project_api(db_engine: Engine) -> Iterator[tuple[TestClient, dict[str, uuid.UUID], Engine]]:
+    current_owner = {"id": uuid.uuid4()}
+
+    def override_db():
+        with Session(db_engine) as session:
+            yield session
+
+    def override_owner() -> uuid.UUID:
+        return current_owner["id"]
+
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_owner_id] = override_owner
+    previous_factory = getattr(app.state, "conversation_session_factory", None)
+    app.state.conversation_session_factory = sessionmaker(
+        bind=db_engine, autoflush=False, expire_on_commit=False
+    )
+    with TestClient(app) as client:
+        try:
+            yield client, current_owner, db_engine
+        finally:
+            app.dependency_overrides.clear()
+            if previous_factory is None:
+                delattr(app.state, "conversation_session_factory")
+            else:
+                app.state.conversation_session_factory = previous_factory

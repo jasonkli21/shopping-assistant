@@ -225,6 +225,102 @@ def delete_requirement(
     return _commit_and_read(session, project)
 
 
+def apply_ai_proposal(
+    session: Session,
+    owner_id: UUID,
+    project_id: UUID,
+    expected_version: int,
+    project_updates: dict,
+    requirement_operations: list[dict],
+    *,
+    commit: bool = True,
+) -> ProjectRead:
+    """Apply a validated assistant proposal as one project-context transaction.
+
+    This uses the same field validators and requirement model helpers as manual
+    edits, while intentionally advancing the project revision only once for
+    the complete proposal.
+    """
+    project = _lock_project(session, owner_id, project_id, expected_version)
+    if project_updates:
+        try:
+            command = ProjectPatch.model_validate(
+                {**project_updates, "expected_version": expected_version}
+            )
+        except ValueError as error:
+            raise _invalid("The proposal contains invalid project fields") from error
+        changes = command.model_dump(exclude_unset=True, exclude={"expected_version"})
+        for name in ("title", "goal"):
+            if name in changes and changes[name] is None:
+                raise _invalid(f"{name} cannot be cleared")
+        target = changes.get("budget_target", project.budget_target)
+        maximum = changes.get("budget_maximum", project.budget_maximum)
+        currency = changes.get("budget_currency", project.budget_currency)
+        _validate_budget_or_raise(target, maximum, currency)
+        for name, value in changes.items():
+            setattr(project, name, value)
+
+    requirements = repository.ordered_requirements(session, project.id)
+    for operation in requirement_operations:
+        kind = operation["operation"]
+        if kind == "add":
+            if len(requirements) >= 100:
+                raise _invalid("A project can have at most 100 requirements")
+            fields = RequirementCreate.model_validate(operation["fields"])
+            requirement = _requirement_model(fields, position=len(requirements))
+            requirement.origin = "ai_confirmed"
+            project.requirements.append(requirement)
+            requirements.append(requirement)
+        elif kind == "update":
+            requirement_id = UUID(operation["id"])
+            requirement = next((item for item in requirements if item.id == requirement_id), None)
+            if requirement is None:
+                raise _not_found("Requirement not found")
+            fields = RequirementPatch.model_validate(
+                {**operation["fields"], "expected_version": expected_version}
+            )
+            changes = fields.model_dump(exclude_unset=True, exclude={"expected_version"})
+            for name in ("kind", "label"):
+                if name in changes and changes[name] is None:
+                    raise _invalid(f"{name} cannot be cleared")
+            criterion_fields = {"attribute_key", "operator", "value", "unit"}
+            required = {"attribute_key", "operator", "value"}
+            if any(name in changes and changes[name] is None for name in required):
+                for name in criterion_fields:
+                    changes.pop(name, None)
+                changes.update(attribute_key=None, operator=None, value=None, unit=None)
+            merged = {
+                "attribute_key": changes.get("attribute_key", requirement.attribute_key),
+                "operator": changes.get("operator", requirement.operator),
+                "value": changes.get("value", requirement.value),
+                "unit": changes.get("unit", requirement.unit),
+            }
+            try:
+                validate_criterion_fields(**merged)
+            except ValueError as error:
+                raise _invalid(str(error)) from error
+            for name, value in changes.items():
+                setattr(requirement, name, value)
+            requirement.origin = "ai_confirmed"
+            requirement.updated_at = datetime.now(UTC)
+        elif kind == "remove":
+            requirement_id = UUID(operation["id"])
+            requirement = next((item for item in requirements if item.id == requirement_id), None)
+            if requirement is None:
+                raise _not_found("Requirement not found")
+            requirements.remove(requirement)
+            session.delete(requirement)
+            _set_requirement_positions(requirements)
+        else:
+            raise _invalid("The proposal contains an unsupported requirement operation")
+
+    _advance_revision(project)
+    if commit:
+        return _commit_and_read(session, project)
+    session.flush()
+    return _project_read(session, project)
+
+
 def _requirement_model(command: RequirementCreate, position: int) -> ProjectRequirement:
     return ProjectRequirement(
         kind=command.kind,

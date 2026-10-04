@@ -19,8 +19,16 @@ def test_fresh_database_can_upgrade_downgrade_and_upgrade_again(postgres_schema)
         command.downgrade(config, "base")
         assert inspect(connection).get_table_names() == ["alembic_version"]
         command.upgrade(config, "head")
+        command.check(config)
         tables = set(inspect(connection).get_table_names())
-        assert {"shopping_projects", "project_requirements", "alembic_version"} <= tables
+        assert {
+            "shopping_projects",
+            "project_requirements",
+            "conversations",
+            "conversation_messages",
+            "project_update_proposals",
+            "alembic_version",
+        } <= tables
     finally:
         connection.close()
 

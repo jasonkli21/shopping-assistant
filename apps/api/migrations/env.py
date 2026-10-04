@@ -4,6 +4,7 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from shopping.config import get_settings
+from shopping.conversations import models as conversation_models  # noqa: F401
 from shopping.db.base import Base
 from shopping.projects import models as project_models  # noqa: F401
 

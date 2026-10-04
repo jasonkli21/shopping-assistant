@@ -14,6 +14,49 @@ export interface components {
     ApiErrorEnvelope: {
       "error": components["schemas"]["ApiError"];
     };
+    ConversationPage: {
+      "items": Array<components["schemas"]["ConversationRead"]>;
+      "next_cursor"?: null | string;
+    };
+    ConversationRead: {
+      "id": string;
+      "project_id": string;
+      "created_at": string;
+      "updated_at": string;
+    };
+    MessageCreate: {
+      "text": string;
+      "request_key": string;
+      "expected_version": number;
+    };
+    MessageCreated: {
+      "user_message_id": string;
+      "assistant_message_id": string;
+      "conversation_id": string;
+      "replayed": boolean;
+    };
+    MessagePage: {
+      "items": Array<components["schemas"]["MessageRead"]>;
+      "next_cursor"?: null | string;
+    };
+    MessageRead: {
+      "id": string;
+      "conversation_id": string;
+      "project_id": string;
+      "paired_message_id": null | string;
+      "ordinal": number;
+      "role": "user" | "assistant";
+      "text": string;
+      "status": "generating" | "completed" | "failed" | "interrupted";
+      "request_key"?: null | string;
+      "snapshot_revision": null | number;
+      "sequence": number;
+      "error_code": null | string;
+      "clarification_questions"?: Array<string>;
+      "created_at": string;
+      "completed_at": null | string;
+      "proposal"?: components["schemas"]["ProposalRead"] | null;
+    };
     ProjectCreate: {
       "title": string;
       "goal": string;
@@ -68,6 +111,27 @@ export interface components {
       "created_at": string;
       "updated_at": string;
     };
+    ProposalCommand: {
+      "expected_version": number;
+    };
+    ProposalMutationResult: {
+      "proposal": components["schemas"]["ProposalRead"];
+      "project": components["schemas"]["ProjectRead"] | null;
+      "replayed": boolean;
+    };
+    ProposalRead: {
+      "id": string;
+      "project_id": string;
+      "assistant_message_id": string;
+      "base_revision": number;
+      "schema_version": number;
+      "operations": Record<string, unknown>;
+      "status": "pending" | "applied" | "dismissed" | "stale";
+      "applied_revision": null | number;
+      "applied_project"?: components["schemas"]["ProjectRead"] | null;
+      "created_at": string;
+      "updated_at": string;
+    };
     RequirementCreate: {
       "kind": "must_have" | "preference" | "constraint";
       "label": string;
@@ -119,6 +183,22 @@ export interface paths {
     "get": operations["get_project_projects__project_id__get"];
     "patch": operations["patch_project_projects__project_id__patch"];
   };
+  "/projects/{project_id}/conversations": {
+    "get": operations["list_conversations_projects__project_id__conversations_get"];
+  };
+  "/projects/{project_id}/messages": {
+    "get": operations["list_messages_projects__project_id__messages_get"];
+    "post": operations["create_message_projects__project_id__messages_post"];
+  };
+  "/projects/{project_id}/messages/stream": {
+    "get": operations["attach_message_stream_projects__project_id__messages_stream_get"];
+  };
+  "/projects/{project_id}/proposals/{proposal_id}/apply": {
+    "post": operations["apply_proposal_projects__project_id__proposals__proposal_id__apply_post"];
+  };
+  "/projects/{project_id}/proposals/{proposal_id}/dismiss": {
+    "post": operations["dismiss_proposal_projects__project_id__proposals__proposal_id__dismiss_post"];
+  };
   "/projects/{project_id}/requirements": {
     "get": operations["list_requirements_projects__project_id__requirements_get"];
     "post": operations["create_requirement_projects__project_id__requirements_post"];
@@ -130,6 +210,79 @@ export interface paths {
 }
 
 export interface operations {
+  "apply_proposal_projects__project_id__proposals__proposal_id__apply_post": {
+    parameters: {
+      path: {
+        "project_id": string;
+        "proposal_id": string;
+      };
+    };
+    requestBody: { content: {
+      "application/json": components["schemas"]["ProposalCommand"];
+    } };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["ProposalMutationResult"];
+      } };
+      "404": { content?: {
+        "application/json"?: undefined;
+      } };
+      "409": { content?: {
+        "application/json"?: undefined;
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
+  "attach_message_stream_projects__project_id__messages_stream_get": {
+    parameters: {
+      path: {
+        "project_id": string;
+      };
+      query: {
+        "message_id": string;
+      };
+    };
+    responses: {
+      "200": { content?: {
+        "application/json": unknown;
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
+  "create_message_projects__project_id__messages_post": {
+    parameters: {
+      path: {
+        "project_id": string;
+      };
+    };
+    requestBody: { content: {
+      "application/json": components["schemas"]["MessageCreate"];
+    } };
+    responses: {
+      "202": { content?: {
+        "application/json": components["schemas"]["MessageCreated"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json"?: undefined;
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
   "create_project_projects_post": {
     parameters: {
     };
@@ -227,6 +380,28 @@ export interface operations {
       } };
     };
   };
+  "dismiss_proposal_projects__project_id__proposals__proposal_id__dismiss_post": {
+    parameters: {
+      path: {
+        "project_id": string;
+        "proposal_id": string;
+      };
+    };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["ProposalMutationResult"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
   "get_project_projects__project_id__get": {
     parameters: {
       path: {
@@ -254,6 +429,52 @@ export interface operations {
     responses: {
       "200": { content?: {
         "application/json": Record<string, string>;
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
+  "list_conversations_projects__project_id__conversations_get": {
+    parameters: {
+      path: {
+        "project_id": string;
+      };
+    };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["ConversationPage"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
+  "list_messages_projects__project_id__messages_get": {
+    parameters: {
+      path: {
+        "project_id": string;
+      };
+      query: {
+        "before"?: null | string;
+        "limit"?: number;
+      };
+    };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["MessagePage"];
       } };
       "404": { content?: {
         "application/json": components["schemas"]["ApiErrorEnvelope"];
