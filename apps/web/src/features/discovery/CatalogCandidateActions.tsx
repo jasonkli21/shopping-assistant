@@ -456,7 +456,7 @@ export function CatalogCandidateActions({
         <button className="button quiet-button" type="button" onClick={() => setCorrectionOpen((value) => !value)} disabled={commandBusy || Boolean(pendingNormalize || pendingCorrection || pendingRevert)}>
           {pendingCorrection ? "Correction needs review" : correctionOpen ? "Close correction" : "Assign or correct match"}
         </button>
-        {mapping?.can_revert_correction && (
+        {(mapping?.can_revert_correction || pendingRevert) && (
           <button className="button quiet-button" type="button" onClick={submitRevert} disabled={commandBusy || revert.isPending || Boolean(pendingNormalize || pendingCorrection) || !catalogVersion}>
             {revert.isPending ? "Reverting correction…" : pendingRevert ? "Retry revert" : "Revert latest correction"}
           </button>
