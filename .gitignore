@@ -1,0 +1,35 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+.cache/
+
+# Node
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+coverage/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+
+# Test / tooling artifacts
+.coverage
+htmlcov/
+
+# Local DB / infra
+.pgdata/
+.pnpm-store/

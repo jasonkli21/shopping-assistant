@@ -1,0 +1,102 @@
+# API Contract (Phased Planning Draft)
+
+Only `GET /health` is implemented. The [plans index](../planning/implementation-plans-index.md) and selected phase plan define future command/schema details; this is a route inventory, not an implementation claim. Implement/generate OpenAPI and TypeScript contracts incrementally.
+
+## Shared conventions
+
+- Transport schemas are distinct from ORM models. Opaque UUID IDs, UTC ISO-8601 timestamps and decimal-string money with explicit currency; unknown values stay null/unknown.
+- Private resources are scoped to a stable server-side owner from Phase 1. Firebase auth/allowlisted identity mapping arrives before cloud exposure in Phase 9. A client cannot set owner_id.
+- Context mutations carry `expected_version`, return the committed project revision and conflict with 409. Nested references must belong to the same owner/project. Catalog/profile/comparison revisions are explicit where relevant.
+- Conversation/research commands carry `request_key`: exact replay returns the same command result; same key/different payload returns 409. Validated AI proposals apply atomically and explicitly; prose/deltas cannot mutate durable state.
+- Error envelope `{error:{code,message,details?,request_id?}}`; field validation 422, unavailable/foreign-owner ID 404, revision/transition conflict 409. Sanitize provider errors. Bounded cursor pagination is specified in the index.
+- Project context edits advance its revision. Activity bookkeeping (message/run status, query/source observations and stream subscriptions) does not advance it; snapshot/run revisions describe the input used. Derived comparisons must record the committed context revision when created by a context mutation.
+
+## System — Phase 0; readiness in Phase 9
+
+```text
+GET /health
+GET /ready       # Phase 9, bounded DB/schema readiness
+```
+
+## Projects and requirements — Phase 1
+
+```text
+POST   /projects
+GET    /projects
+GET    /projects/{project_id}
+PATCH  /projects/{project_id}
+DELETE /projects/{project_id}
+GET    /projects/{project_id}/requirements
+POST   /projects/{project_id}/requirements
+PATCH  /projects/{project_id}/requirements/{requirement_id}
+DELETE /projects/{project_id}/requirements/{requirement_id}
+```
+
+DELETE tombstones/hides; archive is a reversible status. Detail includes ordered requirements. No product/research feature is implied.
+
+## Conversations and proposals — Phase 2
+
+```text
+GET  /projects/{project_id}/conversations
+GET  /projects/{project_id}/messages
+POST /projects/{project_id}/messages
+GET  /projects/{project_id}/messages/stream?message_id=...
+POST /projects/{project_id}/proposals/{proposal_id}/apply
+POST /projects/{project_id}/proposals/{proposal_id}/dismiss
+```
+
+POST returns durable message IDs; the local Phase 2 stream attaches to one existing generation, with snapshot/delta/proposal/complete/error events. Reconnect cannot create another command. Token-level replay is not guaranteed; persisted history/snapshot is authoritative. Phase 9 must verify/adapt execution lifetime and authenticated fetch streaming for deployed multi-instance/request lifecycle; such an adaptation must preserve command/proposal idempotency.
+
+## Discovery/research — Phase 3, extended in Phases 5/7
+
+```text
+POST /projects/{project_id}/research
+GET  /projects/{project_id}/research
+GET  /projects/{project_id}/research/{research_run_id}
+POST /projects/{project_id}/research/{research_run_id}/cancel
+GET  /projects/{project_id}/candidates
+```
+
+Research is a bounded command, with objective/type/request_key/expected_version and server-capped optional limits; POST returns 202 and run ID. Phase 3 type is discovery; Phase 5 adds selected-product research; Phase 7 adds mode/refresh/source targets/jobs. Candidate observations are not canonical products, offers or evidence. Progress initially polls durable run state.
+
+## Catalog and normalization — Phase 4
+
+```text
+POST /projects/{project_id}/candidates/{candidate_id}/normalize
+GET  /projects/{project_id}/products
+GET  /products/{product_id}
+GET  /products/{product_id}/offers?variant_id=...
+```
+
+Normalization/link/correction commands are owner/version scoped and defined precisely in Phase 4 OpenAPI. Canonical identity is Product → ProductVariant → timestamped RetailOffer. ProjectProduct links an exact variant; corrections retain provenance and history. A URL is not product identity.
+
+## Evidence — Phase 5
+
+```text
+GET /products/{product_id}/sources?variant_id=...
+GET /projects/{project_id}/products/{project_product_id}/research
+GET /projects/{project_id}/claims/{claim_id}
+```
+
+Add scoped source-snapshot inspection routes with the implementation contract. Source-backed claims expose exact excerpt/context/content-version provenance; assessments cite claim IDs and project context. Raw arbitrary HTML is never an API-rendered evidence view.
+
+## Decisions and comparisons — Phase 6
+
+```text
+GET    /projects/{project_id}/shortlist
+POST   /projects/{project_id}/shortlist
+DELETE /projects/{project_id}/shortlist/{project_product_id}
+POST   /projects/{project_id}/rejections
+DELETE /projects/{project_id}/rejections/{project_product_id}
+POST   /projects/{project_id}/comparisons
+GET    /projects/{project_id}/comparisons
+GET    /projects/{project_id}/comparisons/{comparison_id}
+PATCH  /projects/{project_id}/comparisons/{comparison_id}
+DELETE /projects/{project_id}/comparisons/{comparison_id}
+```
+
+Use exact ProjectProduct IDs, not family-level product IDs, for decisions/comparison membership. Notes, favorites and manual purchased/undo commands are added by the Phase 6 plan. One current decision state prevents simultaneous shortlist/rejection. Comparisons persist dimensions/provenance and expose unknown/conflict/stale cells; saved snapshots do not silently regenerate.
+
+## Profiles/memory and production — Phases 8/9
+
+Phase 8 adds owner-scoped profile/preferences/candidates, promotion/revocation and conditional external memory operation contracts, with explicit consent. No external memory API is assumed to exist. Phase 9 adds Firebase token verification/authorization and owner export/purge plus readiness. Final routes/types must be documented and authorization-tested across the entire implemented route inventory before release.
