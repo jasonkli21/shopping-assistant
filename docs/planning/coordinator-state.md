@@ -12,7 +12,7 @@ Updated: 2026-10-04. This file is a resumable operational record, not completion
 
 ## Operating contract
 
-Complete phases 1–9 sequentially. **Latest user steering: every newly spawned implementation or review-fix agent uses `gpt-6-sol` with `reasoning_effort: medium` (Sol Medium), `fork_turns: none`.** Each phase agent stops at its phase boundary. All coordination and independent review happen in the main session (`/root`); do not spawn a separate coordinator or reviewer. The earlier `/root/sol_coordinator` remains interrupted. Loop: fresh Sol Medium implements phase; main reviews plan and broader intent; fresh Sol Medium fixes substantive findings; main lightly verifies, fixes small residual gaps, commits and records handoff; repeat next phase. Remain idle during agent implementation except infrequent health checks. Phase 6 has a mandatory full-system gate before Phase 7. Do not report external or cloud checks as passed when unrun.
+Complete phases 1–9 sequentially. **Latest user clarification: use Luna Extra High (`gpt-6-luna`, `xhigh`) until the October 4 15:05 PDT / 22:05 UTC scheduled restart; use Sol Medium (`gpt-6-sol`, `medium`) only after that restart.** Each phase agent stops at its phase boundary. All coordination and independent review happen in the main session (`/root`); do not spawn a separate coordinator or reviewer. The earlier `/root/sol_coordinator` remains interrupted. Loop: fresh implementation agent implements phase; main reviews plan and broader intent; fresh fix agent resolves substantive findings; main lightly verifies, fixes small residual gaps, commits and records handoff; repeat next phase. Remain idle during agent implementation except infrequent health checks. Phase 6 has a mandatory full-system gate before Phase 7. Do not report external or cloud checks as passed when unrun.
 
 ## Known local environment
 
@@ -24,6 +24,8 @@ Complete phases 1–9 sequentially. **Latest user steering: every newly spawned 
 ## Next action
 
 Main source review of Phase 4 completed; delegate findings to fresh Sol Medium, then light verification/signoff before Phase 5. Findings: disjoint exact identifiers can merge via unspecified family variant; actual JSON-LD extractor ignores variant discriminators; excerpt presence alone permits unsupported extracted values; historical owner events suppress normalization even after revert; no overall retrieval/DNS deadline and decompression allocation precedes decoded-size rejection; offer amount/currency CHECK permits SQL NULL ambiguity; correction UI has first-page-only choices, JSON inputs, editable pending commands and insufficient replay visibility; detail links lose exact variant selection. Review-fix agent must add focused regressions and update evidence. Root has not run Phase 4 verification yet. Preserve source/search lineage, append-only offers, owner boundaries and external structured Personal AI gap.
+
+Active fix agent is `/root/phase4_review_fixes_luna` (Luna Extra High). Just-dispatched `/root/phase4_review_fixes` Sol Medium was interrupted after the user's timing clarification; do not overlap/restart it. Wait for active Luna before main light verification. After scheduled restart, use Sol Medium for newly spawned implementation/fix agents.
 
 ## Restart schedule correction
 
