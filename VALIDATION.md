@@ -36,6 +36,24 @@ The constituent checks of `make validate` were run directly against the installe
 
 For the direct frontend commands, `node` was `/Users/jasonkli/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node`. The wrapper install was not allowed to relink dependencies; the existing installation remained usable for these checks. The project lock pins pnpm 10.34.6, so use that version when running the aggregate wrapper later.
 
+## Phase 1 independent-review fixes — 2026-10-03
+
+The follow-up commits separate UI draft/pending-state organization from persistence and nested-resource invariants. The large overview module is now split into project draft/reconciliation helpers and requirement editor/forms. Save forms disable their editable controls while requests are pending, and submit handlers also reject duplicate project/requirement submissions. Missing or foreign-project requirement targets are checked inside the owner-scoped locked transaction before checking the expected revision, so those targets consistently return 404.
+
+The ORM and new migration `0002_project_revision_notes` now enforce `revision >= 1` and nullable notes of at most 10,000 characters. The historical `0001` migration remains unchanged. The new migration was exercised against preexisting `0001` state, constraint violations, downgrade, and re-upgrade.
+
+| Check | Result |
+|---|---|
+| `cd apps/api && UV_CACHE_DIR=/private/tmp/shopping-uv-cache /opt/homebrew/bin/uv run ruff check src tests migrations` and `ruff format --check src tests migrations` | Passed. |
+| `cd apps/api && UV_CACHE_DIR=/private/tmp/shopping-uv-cache /opt/homebrew/bin/uv run pytest -m 'not db and not live'` | Passed: 17 deterministic tests. |
+| `cd apps/api && UV_CACHE_DIR=/private/tmp/shopping-uv-cache /opt/homebrew/bin/uv run python ../../scripts/generate_api_types.py --check` | Passed; generated types remain current. |
+| `cd apps/web && <bundled-node> node_modules/vitest/vitest.mjs run` | Passed: 17 UI tests, including delayed successful project save, requirement save and requirement create requests. |
+| `cd apps/web && <bundled-node> node_modules/eslint/bin/eslint.js .`, `node_modules/typescript/bin/tsc -b`, and `node_modules/vite/bin/vite.js build` | Passed: lint, typecheck and production build. `<bundled-node>` is `/Users/jasonkli/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node`. |
+| `TEST_DATABASE_URL=postgresql+psycopg://postgres@127.0.0.1:55843/shopping_test uv run pytest -m db` | Passed: 23 tests against isolated PostgreSQL 16.15, including revision/notes constraint rejection, migration upgrade/downgrade/re-upgrade, and missing/foreign target 404 behavior with stale revisions. |
+| Fresh disposable `shopping_phase1_review_test`: `uv run alembic upgrade head`, `uv run alembic check`, `uv run alembic heads` | Passed. Alembic found no new operations; head is `0002_project_revision_notes`. |
+
+The available bundled pnpm version still differs from the locked wrapper version, so `make validate` was not used for this follow-up; its constituent deterministic checks are listed above. Browser, hosted CI and cloud/provider checks were not repeated and retain the limitations recorded earlier in this file.
+
 ## Phase 0 baseline review and validation (historical)
 
 Reviewed 2026-10-03 in `/Users/jasonkli/projects/shopping-assistant` before local Git history was established. The original supplied directory had no `.git`; it is now recorded at baseline commit `5ff030d`. No Phase 1+ functionality existed at the time of that review.

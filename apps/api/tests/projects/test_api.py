@@ -127,6 +127,33 @@ def test_revision_conflicts_prevent_project_and_requirement_partial_writes(proje
     assert current["revision"] == 2
 
 
+@pytest.mark.parametrize(
+    ("method", "target_kind"),
+    [("patch", "missing"), ("patch", "foreign"), ("delete", "missing"), ("delete", "foreign")],
+)
+def test_missing_or_foreign_requirement_precedes_stale_revision_conflict(
+    project_api, method, target_kind
+):
+    client, _owner, _engine = project_api
+    project = _create_project(client).json()
+    client.patch(
+        f"/projects/{project['id']}",
+        json={"expected_version": 1, "title": "Changed project"},
+    )
+    if target_kind == "missing":
+        requirement_id = str(uuid4())
+    else:
+        foreign_project = _create_project(client, title="Another project").json()
+        requirement_id = foreign_project["requirements"][0]["id"]
+
+    path = f"/projects/{project['id']}/requirements/{requirement_id}"
+    if method == "patch":
+        response = client.patch(path, json={"expected_version": 1, "label": "Stale label"})
+    else:
+        response = client.delete(path, params={"expected_version": 1})
+    _error(response, 404, "not_found")
+
+
 def test_different_owner_gets_not_found_for_project_and_nested_requirement(project_api):
     client, owner, _engine = project_api
     project = _create_project(client).json()

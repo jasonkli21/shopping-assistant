@@ -2,7 +2,7 @@ from decimal import Decimal
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import select, text
+from sqlalchemy import CheckConstraint, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -77,6 +77,31 @@ def test_database_rejects_invalid_budget_combinations(db_engine, target, maximum
         with pytest.raises(IntegrityError):
             session.commit()
         session.rollback()
+
+
+@pytest.mark.parametrize("invalid_values", [{"revision": 0}, {"notes": "x" * 10001}])
+def test_database_rejects_invalid_revision_and_oversized_notes(db_engine, invalid_values):
+    with Session(db_engine) as session:
+        session.add(
+            ShoppingProject(
+                owner_id=uuid4(),
+                title="Vacuum",
+                goal="Find a vacuum",
+                **invalid_values,
+            )
+        )
+        with pytest.raises(IntegrityError):
+            session.commit()
+        session.rollback()
+
+
+def test_project_model_metadata_declares_revision_and_notes_checks():
+    names = {
+        constraint.name
+        for constraint in ShoppingProject.__table__.constraints
+        if isinstance(constraint, CheckConstraint)
+    }
+    assert {"ck_project_revision_positive", "ck_project_notes_length"} <= names
 
 
 def test_foreign_keys_and_transaction_rollback_are_enforced(db_engine):

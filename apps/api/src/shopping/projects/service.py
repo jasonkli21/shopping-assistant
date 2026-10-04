@@ -159,10 +159,9 @@ def patch_requirement(
     requirement_id: UUID,
     command: RequirementPatch,
 ) -> ProjectRead:
-    project = _lock_project(session, owner_id, project_id, command.expected_version)
-    requirement = repository.requirement_by_project(session, project.id, requirement_id)
-    if requirement is None:
-        raise _not_found("Requirement not found")
+    project, requirement = _lock_requirement(
+        session, owner_id, project_id, requirement_id, command.expected_version
+    )
 
     changes = command.model_dump(exclude_unset=True, exclude={"expected_version"})
     for name in ("kind", "label"):
@@ -212,10 +211,9 @@ def delete_requirement(
     requirement_id: UUID,
     expected_version: int,
 ) -> ProjectRead:
-    project = _lock_project(session, owner_id, project_id, expected_version)
-    requirement = repository.requirement_by_project(session, project.id, requirement_id)
-    if requirement is None:
-        raise _not_found("Requirement not found")
+    project, requirement = _lock_requirement(
+        session, owner_id, project_id, requirement_id, expected_version
+    )
     remaining = [
         item
         for item in repository.ordered_requirements(session, project.id)
@@ -250,6 +248,28 @@ def _lock_project(
     project = repository.project_by_owner(session, project_id, owner_id, lock=True)
     if project is None:
         raise _not_found("Project not found")
+    _check_revision(project, expected_version)
+    return project
+
+
+def _lock_requirement(
+    session: Session,
+    owner_id: UUID,
+    project_id: UUID,
+    requirement_id: UUID,
+    expected_version: int,
+) -> tuple[ShoppingProject, ProjectRequirement]:
+    project = repository.project_by_owner(session, project_id, owner_id, lock=True)
+    if project is None:
+        raise _not_found("Project not found")
+    requirement = repository.requirement_by_project(session, project.id, requirement_id)
+    if requirement is None:
+        raise _not_found("Requirement not found")
+    _check_revision(project, expected_version)
+    return project, requirement
+
+
+def _check_revision(project: ShoppingProject, expected_version: int) -> None:
     if project.revision != expected_version:
         raise ProjectError(
             409,
@@ -257,7 +277,6 @@ def _lock_project(
             "This project changed since it was loaded. Review the latest version before saving.",
             {"current_version": project.revision},
         )
-    return project
 
 
 def _advance_revision(project: ShoppingProject) -> None:

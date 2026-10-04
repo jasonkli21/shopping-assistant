@@ -28,6 +28,10 @@ class ShoppingProject(Base):
     __table_args__ = (
         CheckConstraint("char_length(btrim(title)) BETWEEN 1 AND 200", name="ck_project_title"),
         CheckConstraint("char_length(btrim(goal)) BETWEEN 1 AND 4000", name="ck_project_goal"),
+        CheckConstraint("revision >= 1", name="ck_project_revision_positive"),
+        CheckConstraint(
+            "notes IS NULL OR char_length(notes) <= 10000", name="ck_project_notes_length"
+        ),
         CheckConstraint(
             "category IS NULL OR char_length(category) <= 100", name="ck_project_category_length"
         ),
