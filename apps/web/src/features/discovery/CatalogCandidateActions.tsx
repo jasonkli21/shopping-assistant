@@ -1,5 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FormEvent, useState } from "react";
+import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { FormEvent, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import {
@@ -25,6 +25,11 @@ type VariantChoice = {
   variant_name: string;
 };
 type StoredRecord = Record<string, unknown>;
+type IdentityField = "bundle" | "region" | "color" | "capacity" | "generation" | "condition" | "size";
+
+const IDENTITY_FIELDS: IdentityField[] = [
+  "bundle", "region", "color", "capacity", "generation", "condition", "size",
+];
 
 function storageKey(projectId: string, candidateId: string, action: string) {
   return "shopping-assistant:catalog-command:" + projectId + ":" + candidateId + ":" + action;
@@ -73,6 +78,20 @@ function choiceLabel(choice: VariantChoice) {
   return [choice.brand, choice.canonical_name, choice.model_family, choice.variant_name]
     .filter(Boolean)
     .join(" · ");
+}
+
+function identitySummary(value: Record<string, boolean | number | string> | undefined) {
+  const entries = Object.entries(value ?? {});
+  return entries.length ? entries.map(([key, item]) => `${key}: ${item}`).join(" · ") : "No variant details supplied";
+}
+
+function identityValues(fields: Record<IdentityField, string>) {
+  const values = Object.fromEntries(
+    Object.entries(fields)
+      .map(([key, value]) => [key, value.trim()] as const)
+      .filter(([, value]) => value.length > 0),
+  );
+  return validIdentityAttributes(values);
 }
 
 function validIdentityAttributes(value: unknown): Record<string, boolean | number | string> | undefined {
@@ -165,7 +184,7 @@ export function CatalogCandidateActions({
   );
   const [normalizationError, setNormalizationError] = useState("");
   const [correctionError, setCorrectionError] = useState("");
-  const [correctionOpen, setCorrectionOpen] = useState(false);
+  const [correctionOpen, setCorrectionOpen] = useState(() => Boolean(readStored(correctionKey, isCorrectionCommand)));
   const [searchText, setSearchText] = useState("");
   const [selectedVariantId, setSelectedVariantId] = useState("");
   const [selectedProductId, setSelectedProductId] = useState("");
@@ -177,21 +196,53 @@ export function CatalogCandidateActions({
   const [newCategory, setNewCategory] = useState("");
   const [newModel, setNewModel] = useState("");
   const [newVariantName, setNewVariantName] = useState("");
-  const [newIdentityJson, setNewIdentityJson] = useState("{}");
+  const [identityFields, setIdentityFields] = useState<Record<IdentityField, string>>({
+    bundle: "", region: "", color: "", capacity: "", generation: "", condition: "", size: "",
+  });
+  const commandLock = useRef(false);
+  const [commandBusy, setCommandBusy] = useState(false);
   const mapping = candidate.normalization;
-  const variantsQuery = useQuery({
+  const variantsQuery = useInfiniteQuery({
     queryKey: ["catalog-variants", searchText],
-    queryFn: ({ signal }) => catalogApi.listVariants(searchText, 20, undefined, signal),
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ signal, pageParam }) => catalogApi.listVariants(searchText, 20, pageParam, signal),
+    getNextPageParam: (page) => page.next_cursor ?? undefined,
     enabled: correctionOpen && (!newProductMode || newVariantMode),
     retry: false,
     refetchOnWindowFocus: false,
   });
+  const variantChoices = variantsQuery.data?.pages.flatMap((page) => page.items) ?? [];
+  const uniqueVariantChoices = [...new Map(variantChoices.map((choice) => [choice.variant_id, choice])).values()];
+  const uniqueProductChoices = [...new Map(uniqueVariantChoices.map((choice) => [choice.product_id, choice])).values()];
+  const correctionTarget = pendingCorrection?.new_product
+    ? `${pendingCorrection.new_product.canonical_name} · ${pendingCorrection.new_product.variant_name} · ${identitySummary(pendingCorrection.new_product.identity_attributes)}`
+    : pendingCorrection?.new_variant
+      ? `${uniqueProductChoices.find((choice) => choice.product_id === pendingCorrection.new_variant?.product_id)?.canonical_name ?? pendingCorrection.new_variant.product_id} · ${pendingCorrection.new_variant.display_name} · ${identitySummary(pendingCorrection.new_variant.identity_attributes)}`
+      : pendingCorrection?.target_variant_id
+        ? `${choiceLabel(uniqueVariantChoices.find((choice) => choice.variant_id === pendingCorrection.target_variant_id) ?? {
+          variant_id: pendingCorrection.target_variant_id,
+          product_id: "",
+          canonical_name: "Selected catalog variant",
+          brand: null,
+          model_family: null,
+          variant_name: pendingCorrection.target_variant_id,
+        })} (${pendingCorrection.target_variant_id})`
+        : "Unknown correction target";
+  const anyPendingCommand = Boolean(pendingNormalize || pendingCorrection || pendingRevert);
+  function acquireCommand() {
+    if (commandLock.current) return false;
+    commandLock.current = true;
+    setCommandBusy(true);
+    return true;
+  }
   const refreshCatalog = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["project", projectId] }),
       queryClient.invalidateQueries({ queryKey: ["project-products", projectId] }),
       queryClient.invalidateQueries({ queryKey: ["catalog-variants"] }),
       queryClient.invalidateQueries({ queryKey: ["discovery-candidates", projectId] }),
+      queryClient.invalidateQueries({ queryKey: ["product"] }),
+      queryClient.invalidateQueries({ queryKey: ["product-offers"] }),
     ]);
   };
 
@@ -199,6 +250,8 @@ export function CatalogCandidateActions({
     mutationFn: (command: NormalizeCommand) =>
       catalogApi.normalizeCandidate(projectId, candidate.id, command),
     onSuccess: async (result) => {
+      commandLock.current = false;
+      setCommandBusy(false);
       setPendingNormalize(null);
       writeStored(normalizeKey, null);
       setNormalizationError(
@@ -211,12 +264,14 @@ export function CatalogCandidateActions({
       await refreshCatalog();
     },
     onError: async (error) => {
+      commandLock.current = false;
+      setCommandBusy(false);
       setNormalizationError(errorText(error, "Normalization could not finish."));
       if (isKnownRejection(error)) {
         setPendingNormalize(null);
         writeStored(normalizeKey, null);
       }
-      if (error instanceof ApiRequestError && error.status === 409) await refreshCatalog();
+      if (isKnownRejection(error)) await refreshCatalog();
     },
   });
 
@@ -224,6 +279,8 @@ export function CatalogCandidateActions({
     mutationFn: (command: CatalogCorrectionCommand) =>
       catalogApi.correctCandidate(projectId, candidate.id, command),
     onSuccess: async () => {
+      commandLock.current = false;
+      setCommandBusy(false);
       setPendingCorrection(null);
       writeStored(correctionKey, null);
       setCorrectionError("Your assignment was saved and can be reverted.");
@@ -231,12 +288,14 @@ export function CatalogCandidateActions({
       await refreshCatalog();
     },
     onError: async (error) => {
+      commandLock.current = false;
+      setCommandBusy(false);
       setCorrectionError(errorText(error, "Your correction could not be saved."));
       if (isKnownRejection(error)) {
         setPendingCorrection(null);
         writeStored(correctionKey, null);
       }
-      if (error instanceof ApiRequestError && error.status === 409) await refreshCatalog();
+      if (isKnownRejection(error)) await refreshCatalog();
     },
   });
 
@@ -244,26 +303,32 @@ export function CatalogCandidateActions({
     mutationFn: (command: RevertCommand) =>
       catalogApi.revertCandidateCorrection(projectId, candidate.id, command),
     onSuccess: async () => {
+      commandLock.current = false;
+      setCommandBusy(false);
       setPendingRevert(null);
       writeStored(revertKey, null);
       setCorrectionError("Your previous mapping was restored.");
       await refreshCatalog();
     },
     onError: async (error) => {
+      commandLock.current = false;
+      setCommandBusy(false);
       setCorrectionError(errorText(error, "The correction could not be reverted."));
       if (isKnownRejection(error)) {
         setPendingRevert(null);
         writeStored(revertKey, null);
       }
-      if (error instanceof ApiRequestError && error.status === 409) await refreshCatalog();
+      if (isKnownRejection(error)) await refreshCatalog();
     },
   });
 
   function submitNormalization() {
+    if (commandLock.current || pendingCorrection || pendingRevert) return;
     if (!catalogVersion) {
       setNormalizationError("Load the current catalog version before normalizing.");
       return;
     }
+    if (!acquireCommand()) return;
     const command = pendingNormalize ?? {
       request_key: requestKey("catalog-normalize"),
       expected_catalog_version: catalogVersion,
@@ -277,6 +342,7 @@ export function CatalogCandidateActions({
 
   function submitCorrection(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (commandLock.current || pendingNormalize || pendingCorrection || pendingRevert) return;
     if (!catalogVersion) {
       setCorrectionError("Load the current catalog version before saving a correction.");
       return;
@@ -286,17 +352,12 @@ export function CatalogCandidateActions({
       return;
     }
     let command: CatalogCorrectionCommand;
+    const identityAttributes = identityValues(identityFields);
+    if (!identityAttributes) {
+      setCorrectionError("Variant identity must use supported values up to 450 characters.");
+      return;
+    }
     if (newProductMode) {
-      let identityAttributes: Record<string, boolean | number | string> | undefined;
-      try {
-        identityAttributes = validIdentityAttributes(JSON.parse(newIdentityJson));
-      } catch {
-        identityAttributes = undefined;
-      }
-      if (!identityAttributes) {
-        setCorrectionError("Variant identity must be a JSON object with up to 12 text, number, or boolean values.");
-        return;
-      }
       command = {
         request_key: requestKey("catalog-correction"),
         expected_catalog_version: catalogVersion,
@@ -313,18 +374,8 @@ export function CatalogCandidateActions({
         },
       };
     } else if (newVariantMode) {
-      let identityAttributes: Record<string, boolean | number | string> | undefined;
-      try {
-        identityAttributes = validIdentityAttributes(JSON.parse(newIdentityJson));
-      } catch {
-        identityAttributes = undefined;
-      }
       if (!selectedProductId) {
         setCorrectionError("Choose the product family for this new variant.");
-        return;
-      }
-      if (!identityAttributes) {
-        setCorrectionError("Variant identity must be a JSON object with up to 12 text, number, or boolean values.");
         return;
       }
       command = {
@@ -352,6 +403,7 @@ export function CatalogCandidateActions({
         target_variant_id: selectedVariantId,
       };
     }
+    if (!acquireCommand()) return;
     setPendingCorrection(command);
     writeStored(correctionKey, command);
     setCorrectionError("");
@@ -359,14 +411,18 @@ export function CatalogCandidateActions({
   }
 
   function replayCorrection() {
-    if (pendingCorrection) correct.mutate(pendingCorrection);
+    if (pendingCorrection && !pendingNormalize && !pendingRevert && acquireCommand()) {
+      correct.mutate(pendingCorrection);
+    }
   }
 
   function submitRevert() {
+    if (commandLock.current || pendingNormalize || pendingCorrection) return;
     if (!catalogVersion) {
       setCorrectionError("Load the current catalog version before reverting.");
       return;
     }
+    if (!acquireCommand()) return;
     const command = pendingRevert ?? {
       request_key: requestKey("catalog-revert"),
       expected_catalog_version: catalogVersion,
@@ -382,7 +438,7 @@ export function CatalogCandidateActions({
       {mapping?.project_product_id && mapping.product_id ? (
         <div className="normalized-product-link">
           <span className="catalog-status-pill">{mapping.status === "manual_linked" || mapping.can_revert_correction || mapping.reason === "manual_mapping_preserved" ? "Manual match" : "Normalized"}</span>
-          <Link to={"/products/" + mapping.product_id}>View product details</Link>
+          <Link to={"/products/" + mapping.product_id + (mapping.variant_id ? "?variant=" + encodeURIComponent(mapping.variant_id) : "")}>View product details</Link>
           {mapping.reason && <small>{mapping.reason.replaceAll("_", " ")}</small>}
         </div>
       ) : (
@@ -394,14 +450,14 @@ export function CatalogCandidateActions({
       )}
 
       <div className="catalog-action-row">
-        <button className="button secondary-button" type="button" onClick={submitNormalization} disabled={normalize.isPending || !catalogVersion}>
+        <button className="button secondary-button" type="button" onClick={submitNormalization} disabled={commandBusy || normalize.isPending || Boolean(pendingCorrection || pendingRevert) || !catalogVersion}>
           {normalize.isPending ? "Reading product page…" : pendingNormalize ? "Retry the same normalization" : mapping?.latest_observation_status && mapping.latest_observation_status !== "succeeded" ? "Retry page retrieval" : "Normalize product page"}
         </button>
-        <button className="button quiet-button" type="button" onClick={() => setCorrectionOpen((value) => !value)}>
-          {correctionOpen ? "Close correction" : "Assign or correct match"}
+        <button className="button quiet-button" type="button" onClick={() => setCorrectionOpen((value) => !value)} disabled={commandBusy || Boolean(pendingNormalize || pendingCorrection || pendingRevert)}>
+          {pendingCorrection ? "Correction needs review" : correctionOpen ? "Close correction" : "Assign or correct match"}
         </button>
         {mapping?.can_revert_correction && (
-          <button className="button quiet-button" type="button" onClick={submitRevert} disabled={revert.isPending || !catalogVersion}>
+          <button className="button quiet-button" type="button" onClick={submitRevert} disabled={commandBusy || revert.isPending || Boolean(pendingNormalize || pendingCorrection) || !catalogVersion}>
             {revert.isPending ? "Reverting correction…" : pendingRevert ? "Retry revert" : "Revert latest correction"}
           </button>
         )}
@@ -412,6 +468,22 @@ export function CatalogCandidateActions({
 
       {correctionOpen && (
         <form className="catalog-correction-form" onSubmit={submitCorrection}>
+          {pendingCorrection ? (
+            <div className="saved-command-notice" role="group" aria-label="Saved correction awaiting review">
+              <p>This exact correction may already have been saved. Review its saved details, then replay the same request to confirm the server result.</p>
+              <dl>
+                <div><dt>Target</dt><dd>{correctionTarget}</dd></div>
+                <div><dt>Reason</dt><dd>{pendingCorrection.reason}</dd></div>
+                <div><dt>Request</dt><dd>{pendingCorrection.request_key}</dd></div>
+                <div><dt>Catalog version</dt><dd>{pendingCorrection.expected_catalog_version}</dd></div>
+                <div><dt>Project version</dt><dd>{pendingCorrection.expected_project_version}</dd></div>
+              </dl>
+              <button className="button secondary-button" type="button" disabled={commandBusy || correct.isPending || Boolean(pendingNormalize || pendingRevert)} onClick={replayCorrection}>
+                {correct.isPending ? "Checking correction…" : "Retry the same correction"}
+              </button>
+            </div>
+          ) : (
+          <fieldset disabled={commandBusy || anyPendingCommand}>
           <div className="catalog-correction-mode">
             <label>
               <input type="radio" checked={!newProductMode && !newVariantMode} onChange={() => { setNewProductMode(false); setNewVariantMode(false); }} />
@@ -437,7 +509,7 @@ export function CatalogCandidateActions({
               />
               {variantsQuery.isPending && <p role="status">Loading catalog variants…</p>}
               {variantsQuery.isError && <p role="alert">{errorText(variantsQuery.error, "Catalog variants could not load.")}</p>}
-              {variantsQuery.data?.items.length && !newVariantMode ? (
+              {uniqueVariantChoices.length && !newVariantMode ? (
                 <label className="field-label" htmlFor={"variant-choice-" + candidate.id}>
                   Product variant
                   <select
@@ -446,15 +518,16 @@ export function CatalogCandidateActions({
                     onChange={(event) => setSelectedVariantId(event.target.value)}
                   >
                     <option value="">Choose a variant</option>
-                    {variantsQuery.data.items.map((choice) => (
+                    {uniqueVariantChoices.map((choice) => (
                       <option key={choice.variant_id} value={choice.variant_id}>{choiceLabel(choice)}</option>
                     ))}
                   </select>
                 </label>
-              ) : !variantsQuery.data?.items.length && !variantsQuery.isPending && !variantsQuery.isError ? (
+              ) : !uniqueVariantChoices.length && !variantsQuery.isPending && !variantsQuery.isError ? (
                 <p className="quiet-state">No matching variants yet. Create a product below.</p>
               ) : null}
-              {newVariantMode && variantsQuery.data?.items.length ? (
+              {variantsQuery.hasNextPage && <button className="button quiet-button" type="button" disabled={variantsQuery.isFetchingNextPage} onClick={() => void variantsQuery.fetchNextPage()}>{variantsQuery.isFetchingNextPage ? "Loading more variants…" : "Load more variants"}</button>}
+              {newVariantMode && uniqueVariantChoices.length ? (
                 <>
                   <label className="field-label" htmlFor={"product-choice-" + candidate.id}>
                     Product family
@@ -464,15 +537,16 @@ export function CatalogCandidateActions({
                       onChange={(event) => setSelectedProductId(event.target.value)}
                     >
                       <option value="">Choose a product</option>
-                      {[...new Map(variantsQuery.data.items.map((choice) => [choice.product_id, choice])).values()].map((choice) => (
+                      {uniqueProductChoices.map((choice) => (
                         <option key={choice.product_id} value={choice.product_id}>{[choice.brand, choice.canonical_name, choice.model_family].filter(Boolean).join(" · ")}</option>
                       ))}
                     </select>
                   </label>
                   <label className="field-label" htmlFor={"new-variant-name-" + candidate.id}>Variant name</label>
                   <input id={"new-variant-name-" + candidate.id} value={newVariantName} onChange={(event) => setNewVariantName(event.target.value)} maxLength={300} placeholder="Describe this variant" />
-                  <label className="field-label" htmlFor={"identity-json-" + candidate.id}>Known variant identity values <span className="optional">JSON, for example bundle and region values</span></label>
-                  <textarea id={"identity-json-" + candidate.id} value={newIdentityJson} onChange={(event) => setNewIdentityJson(event.target.value)} rows={3} />
+                  <div className="catalog-correction-fields">
+                    {IDENTITY_FIELDS.map((field) => <label key={field}><span className="field-label">{field[0].toUpperCase() + field.slice(1)} <span className="optional">Optional</span></span><input value={identityFields[field]} onChange={(event) => setIdentityFields((current) => ({ ...current, [field]: event.target.value }))} maxLength={100} /></label>)}
+                  </div>
                 </>
               ) : null}
             </>
@@ -486,26 +560,20 @@ export function CatalogCandidateActions({
                 <label><span className="field-label">Model family <span className="optional">Optional</span></span><input value={newModel} onChange={(event) => setNewModel(event.target.value)} maxLength={200} /></label>
                 <label><span className="field-label">Variant name</span><input value={newVariantName} onChange={(event) => setNewVariantName(event.target.value)} maxLength={300} placeholder="Unspecified" /></label>
               </div>
-              <label className="field-label" htmlFor={"identity-json-" + candidate.id}>Known variant identity values <span className="optional">JSON, for example a bundle value</span></label>
-              <textarea id={"identity-json-" + candidate.id} value={newIdentityJson} onChange={(event) => setNewIdentityJson(event.target.value)} rows={3} />
+              <div className="catalog-correction-fields">
+                {IDENTITY_FIELDS.map((field) => <label key={field}><span className="field-label">{field[0].toUpperCase() + field.slice(1)} <span className="optional">Optional</span></span><input value={identityFields[field]} onChange={(event) => setIdentityFields((current) => ({ ...current, [field]: event.target.value }))} maxLength={100} /></label>)}
+              </div>
             </>
           )}
           <label className="field-label" htmlFor={"correction-reason-" + candidate.id}>Why is this match correct?</label>
           <textarea id={"correction-reason-" + candidate.id} value={correctionReason} onChange={(event) => setCorrectionReason(event.target.value)} rows={2} maxLength={500} minLength={3} required />
           {correctionError && <p className="field-error" role="alert">{correctionError}</p>}
-          {pendingCorrection ? (
-            <div className="saved-command-notice" role="status">
-              <p>This correction may already have been saved.</p>
-              <button className="button secondary-button" type="button" disabled={correct.isPending} onClick={replayCorrection}>
-                {correct.isPending ? "Checking correction…" : "Retry the same correction"}
-              </button>
-            </div>
-          ) : (
-            <button className="button primary-button" type="submit" disabled={correct.isPending || !catalogVersion}>
-              {correct.isPending ? "Saving correction…" : "Save manual correction"}
-            </button>
-          )}
+          <button className="button primary-button" type="submit" disabled={commandBusy || correct.isPending || anyPendingCommand || !catalogVersion}>
+            {correct.isPending ? "Saving correction…" : "Save manual correction"}
+          </button>
           <p className="field-help">Your choice is recorded with a reason and can be reverted. Offers stay attached to the variant where they were observed.</p>
+          </fieldset>
+          )}
         </form>
       )}
     </div>

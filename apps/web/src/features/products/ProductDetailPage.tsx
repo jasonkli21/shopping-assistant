@@ -1,6 +1,6 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useEffect, useMemo } from "react";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 
 import { ApiRequestError, ProductRead, catalogApi } from "../../api/client";
 
@@ -58,7 +58,8 @@ function ProductLoadingState({ title }: { title: string }) {
 
 export function ProductDetailPage() {
   const { productId } = useParams();
-  const [variantId, setVariantId] = useState("");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const variantId = searchParams.get("variant") ?? "";
   const productQuery = useQuery({
     queryKey: ["product", productId],
     queryFn: ({ signal }) => catalogApi.getProduct(productId!, signal),
@@ -70,9 +71,13 @@ export function ProductDetailPage() {
   useEffect(() => {
     if (!product) return;
     if (!product.variants.some((variant) => variant.id === variantId)) {
-      setVariantId(product.variants[0]?.id ?? "");
+      const params = new URLSearchParams(searchParams);
+      const firstVariantId = product.variants[0]?.id;
+      if (firstVariantId) params.set("variant", firstVariantId);
+      else params.delete("variant");
+      setSearchParams(params, { replace: true });
     }
-  }, [product, variantId]);
+  }, [product, searchParams, setSearchParams, variantId]);
 
   if (!productId || productQuery.isPending) return <ProductLoadingState title="Loading product details…" />;
   if (productQuery.isError || !product) {
@@ -88,7 +93,16 @@ export function ProductDetailPage() {
     );
   }
 
-  return <ProductDetail product={product} variantId={variantId} setVariantId={setVariantId} />;
+  return <ProductDetail
+    product={product}
+    variantId={variantId}
+    setVariantId={(id) => setSearchParams((current) => {
+      const params = new URLSearchParams(current);
+      if (id) params.set("variant", id);
+      else params.delete("variant");
+      return params;
+    })}
+  />;
 }
 
 function ProductDetail({ product, variantId, setVariantId }: {

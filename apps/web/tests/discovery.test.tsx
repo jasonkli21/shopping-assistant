@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -261,9 +261,7 @@ describe("Discover", () => {
       target: { value: variantChoice.product_id },
     });
     fireEvent.change(screen.getByLabelText("Variant name"), { target: { value: "Pet kit" } });
-    fireEvent.change(screen.getByLabelText(/Known variant identity values/), {
-      target: { value: '{"bundle":"pet kit"}' },
-    });
+    fireEvent.change(screen.getByLabelText(/Bundle Optional/), { target: { value: "pet kit" } });
     fireEvent.change(screen.getByLabelText("Why is this match correct?"), {
       target: { value: "This is the same model family with a distinct kit." },
     });
@@ -278,6 +276,161 @@ describe("Discover", () => {
       category_attributes: [],
     });
     expect(saved[0]?.new_product).toBeUndefined();
+  });
+
+  it("loads variant choices beyond the first catalog page", async () => {
+    const target = {
+      variant_id: "e6be5a19-d590-4ac4-a034-ed6585584dd3",
+      product_id: "f6be5a19-d590-4ac4-a034-ed6585584dd3",
+      canonical_name: "Acme Clean 4 target page",
+      brand: "Acme",
+      category: "vacuum",
+      model_family: "AX-400",
+      variant_name: "Pet kit",
+      identity_attributes: { bundle: { value: "pet kit", origin: "source" } },
+    };
+    const firstPage = Array.from({ length: 20 }, (_, index) => ({
+      ...target,
+      variant_id: `00000000-0000-0000-0000-${String(index + 1).padStart(12, "0")}`,
+      product_id: `10000000-0000-0000-0000-${String(index + 1).padStart(12, "0")}`,
+      canonical_name: `Catalog product ${index + 1}`,
+    }));
+    const saved: Record<string, unknown>[] = [];
+    let cursorRequested = "";
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input), "http://localhost");
+      if (url.pathname === `/projects/${PROJECT_ID}`) return response(project());
+      if (url.pathname === `/projects/${PROJECT_ID}/research`) return response({ items: [run()], next_cursor: null });
+      if (url.pathname === `/projects/${PROJECT_ID}/research/${RUN_ID}`) return response(run());
+      if (url.pathname === `/projects/${PROJECT_ID}/candidates`) return response({ items: [candidate], next_cursor: null });
+      if (url.pathname === `/projects/${PROJECT_ID}/products`) {
+        return response({ items: [], next_cursor: null, catalog_version: 1, project_version: 3 });
+      }
+      if (url.pathname === "/products") {
+        if (url.searchParams.has("cursor")) {
+          cursorRequested = url.searchParams.get("cursor") ?? "";
+          return response({ items: [target], next_cursor: null, catalog_version: 1 });
+        }
+        return response({ items: firstPage, next_cursor: "catalog-page-two", catalog_version: 1 });
+      }
+      if (url.pathname.endsWith("/correction") && init?.method === "POST") {
+        saved.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+        return response({
+          candidate_id: candidate.id,
+          event_id: "de3eac0e-67e0-4ad1-9618-d9a6ddc4c319",
+          status: "manual_linked",
+          previous_project_product_id: null,
+          selected_project_product_id: "d82867c8-59e1-442a-aa3b-13125843492a",
+          catalog_version: 2,
+          project_version: 4,
+          reason: "This is the same family with a distinct kit.",
+          replayed: false,
+        });
+      }
+      throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderApp();
+
+    await screen.findByRole("heading", { name: "Cordless vacuum product page" });
+    fireEvent.click(screen.getByRole("button", { name: "Assign or correct match" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Load more variants" }));
+    await screen.findByRole("option", { name: /Acme · Acme Clean 4 target page/ });
+    expect(cursorRequested).toBe("catalog-page-two");
+    fireEvent.change(screen.getByLabelText("Product variant"), { target: { value: target.variant_id } });
+    fireEvent.change(screen.getByLabelText("Why is this match correct?"), {
+      target: { value: "This result is the exact variant." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save manual correction" }));
+
+    await screen.findByText("Your assignment was saved and can be reverted.");
+    expect(saved).toHaveLength(1);
+    expect(saved[0]?.target_variant_id).toBe(target.variant_id);
+  });
+
+  it("locks duplicate corrections and restores the exact unknown-ack payload after reload", async () => {
+    const target = {
+      variant_id: "32941741-d069-4a20-8b8c-8b0cf6e450e8",
+      product_id: "b857dc62-dddf-46ad-b9f4-d2bb998a36dd",
+      canonical_name: "Acme Clean 4",
+      brand: "Acme",
+      category: "vacuum",
+      model_family: "AX-400",
+      variant_name: "Body only",
+      identity_attributes: { bundle: { value: "body only", origin: "source" } },
+    };
+    const pendingAck = deferred<ReturnType<typeof response>>();
+    const sent: Record<string, unknown>[] = [];
+    let correctionAttempts = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input), "http://localhost");
+      if (url.pathname === `/projects/${PROJECT_ID}`) return response(project());
+      if (url.pathname === `/projects/${PROJECT_ID}/research`) return response({ items: [run()], next_cursor: null });
+      if (url.pathname === `/projects/${PROJECT_ID}/research/${RUN_ID}`) return response(run());
+      if (url.pathname === `/projects/${PROJECT_ID}/candidates`) return response({ items: [candidate], next_cursor: null });
+      if (url.pathname === `/projects/${PROJECT_ID}/products`) {
+        return response({ items: [], next_cursor: null, catalog_version: 1, project_version: 3 });
+      }
+      if (url.pathname === "/products") return response({ items: [target], next_cursor: null, catalog_version: 1 });
+      if (url.pathname.endsWith("/correction") && init?.method === "POST") {
+        sent.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+        correctionAttempts += 1;
+        if (correctionAttempts === 1) return pendingAck.promise;
+        return response({
+          candidate_id: candidate.id,
+          event_id: "de3eac0e-67e0-4ad1-9618-d9a6ddc4c319",
+          status: "manual_linked",
+          previous_project_product_id: null,
+          selected_project_product_id: "d82867c8-59e1-442a-aa3b-13125843492a",
+          catalog_version: 2,
+          project_version: 4,
+          reason: "This is the same family with a distinct kit.",
+          replayed: true,
+        });
+      }
+      throw new Error(`Unexpected request: ${init?.method ?? "GET"} ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderApp();
+
+    await screen.findByRole("heading", { name: "Cordless vacuum product page" });
+    fireEvent.click(screen.getByRole("button", { name: "Assign or correct match" }));
+    const variantSelect = await screen.findByLabelText("Product variant");
+    await screen.findByRole("option", { name: /Acme Clean 4.*Body only/ });
+    fireEvent.change(variantSelect, { target: { value: target.variant_id } });
+    expect(variantSelect).toHaveValue(target.variant_id);
+    const reasonInput = screen.getByLabelText("Why is this match correct?");
+    fireEvent.change(reasonInput, {
+      target: { value: "The result is the vacuum body-only variant." },
+    });
+    expect(reasonInput).toHaveValue("The result is the vacuum body-only variant.");
+    const saveButton = screen.getByRole("button", { name: "Save manual correction" });
+    await waitFor(() => expect(saveButton).toBeEnabled());
+    fireEvent.click(saveButton);
+    fireEvent.click(saveButton);
+    await waitFor(() => expect(sent).toHaveLength(1));
+    const originalCommand = sent[0];
+    pendingAck.resolve(response({ error: { code: "service_unavailable", message: "Unavailable." } }, 503));
+    await screen.findByRole("alert");
+    expect(window.sessionStorage.getItem(
+      `shopping-assistant:catalog-command:${PROJECT_ID}:${candidate.id}:correction`,
+    )).not.toBeNull();
+
+    cleanup();
+    renderApp();
+    const review = await screen.findByRole("group", { name: "Saved correction awaiting review" });
+    expect(within(review).getByText(/Acme · Acme Clean 4 · AX-400 · Body only/)).toBeInTheDocument();
+    expect(review.textContent).toContain(target.variant_id);
+    expect(within(review).getByText("The result is the vacuum body-only variant.")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Why is this match correct?")).not.toBeInTheDocument();
+    fireEvent.click(within(review).getByRole("button", { name: "Retry the same correction" }));
+
+    await screen.findByText("Your assignment was saved and can be reverted.");
+    expect(sent).toHaveLength(2);
+    expect(sent[1]).toEqual(originalCommand);
+    expect(window.sessionStorage.getItem(
+      `shopping-assistant:catalog-command:${PROJECT_ID}:${candidate.id}:correction`,
+    )).toBeNull();
   });
 
   it("submits explicit queries and keeps entries after a definitive busy rejection", async () => {

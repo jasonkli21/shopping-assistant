@@ -565,7 +565,7 @@ function DiscoverPageContent({ projectId }: { projectId?: string }) {
                   {normalizedProducts.map((item) => (
                     <li key={item.id}>
                       <div>
-                        <Link to={`/products/${item.product_id}`}>{item.canonical_name}</Link>
+                        <Link to={`/products/${item.product_id}?variant=${encodeURIComponent(item.variant_id)}`}>{item.canonical_name}</Link>
                         <p>{[item.brand, item.model_family, item.variant_name].filter(Boolean).join(" · ")}</p>
                       </div>
                       <span>{item.offers.length} recent {item.offers.length === 1 ? "offer" : "offers"}</span>

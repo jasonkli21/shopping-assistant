@@ -117,20 +117,32 @@ describe("catalog product detail", () => {
       revision: 2,
       created_at: timestamp,
       updated_at: timestamp,
-      variants: [{
-        id: variantId,
-        product_id: productId,
-        display_name: "Pet kit",
-        identity_attributes: {
-          bundle: { value: "pet kit", origin: "source", observation_id: "obs-1", excerpt: "pet kit" },
+      variants: [
+        {
+          id: "296d0c5b-6732-4d62-a016-4a5e9f11e9b9",
+          product_id: productId,
+          display_name: "Body only",
+          identity_attributes: {},
+          category_attributes: {},
+          revision: 1,
+          identifiers: [],
+          offers: [],
         },
-        category_attributes: {
-          power: { value: 220, unit: "AW", origin: "manufacturer", excerpt: "220 AW" },
+        {
+          id: variantId,
+          product_id: productId,
+          display_name: "Pet kit",
+          identity_attributes: {
+            bundle: { value: "pet kit", origin: "source", observation_id: "obs-1", excerpt: "pet kit" },
+          },
+          category_attributes: {
+            power: { value: 220, unit: "AW", origin: "manufacturer", excerpt: "220 AW" },
+          },
+          revision: 1,
+          identifiers: [],
+          offers: [],
         },
-        revision: 1,
-        identifiers: [],
-        offers: [],
-      }],
+      ],
     };
     const offers = [
       {
@@ -161,10 +173,12 @@ describe("catalog product detail", () => {
       },
     ];
     let olderOffersRequested = false;
+    const requestedOfferVariants: string[] = [];
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input), "http://localhost");
       if (url.pathname === `/products/${productId}`) return response(productData);
       if (url.pathname === `/products/${productId}/offers`) {
+        requestedOfferVariants.push(url.searchParams.get("variant_id") ?? "");
         if (url.searchParams.has("cursor")) {
           olderOffersRequested = true;
           return response({ items: [], next_cursor: null, catalog_version: 2 });
@@ -174,14 +188,16 @@ describe("catalog product detail", () => {
       throw new Error(`Unexpected request: ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
-    renderApp(`/products/${productId}`);
+    renderApp(`/products/${productId}?variant=${variantId}`);
 
     expect(await screen.findByRole("heading", { name: "Acme Clean 4" })).toBeInTheDocument();
     expect(screen.getByText("Canonical product · Product revision 2")).toBeInTheDocument();
     expect(screen.getByText("pet kit")).toBeInTheDocument();
+    expect(screen.getByLabelText("Choose a variant")).toHaveValue(variantId);
     expect(screen.getByText(/Observed on source page/)).toBeInTheDocument();
     expect(screen.getByText("220 AW")).toBeInTheDocument();
     expect(await screen.findByText("USD 319.00")).toBeInTheDocument();
+    expect(requestedOfferVariants[0]).toBe(variantId);
     expect(screen.getByRole("link", { name: /Open retailer page/ })).toHaveAttribute("href", "https://shop.example/item");
     expect(screen.getByText("Retailer link unavailable")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Load older offers" }));
