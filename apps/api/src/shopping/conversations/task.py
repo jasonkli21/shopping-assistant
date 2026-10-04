@@ -13,7 +13,13 @@ from shopping.conversations.schemas import (
     UpdateRequirement,
 )
 from shopping.integrations.personal_ai.client import AIRequest
-from shopping.projects.schemas import ProjectRead, validate_budget, validate_criterion_fields
+from shopping.projects.schemas import (
+    ProjectPatch,
+    ProjectRead,
+    RequirementPatch,
+    validate_budget,
+    validate_criterion_fields,
+)
 
 TASK_NAME = "interpret_shopping_intent.v1"
 PROMPT_VERSION = "shopping-intent-1"
@@ -118,7 +124,7 @@ def validate_output(value: Any, context: dict[str, Any] | None = None) -> Interp
         raise ValueError("provider output must be a JSON object")
     try:
         encoded = json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
-    except (TypeError, ValueError) as error:
+    except (RecursionError, TypeError, ValueError) as error:
         raise ValueError("provider output must be bounded JSON") from error
     if len(encoded) > MAX_OUTPUT_CHARS:
         raise ValueError("provider output exceeded its configured size limit")
@@ -129,6 +135,15 @@ def validate_output(value: Any, context: dict[str, Any] | None = None) -> Interp
     if context is not None:
         project = context.get("project", {})
         updates = output.project_updates
+        update_fields = updates.model_dump(exclude_unset=True, exclude_none=True)
+        if update_fields:
+            try:
+                # Reuse Phase 1's field and decimal validators before a proposal can
+                # be persisted. `None` is omitted by the proposal contract; it never
+                # implicitly clears project fields.
+                ProjectPatch.model_validate({**update_fields, "expected_version": 1})
+            except ValidationError as error:
+                raise ValueError("provider output proposed invalid project fields") from error
         target = updates.budget_target or project.get("budget_target")
         maximum = updates.budget_maximum or project.get("budget_maximum")
         currency = updates.budget_currency or project.get("budget_currency")
@@ -168,18 +183,29 @@ def validate_output(value: Any, context: dict[str, Any] | None = None) -> Interp
                 if isinstance(operation, UpdateRequirement):
                     current = known_requirements[requirement_id]
                     fields = operation.fields.model_dump(exclude_unset=True)
-                    if any(
+                    try:
+                        # This invokes the same bounded-JSON, enum, nullable-field,
+                        # and criterion checks as a manual Phase 1 requirement edit.
+                        RequirementPatch.model_validate({**fields, "expected_version": 1})
+                    except ValidationError as error:
+                        raise ValueError(
+                            "provider output proposed an invalid requirement"
+                        ) from error
+                    if any(name in fields and fields[name] is None for name in ("kind", "label")):
+                        raise ValueError("provider output cannot clear required requirement fields")
+                    clear_criterion = any(
                         name in fields and fields[name] is None
                         for name in ("attribute_key", "operator", "value")
-                    ):
-                        criterion = {
+                    )
+                    criterion = (
+                        {
                             "attribute_key": None,
                             "operator": None,
                             "value": None,
                             "unit": None,
                         }
-                    else:
-                        criterion = {
+                        if clear_criterion
+                        else {
                             "attribute_key": fields.get(
                                 "attribute_key", current.get("attribute_key")
                             ),
@@ -187,6 +213,7 @@ def validate_output(value: Any, context: dict[str, Any] | None = None) -> Interp
                             "value": fields.get("value", current.get("value")),
                             "unit": fields.get("unit", current.get("unit")),
                         }
+                    )
                     try:
                         validate_criterion_fields(**criterion)
                     except ValueError as error:

@@ -261,11 +261,19 @@ def apply_ai_proposal(
             setattr(project, name, value)
 
     requirements = repository.ordered_requirements(session, project.id)
-    for operation in requirement_operations:
+    removes = sum(operation.get("operation") == "remove" for operation in requirement_operations)
+    adds = sum(operation.get("operation") == "add" for operation in requirement_operations)
+    if len(requirements) - removes + adds > 100:
+        raise _invalid("A project can have at most 100 requirements")
+    # Process removals first so a valid final set of 100 items is accepted even
+    # when the model lists an add before the later removal it makes room for.
+    ordered_operations = [
+        *[item for item in requirement_operations if item.get("operation") == "remove"],
+        *[item for item in requirement_operations if item.get("operation") != "remove"],
+    ]
+    for operation in ordered_operations:
         kind = operation["operation"]
         if kind == "add":
-            if len(requirements) >= 100:
-                raise _invalid("A project can have at most 100 requirements")
             fields = RequirementCreate.model_validate(operation["fields"])
             requirement = _requirement_model(fields, position=len(requirements))
             requirement.origin = "ai_confirmed"

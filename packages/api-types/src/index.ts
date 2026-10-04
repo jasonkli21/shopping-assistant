@@ -128,6 +128,7 @@ export interface components {
       "operations": Record<string, unknown>;
       "status": "pending" | "applied" | "dismissed" | "stale";
       "applied_revision": null | number;
+      "applied_at": null | string;
       "applied_project"?: components["schemas"]["ProjectRead"] | null;
       "created_at": string;
       "updated_at": string;

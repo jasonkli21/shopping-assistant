@@ -46,6 +46,9 @@ def test_offline_intent_fixture_structural_acceptance(case):
     if case.get("expected_unit"):
         added = next(item for item in output.requirement_operations if item.operation == "add")
         assert added.fields.unit == case["expected_unit"]
+    if "expected_value" in case:
+        added = next(item for item in output.requirement_operations if item.operation == "add")
+        assert added.fields.value == case["expected_value"]
 
 
 def test_output_schema_rejects_malformed_budget_and_unknown_fields():
@@ -125,6 +128,51 @@ def test_output_schema_rejects_foreign_existing_requirement_id():
                 "requirements": [],
             },
         )
+
+
+def test_output_preserves_omitted_null_and_criterion_clear_semantics():
+    first_id = "11111111-1111-4111-8111-111111111111"
+    second_id = "22222222-2222-4222-8222-222222222222"
+    output = validate_output(
+        {
+            "assistant_message": "I cleared an optional detail and a structured criterion.",
+            "clarification_questions": [],
+            "project_updates": {"category": None},
+            "requirement_operations": [
+                {"operation": "update", "id": first_id, "fields": {"detail": None}},
+                {"operation": "update", "id": second_id, "fields": {"operator": None}},
+            ],
+        },
+        {
+            "project": {
+                "budget_target": None,
+                "budget_maximum": None,
+                "budget_currency": None,
+            },
+            "requirements": [
+                {
+                    "id": first_id,
+                    "attribute_key": None,
+                    "operator": None,
+                    "value": None,
+                    "unit": None,
+                },
+                {
+                    "id": second_id,
+                    "attribute_key": "height",
+                    "operator": "lte",
+                    "value": 70,
+                    "unit": "cm",
+                },
+            ],
+        },
+    )
+
+    payload = output.mutation_payload()
+    assert payload is not None
+    assert payload["project_updates"] == {}
+    assert payload["requirement_operations"][0]["fields"] == {"detail": None}
+    assert payload["requirement_operations"][1]["fields"] == {"operator": None}
 
 
 def test_prompt_context_is_bounded_without_truncating_the_current_message():

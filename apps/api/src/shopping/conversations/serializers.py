@@ -45,6 +45,7 @@ def _proposal_read(proposal: ProjectUpdateProposal) -> ProposalRead:
         operations=proposal.operations,
         status=proposal.status,
         applied_revision=proposal.applied_revision,
+        applied_at=proposal.applied_at,
         applied_project=proposal.applied_project,
         created_at=proposal.created_at,
         updated_at=proposal.updated_at,

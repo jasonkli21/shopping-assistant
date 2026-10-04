@@ -1,0 +1,7 @@
+{
+  "name": "currency question uses the requested amount",
+  "message": "Keep the vacuum under $575",
+  "expected_question": "575",
+  "expected_category": "Vacuum",
+  "forbid_budget_currency": true
+}

@@ -138,28 +138,35 @@ class FakePersonalAIClient(PersonalAIClient):
                     updates["budget_maximum"] = amount
                     updates["budget_currency"] = "USD"
             elif "$" in message and _first_amount(message) is not None:
-                questions.append("Which currency should I use for the $400 budget?")
+                amount = _first_amount(message)
+                questions.append(f"Which currency should I use for the ${amount} budget?")
                 assistant_message = "I can capture the budget after you confirm its currency."
             else:
                 questions.append("What maximum budget and currency should I use?")
 
         elif "chair" in lowered and "desk" in lowered:
-            if "under" in lowered and any(character.isdigit() for character in message):
-                dimension = _first_amount(message)
-                if dimension is not None:
-                    operations.append(
-                        {
-                            "operation": "add",
-                            "fields": {
-                                "kind": "constraint",
-                                "label": f"Must fit under a {dimension} inch desk",
-                                "attribute_key": "height",
-                                "operator": "lte",
-                                "value": float(Decimal(dimension)),
-                                "unit": "in",
-                            },
-                        }
-                    )
+            measurement = _desk_measurement(message)
+            if "under" in lowered and measurement is not None:
+                dimension, unit, display_unit = measurement
+                operations.append(
+                    {
+                        "operation": "add",
+                        "fields": {
+                            "kind": "constraint",
+                            "label": (
+                                f"Must fit under a desk with {dimension} {display_unit} clearance"
+                            ),
+                            "attribute_key": "height",
+                            "operator": "lte",
+                            "value": float(Decimal(dimension)),
+                            "unit": unit,
+                        },
+                    }
+                )
+            elif any(character.isdigit() for character in message):
+                questions.append(
+                    "What is the desk clearance value and unit (inches or centimeters)?"
+                )
             else:
                 questions.append("What desk clearance should the chair fit under?")
 
@@ -197,3 +204,19 @@ def _first_amount(message: str) -> str | None:
 
     match = re.search(r"\b(\d{1,6}(?:\.\d{1,2})?)\b", message)
     return match.group(1) if match else None
+
+
+def _desk_measurement(message: str) -> tuple[str, str, str] | None:
+    import re
+
+    match = re.search(
+        r"\b(\d{1,6}(?:\.\d{1,2})?)\s*-?\s*(inch(?:es)?|in|centimeters?|cm)\b",
+        message,
+        re.IGNORECASE,
+    )
+    if match is None:
+        return None
+    amount, supplied_unit = match.groups()
+    if supplied_unit.lower().startswith("in"):
+        return amount, "in", "in"
+    return amount, "cm", "cm"

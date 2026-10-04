@@ -168,6 +168,7 @@ class ProposalRead(StrictModel):
     operations: dict[str, Any]
     status: Literal["pending", "applied", "dismissed", "stale"]
     applied_revision: int | None
+    applied_at: datetime | None
     applied_project: ProjectRead | None = None
     created_at: datetime
     updated_at: datetime

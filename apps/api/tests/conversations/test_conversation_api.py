@@ -103,6 +103,8 @@ def test_message_replay_proposal_apply_and_replay_after_later_edit(project_api):
     assert applied.json()["project"]["revision"] == 2
     assert applied.json()["project"]["requirements"][0]["origin"] == "ai_confirmed"
     assert applied.json()["proposal"]["status"] == "applied"
+    applied_at = applied.json()["proposal"]["applied_at"]
+    assert applied_at is not None
 
     replay = client.post(
         f"/projects/{project['id']}/proposals/{proposal_id}/apply",
@@ -125,6 +127,7 @@ def test_message_replay_proposal_apply_and_replay_after_later_edit(project_api):
     assert saved_replay.status_code == 200
     assert saved_replay.json()["replayed"] is True
     assert saved_replay.json()["project"]["revision"] == 2
+    assert saved_replay.json()["proposal"]["applied_at"] == applied_at
     assert client.get(f"/projects/{project['id']}").json()["revision"] == 3
 
     replayed_command = send_message(client, project["id"], "phase2-request-key-0001")
@@ -149,6 +152,151 @@ def test_message_replay_proposal_apply_and_replay_after_later_edit(project_api):
         assert len(rows) == 1
         assert len(proposals) == 1
         assert rows[0].origin == "ai_confirmed"
+
+
+@pytest.mark.parametrize("final_state", ["pending", "dismissed", "applied"])
+def test_proposal_lifecycle_checks_owner_and_live_project_before_replay(project_api, final_state):
+    client, owner, _engine = project_api
+    set_fake(
+        client,
+        FakePersonalAIClient(
+            response={
+                "assistant_message": "I captured the category for review.",
+                "clarification_questions": [],
+                "project_updates": {"category": "Vacuum"},
+                "requirement_operations": [],
+            }
+        ),
+    )
+    project = create_project(client)
+    accepted = send_message(client, project["id"], f"lifecycle-{final_state}-key-0001")
+    assert accepted.status_code == 202
+    assistant = wait_for_message(client, project["id"], accepted.json()["assistant_message_id"])
+    proposal_id = assistant["proposal"]["id"]
+    proposal_url = f"/projects/{project['id']}/proposals/{proposal_id}"
+    if final_state == "dismissed":
+        dismissed = client.post(f"{proposal_url}/dismiss")
+        assert dismissed.status_code == 200
+    elif final_state == "applied":
+        applied = client.post(f"{proposal_url}/apply", json={"expected_version": 1})
+        assert applied.status_code == 200
+        assert applied.json()["proposal"]["applied_at"] is not None
+
+    original_owner = owner["id"]
+    owner["id"] = uuid4()
+    assert client.post(f"{proposal_url}/apply", json={"expected_version": 1}).status_code == 404
+    assert client.post(f"{proposal_url}/dismiss").status_code == 404
+    owner["id"] = original_owner
+
+    current = client.get(f"/projects/{project['id']}").json()
+    deleted = client.delete(f"/projects/{project['id']}?expected_version={current['revision']}")
+    assert deleted.status_code == 204
+    assert (
+        client.post(
+            f"{proposal_url}/apply", json={"expected_version": current["revision"]}
+        ).status_code
+        == 404
+    )
+    assert client.post(f"{proposal_url}/dismiss").status_code == 404
+
+
+def test_invalid_persisted_proposal_operation_rolls_back_project_write(project_api):
+    client, _owner, engine = project_api
+    set_fake(
+        client,
+        FakePersonalAIClient(
+            response={
+                "assistant_message": "I prepared a suggestion.",
+                "clarification_questions": [],
+                "project_updates": {"category": "Vacuum"},
+                "requirement_operations": [],
+            }
+        ),
+    )
+    project = create_project(client)
+    accepted = send_message(client, project["id"], "invalid-proposal-operation-0001")
+    assert accepted.status_code == 202
+    assistant = wait_for_message(client, project["id"], accepted.json()["assistant_message_id"])
+    proposal_id = UUID(assistant["proposal"]["id"])
+    with Session(engine) as session:
+        proposal = session.get(ProjectUpdateProposal, proposal_id)
+        assert proposal is not None
+        proposal.operations = {
+            "project_updates": {"category": "Vacuum"},
+            "requirement_operations": [
+                {
+                    "operation": "add",
+                    "fields": {"kind": "unsupported", "label": "invalid"},
+                }
+            ],
+        }
+        session.commit()
+
+    rejected = client.post(
+        f"/projects/{project['id']}/proposals/{proposal_id}/apply",
+        json={"expected_version": 1},
+    )
+    assert rejected.status_code == 409
+    assert rejected.json()["error"]["code"] == "proposal_invalid"
+    unchanged = client.get(f"/projects/{project['id']}").json()
+    assert unchanged["revision"] == 1
+    assert unchanged["category"] is None
+    assert unchanged["requirements"] == []
+    with Session(engine) as session:
+        persisted = session.get(ProjectUpdateProposal, proposal_id)
+        assert persisted is not None
+        assert persisted.status == "pending"
+
+
+def test_proposal_can_replace_an_item_at_the_requirement_limit(project_api):
+    client, _owner, _engine = project_api
+    project_response = client.post(
+        "/projects",
+        json={
+            "title": "Vacuum",
+            "goal": "Find a vacuum",
+            "requirements": [
+                {"kind": "preference", "label": f"Preference {index}"} for index in range(100)
+            ],
+        },
+    )
+    assert project_response.status_code == 201, project_response.text
+    project = project_response.json()
+    removed_id = project["requirements"][0]["id"]
+    set_fake(
+        client,
+        FakePersonalAIClient(
+            response={
+                "assistant_message": "I prepared a replacement requirement.",
+                "clarification_questions": [],
+                "project_updates": {},
+                "requirement_operations": [
+                    {
+                        "operation": "add",
+                        "fields": {"kind": "preference", "label": "Replacement preference"},
+                    },
+                    {"operation": "remove", "id": removed_id},
+                ],
+            }
+        ),
+    )
+
+    accepted = send_message(client, project["id"], "full-requirement-replacement-0001")
+    assert accepted.status_code == 202
+    assistant = wait_for_message(client, project["id"], accepted.json()["assistant_message_id"])
+    assert assistant["status"] == "completed"
+    assert assistant["proposal"]["status"] == "pending"
+    applied = client.post(
+        f"/projects/{project['id']}/proposals/{assistant['proposal']['id']}/apply",
+        json={"expected_version": 1},
+    )
+
+    assert applied.status_code == 200, applied.text
+    requirements = applied.json()["project"]["requirements"]
+    assert len(requirements) == 100
+    assert removed_id not in {item["id"] for item in requirements}
+    replacement = next(item for item in requirements if item["label"] == "Replacement preference")
+    assert replacement["origin"] == "ai_confirmed"
 
 
 def test_concurrent_exact_message_commands_share_one_durable_generation(project_api):
@@ -202,6 +350,127 @@ def test_invalid_or_refused_output_never_creates_a_proposal(project_api, scenari
     unchanged = client.get(f"/projects/{project['id']}").json()
     assert unchanged["revision"] == 1
     assert unchanged["requirements"] == []
+
+
+@pytest.mark.parametrize(
+    "output",
+    [
+        {
+            "assistant_message": "Budget understood.",
+            "project_updates": {"budget_maximum": "400", "budget_currency": "ZZZ"},
+        },
+        {
+            "assistant_message": "Requirement updated.",
+            "requirement_operations": [
+                {"operation": "update", "id": "requirement", "fields": {"label": None}}
+            ],
+        },
+        {
+            "assistant_message": "Requirement updated.",
+            "requirement_operations": [
+                {
+                    "operation": "update",
+                    "id": "requirement",
+                    "fields": {
+                        "attribute_key": "noise",
+                        "operator": "eq",
+                        "value": "x" * 3000,
+                    },
+                }
+            ],
+        },
+        {
+            "assistant_message": "Requirement updated.",
+            "requirement_operations": [
+                {
+                    "operation": "update",
+                    "id": "requirement",
+                    "fields": {
+                        "attribute_key": "noise",
+                        "operator": "eq",
+                        "value": [[[[[["deep"]]]]]],
+                    },
+                }
+            ],
+        },
+        {
+            "assistant_message": "Requirement updated.",
+            "requirement_operations": [
+                {"operation": "update", "id": "requirement", "fields": {"kind": "maybe"}}
+            ],
+        },
+        {
+            "assistant_message": "Requirement added.",
+            "requirement_operations": [
+                {"operation": "add", "fields": {"kind": "preference", "label": "   "}}
+            ],
+        },
+        {
+            "assistant_message": "Budget understood.",
+            "project_updates": {"budget_maximum": "400", "budget_currency": "US1"},
+        },
+        {
+            "assistant_message": "Budget understood.",
+            "project_updates": {"budget_maximum": "４００", "budget_currency": "USD"},
+        },
+    ],
+    ids=[
+        "unsupported-currency",
+        "null-required-label",
+        "oversized-criterion-value",
+        "deep-criterion-json",
+        "unknown-requirement-enum",
+        "blank-added-label",
+        "invalid-currency-code",
+        "non-ascii-money",
+    ],
+)
+def test_invalid_phase_one_fields_fail_generation_without_proposal_or_revision(project_api, output):
+    client, _owner, engine = project_api
+    created = client.post(
+        "/projects",
+        json={
+            "title": "Vacuum",
+            "goal": "Find a vacuum",
+            "requirements": [
+                {
+                    "kind": "must_have",
+                    "label": "Quiet operation",
+                    "attribute_key": "noise",
+                    "operator": "lte",
+                    "value": 50,
+                    "unit": "dB",
+                }
+            ],
+        },
+    )
+    assert created.status_code == 201, created.text
+    project = created.json()
+    response = {
+        **output,
+        "assistant_message": output["assistant_message"],
+        "clarification_questions": [],
+        "project_updates": output.get("project_updates", {}),
+        "requirement_operations": [
+            {**operation, "id": str(project["requirements"][0]["id"])}
+            if operation.get("id") == "requirement"
+            else operation
+            for operation in output.get("requirement_operations", [])
+        ],
+    }
+    set_fake(client, FakePersonalAIClient(response=response))
+    accepted = send_message(client, project["id"], f"invalid-field-{project['id']}")
+    assert accepted.status_code == 202
+    assistant = wait_for_message(client, project["id"], accepted.json()["assistant_message_id"])
+    assert assistant["status"] == "failed"
+    assert assistant["error_code"] == "invalid_output"
+    assert assistant["proposal"] is None
+    unchanged = client.get(f"/projects/{project['id']}").json()
+    assert unchanged["revision"] == 1
+    assert unchanged["requirements"] == project["requirements"]
+    with Session(engine) as session:
+        proposals = list(session.scalars(select(ProjectUpdateProposal)).all())
+        assert proposals == []
 
 
 def test_oversized_project_context_is_saved_as_failure_without_provider_call(project_api):

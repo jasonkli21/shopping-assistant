@@ -127,6 +127,7 @@ class ProjectUpdateProposal(Base):
     )
     applied_revision: Mapped[int | None] = mapped_column(Integer)
     applied_project: Mapped[dict | None] = mapped_column(JSONB)
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

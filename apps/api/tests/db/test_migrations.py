@@ -96,3 +96,74 @@ def test_revision_and_notes_constraints_upgrade_downgrade_and_reupgrade(postgres
         )
     finally:
         connection.close()
+
+
+def test_applied_at_migration_backfills_existing_applied_proposals(postgres_schema):
+    engine, _schema = postgres_schema
+    config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
+    connection = engine.connect()
+    config.attributes["connection"] = connection
+    project_id = uuid4()
+    owner_id = uuid4()
+    conversation_id = uuid4()
+    assistant_id = uuid4()
+    proposal_id = uuid4()
+    try:
+        command.downgrade(config, "0003_conversations_proposals")
+        connection.execute(
+            text(
+                "INSERT INTO shopping_projects (id, owner_id, title, goal, revision) "
+                "VALUES (:id, :owner_id, 'Existing project', 'Existing goal', 2)"
+            ),
+            {"id": project_id, "owner_id": owner_id},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO conversations (id, project_id, owner_id) "
+                "VALUES (:id, :project_id, :owner_id)"
+            ),
+            {"id": conversation_id, "project_id": project_id, "owner_id": owner_id},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO conversation_messages "
+                "(id, conversation_id, project_id, owner_id, ordinal, role, content, status) "
+                "VALUES (:id, :conversation_id, :project_id, :owner_id, 1, "
+                "'assistant', 'Saved', 'completed')"
+            ),
+            {
+                "id": assistant_id,
+                "conversation_id": conversation_id,
+                "project_id": project_id,
+                "owner_id": owner_id,
+            },
+        )
+        connection.execute(
+            text(
+                "INSERT INTO project_update_proposals "
+                "(id, project_id, owner_id, assistant_message_id, base_revision, schema_version, "
+                "operations, status, applied_revision, applied_project) "
+                "VALUES (:id, :project_id, :owner_id, :assistant_id, 1, 1, '{}'::jsonb, "
+                "'applied', 2, '{}'::jsonb)"
+            ),
+            {
+                "id": proposal_id,
+                "project_id": project_id,
+                "owner_id": owner_id,
+                "assistant_id": assistant_id,
+            },
+        )
+        connection.commit()
+
+        command.upgrade(config, "head")
+        timestamps = connection.execute(
+            text("SELECT applied_at, updated_at FROM project_update_proposals WHERE id = :id"),
+            {"id": proposal_id},
+        ).one()
+        assert timestamps.applied_at is not None
+        assert timestamps.applied_at == timestamps.updated_at
+        assert "applied_at" in {
+            column["name"] for column in inspect(connection).get_columns("project_update_proposals")
+        }
+    finally:
+        connection.close()

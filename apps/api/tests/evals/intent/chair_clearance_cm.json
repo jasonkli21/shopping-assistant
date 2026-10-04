@@ -1,0 +1,9 @@
+{
+  "name": "chair desk clearance in centimeters",
+  "message": "Find a chair that must fit under my 70 cm desk",
+  "expected_question": null,
+  "expected_category": null,
+  "expected_operation": "constraint",
+  "expected_unit": "cm",
+  "expected_value": 70
+}

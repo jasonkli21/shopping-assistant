@@ -1,0 +1,8 @@
+{
+  "name": "chair desk clearance without a unit",
+  "message": "Find a chair that must fit under my 27 desk",
+  "expected_question": "unit",
+  "expected_category": null,
+  "expected_operation": null,
+  "expected_no_mutation": true
+}

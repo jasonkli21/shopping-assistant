@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import select
@@ -23,6 +24,12 @@ def apply_proposal(
     proposal_id: UUID,
     expected_version: int,
 ) -> ProposalMutationResult:
+    # All proposal lifecycle paths lock the live project first, then the
+    # proposal. This also makes deleted and foreign-owned project paths 404
+    # before an applied replay can disclose a saved project snapshot.
+    project = repository.project_by_owner(session, project_id, owner_id, lock=True)
+    if project is None:
+        raise _not_found("Project not found")
     proposal = session.scalar(
         select(ProjectUpdateProposal)
         .where(
@@ -41,9 +48,6 @@ def apply_proposal(
         )
     if proposal.status == "dismissed":
         raise ProjectError(409, "proposal_dismissed", "This proposal was dismissed.")
-    project = repository.project_by_owner(session, project_id, owner_id, lock=True)
-    if project is None:
-        raise _not_found("Project not found")
     if project.revision != proposal.base_revision:
         proposal.status = "stale"
         session.commit()
@@ -75,13 +79,18 @@ def apply_proposal(
             operations["requirement_operations"],
             commit=False,
         )
-    except (KeyError, TypeError, ValueError) as error:
+        proposal.status = "applied"
+        proposal.applied_revision = updated.revision
+        proposal.applied_project = updated.model_dump(mode="json")
+        proposal.applied_at = datetime.now(UTC)
+        session.commit()
+    except Exception as error:
         session.rollback()
-        raise ProjectError(409, "proposal_invalid", "This proposal is no longer valid.") from error
-    proposal.status = "applied"
-    proposal.applied_revision = updated.revision
-    proposal.applied_project = updated.model_dump(mode="json")
-    session.commit()
+        if isinstance(error, (KeyError, TypeError, ValueError)):
+            raise ProjectError(
+                409, "proposal_invalid", "This proposal is no longer valid."
+            ) from error
+        raise
     return ProposalMutationResult(
         proposal=_proposal_read(proposal), project=updated, replayed=False
     )
@@ -93,6 +102,9 @@ def dismiss_proposal(
     project_id: UUID,
     proposal_id: UUID,
 ) -> ProposalMutationResult:
+    project = repository.project_by_owner(session, project_id, owner_id, lock=True)
+    if project is None:
+        raise _not_found("Project not found")
     proposal = session.scalar(
         select(ProjectUpdateProposal)
         .where(
