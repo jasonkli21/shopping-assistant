@@ -107,9 +107,10 @@ The single `PageRetriever` enforces public destination checks and IP-pinned conn
 GET /products/{product_id}/sources?variant_id=...
 GET /projects/{project_id}/products/{project_product_id}/research
 GET /projects/{project_id}/claims/{claim_id}
+GET /projects/{project_id}/sources/{snapshot_id}
 ```
 
-Add scoped source-snapshot inspection routes with the implementation contract. Source-backed claims expose exact excerpt/context/content-version provenance; assessments cite claim IDs and project context. Raw arbitrary HTML is never an API-rendered evidence view.
+`POST /projects/{project_id}/research` accepts `type: product_research` with one to three selected ProjectProduct IDs and server-capped source, page, byte, AI-call and deadline budgets. The run snapshots project requirements and exact catalog/variant revisions. Run detail exposes target and stage progress; project-product research reads expose source attempts, validated claims and immutable assessment history. Source-backed claims expose exact excerpt, locator, qualifiers, source classification, content hash, publication/retrieval times and context-aware relations. Assessments cite claim IDs or report unknown, and current revision comparisons mark old assessments stale without changing their history. Failed or blocked attempts remain visible. All project-relative reads enforce owner and selected-product membership; raw arbitrary HTML is never an API-rendered evidence view. Local deterministic task fixtures exercise the contract; live structured Personal AI output and source quality remain unverified.
 
 ## Decisions and comparisons — Phase 6
 

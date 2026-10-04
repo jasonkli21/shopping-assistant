@@ -1,6 +1,6 @@
 # Phase 5 — Detailed research and inspectable evidence
 
-Status: planned. Requires Phase 4 canonical variant/project-product IDs, bounded retriever and observation provenance, and Phase 3 run/attempt semantics. Read the [index](implementation-plans-index.md), research/evidence model, data model, AI/search architecture, product detail UX and ADR 0004.
+Status: implemented locally on 2026-10-04; pending independent main-session review. Requires Phase 4 canonical variant/project-product IDs, bounded retriever and observation provenance, and Phase 3 run/attempt semantics. Read the [index](implementation-plans-index.md), research/evidence model, data model, AI/search architecture, product detail UX and ADR 0004.
 
 ## Outcome, vertical slice and boundary
 
@@ -94,3 +94,9 @@ Run `make validate`, PostgreSQL migrations/evidence/assessment tests, OpenAPI/ty
 Review: Can the user tell fact, source assertion, measured observation, inference and personal judgment apart? Can a citation be traced to the correct content version? Are qualifiers/variant identity preserved? Are syndicated sources double-counted? Are model-provided quotes actually present? Does changed context avoid silent overwrite? Does source retention stay bounded?
 
 Handoff: targetable evidence runs, SourceSnapshot and claim contracts, frozen freshness policy, immutable cited assessment history and inspectable UI. Phase 6 comparisons consume these IDs/unknowns; Phase 7 refresh/retries reuse them. Remaining external gaps: live source coverage, task quality, blocked sites and real provider budgets; no browser fallback or archive infrastructure is authorized by this plan.
+
+## Local implementation evidence — 2026-10-04
+
+The selected-product command stores requirements, project revision, catalog identity/revisions and effective budgets before execution. The existing search and `PageRetriever` boundaries produce bounded source attempts and immutable content snapshots. Extraction stores only quotes that match the retained source text and target context, with source-specific stage attempts, short validation warnings and idempotent claim fingerprints. A failed over-budget response records bytes without creating a successful snapshot. Deterministic relations retain the 60-minute `up to` eco claim beside the measured 37-minute normal-mode claim as different contexts; same-condition conflicting values remain visible. Assessment conclusions use saved requirements and compatible cited claim IDs, with unsupported conclusions left unknown. Read-time revision checks mark assessment context stale; publication and retrieval freshness remain separate.
+
+The API exposes owner-scoped source, claim and assessment reads plus stage progress. Product detail offers selected-variant research, source attempts, exact claim inspection and cited conclusions in a focus-managed desktop panel/mobile sheet. The local fixture uses `extract_claims.v1` fake responses behind `PersonalAIClient`; it does not establish a working external structured endpoint. See `VALIDATION.md` for command results. Live multi-source coverage, citation audit, blocked-site behavior, actual provider budgets, hosted CI and manual browser/mobile/keyboard inspection remain unverified. Independent main-session review must happen before Phase 6 begins.
