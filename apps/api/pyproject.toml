@@ -30,6 +30,11 @@ packages = ["src/shopping"]
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+addopts = "-m 'not db and not live'"
+markers = [
+  "db: requires an explicitly configured disposable PostgreSQL database",
+  "live: makes credentialed external provider calls",
+]
 
 [tool.ruff]
 line-length = 100

@@ -1,4 +1,4 @@
-.PHONY: db-up db-down install api web migrate test lint typecheck build validate format
+.PHONY: db-up db-down install api web migrate test test-db lint typecheck build validate format
 
 install:
 	cd apps/api && uv sync --locked --extra dev
@@ -17,8 +17,12 @@ web:
 	cd apps/web && pnpm dev
 
 test:
-	cd apps/api && uv run pytest
+	cd apps/api && uv run pytest -m 'not db and not live'
 	cd apps/web && pnpm test
+	@echo "PostgreSQL integration tests are separate; run make test-db TEST_DATABASE_URL=..."
+
+test-db:
+	cd apps/api && TEST_DATABASE_URL="$(TEST_DATABASE_URL)" uv run pytest -m db
 
 lint:
 	cd apps/api && uv run ruff check src tests migrations

@@ -1,5 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
+from uuid import UUID
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -12,6 +13,7 @@ class Settings(BaseSettings):
 
     environment: str = "local"
     database_url: str = "postgresql+psycopg://shopping:shopping@localhost:5432/shopping"
+    local_owner_id: UUID = UUID("00000000-0000-4000-8000-000000000001")
     personal_ai_url: str = "http://localhost:8080"
     search_provider: str = "fake"
     tavily_api_key: str | None = None
