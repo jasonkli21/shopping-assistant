@@ -117,9 +117,13 @@ async def list_research(
     request: Request,
     owner_id: OwnerDependency,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    cursor: Annotated[str | None, Query(max_length=256)] = None,
 ) -> ResearchRunPage:
     return await _with_session(
-        request, lambda session: service.list_runs(session, owner_id, project_id, limit)
+        request,
+        lambda session: service.list_runs(
+            session, owner_id, project_id, limit=limit, cursor=cursor
+        ),
     )
 
 
@@ -164,10 +168,11 @@ async def list_candidates(
     owner_id: OwnerDependency,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     cursor: Annotated[str | None, Query(max_length=256)] = None,
+    run_id: UUID | None = None,
 ) -> CandidatePage:
     return await _with_session(
         request,
         lambda session: service.list_candidates(
-            session, owner_id, project_id, limit=limit, cursor=cursor
+            session, owner_id, project_id, limit=limit, cursor=cursor, run_id=run_id
         ),
     )

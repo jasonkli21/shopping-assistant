@@ -29,7 +29,7 @@ class TavilySearchProvider:
         self._timeout_seconds = timeout_seconds
         self._transport = transport
 
-    async def search(self, query: SearchQuery) -> list[SearchResult]:
+    async def search(self, query: SearchQuery) -> SearchResponse:
         request_body = {
             "query": query.text,
             "search_depth": "basic",

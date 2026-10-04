@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import time
 from concurrent.futures import ThreadPoolExecutor
-from threading import Barrier
+from datetime import UTC, datetime, timedelta
+from threading import Barrier, Event
 from uuid import UUID, uuid4
 
 import pytest
@@ -170,6 +172,34 @@ def test_manual_discovery_replays_before_revision_check_and_preserves_result_lin
     assert mismatch.json()["error"]["code"] == "request_key_conflict"
 
 
+def test_candidate_normalization_preserves_trailing_path_slashes(project_api):
+    client, _owner, _engine = project_api
+    project = _create_project(client)
+    client.app.state.discovery_supervisor.search_provider = FakeSearchProvider(
+        {
+            "vacuum query": [
+                _result("Product route", "https://catalog.example/product"),
+                _result("Product directory", "https://catalog.example/product/"),
+            ]
+        }
+    )
+    accepted = _start(
+        client,
+        project,
+        key="phase3-path-slash-001",
+        queries=["vacuum query"],
+    )
+    run = _wait_for_run(client, project["id"], accepted["run_id"])
+    assert run["candidates_found"] == 2
+    candidates = client.get(
+        f"/projects/{project['id']}/candidates?run_id={accepted['run_id']}&limit=20"
+    ).json()["items"]
+    assert {item["search_results"][0]["url"] for item in candidates} == {
+        "https://catalog.example/product",
+        "https://catalog.example/product/",
+    }
+
+
 def test_failed_attempt_consumes_attempt_budget_and_skips_remaining_query(project_api):
     client, _owner, engine = project_api
     project = _create_project(client)
@@ -324,6 +354,278 @@ def test_candidate_budget_is_reserved_before_provider_io(project_api):
     assert run["results_found"] == 1
     assert run["skipped_count"] == 1
     assert [call.max_results for call in provider.calls] == [1]
+
+
+def test_provider_response_is_truncated_to_remaining_run_budgets(project_api):
+    client, _owner, engine = project_api
+    project = _create_project(client)
+
+    class IgnoresRequestedLimit:
+        name = "fake"
+
+        def __init__(self):
+            self.calls = []
+
+        async def search(self, query):
+            self.calls.append(query)
+            return SearchResponse(
+                results=[
+                    _result(f"Vacuum {index}", f"https://catalog.example/item-{index}")
+                    for index in range(20)
+                ]
+            )
+
+    provider = IgnoresRequestedLimit()
+    client.app.state.discovery_supervisor.search_provider = provider
+    accepted = _start(
+        client,
+        project,
+        key="phase3-response-cap-001",
+        queries=["first query", "second query"],
+        budgets={"max_candidates": 1, "max_results": 1},
+    )
+    run = _wait_for_run(client, project["id"], accepted["run_id"])
+    assert run["status"] == "partial"
+    assert run["attempts_used"] == 1
+    assert run["results_found"] == 1
+    assert run["candidates_found"] == 1
+    assert run["queries"][0]["results_count"] == 1
+    assert run["queries"][0]["attempts"][0]["results_count"] == 1
+    assert run["queries"][1]["state"] == "skipped"
+    assert [call.max_results for call in provider.calls] == [1]
+    with Session(engine) as session:
+        rows = list(session.scalars(select(SearchResult)).all())
+        links = list(session.scalars(select(CandidateSearchResult)).all())
+        assert len(rows) == len(links) == 1
+        assert rows[0].title == "Vacuum 0"
+
+
+def test_db_wait_past_deadline_discards_late_success(project_api):
+    client, _owner, engine = project_api
+    project = _create_project(client)
+
+    class HeldResponseProvider:
+        name = "fake"
+
+        def __init__(self):
+            self.started = Event()
+            self.release = Event()
+            self.returned = Event()
+
+        async def search(self, _query):
+            self.started.set()
+            await asyncio.to_thread(self.release.wait, 5)
+            self.returned.set()
+            return SearchResponse(results=[_result("Late vacuum", "https://catalog.example/late")])
+
+    provider = HeldResponseProvider()
+    client.app.state.discovery_supervisor.search_provider = provider
+    accepted = _start(
+        client,
+        project,
+        key="phase3-db-deadline-001",
+        queries=["slow query"],
+        budgets={"deadline_seconds": 1},
+    )
+    run_id = UUID(accepted["run_id"])
+    assert provider.started.wait(2)
+    with Session(engine) as locker:
+        locker.begin()
+        locker.execute(select(ResearchRun).where(ResearchRun.id == run_id).with_for_update()).one()
+        provider.release.set()
+        assert provider.returned.wait(2)
+        time.sleep(1.1)
+        locker.rollback()
+
+    run = _wait_for_run(client, project["id"], str(run_id))
+    assert run["status"] == "failed"
+    assert run["queries"][0]["attempts"][0]["error_code"] == "deadline_exceeded"
+    assert run["results_found"] == 0
+    assert run["candidates_found"] == 0
+    with Session(engine) as session:
+        assert session.scalars(select(SearchResult)).all() == []
+        assert session.scalars(select(DiscoveryCandidate)).all() == []
+
+
+def test_unrecognized_provider_error_code_is_sanitized(project_api):
+    client, _owner, _engine = project_api
+    project = _create_project(client)
+    client.app.state.discovery_supervisor.search_provider = FakeSearchProvider(
+        {"bad provider": FakeSearchFailure("sk-secret-token-123456789")}
+    )
+    accepted = _start(
+        client,
+        project,
+        key="phase3-safe-error-001",
+        queries=["bad provider"],
+    )
+    run = _wait_for_run(client, project["id"], accepted["run_id"])
+    assert run["error_code"] == "provider_error"
+    assert run["queries"][0]["error_code"] == "provider_error"
+    assert run["queries"][0]["attempts"][0]["error_code"] == "provider_error"
+    assert "secret" not in str(run)
+
+
+def test_unexpected_search_response_shape_is_failed_as_malformed(project_api):
+    client, _owner, _engine = project_api
+    project = _create_project(client)
+
+    class WrongShapeProvider:
+        name = "fake"
+
+        async def search(self, _query):
+            return {"results": [_result("Should not persist", "https://catalog.example/item")]}
+
+    client.app.state.discovery_supervisor.search_provider = WrongShapeProvider()
+    accepted = _start(
+        client,
+        project,
+        key="phase3-malformed-response-001",
+        queries=["malformed provider"],
+    )
+    run = _wait_for_run(client, project["id"], accepted["run_id"])
+    assert run["status"] == "failed"
+    assert run["error_code"] == "malformed_response"
+    assert run["queries"][0]["attempts"][0]["error_code"] == "malformed_response"
+    assert run["results_found"] == 0
+
+
+def test_run_and_candidate_pagination_is_stable_and_run_scoped(project_api):
+    client, owner, engine = project_api
+    project = _create_project(client)
+    base_time = datetime(2026, 10, 1, tzinfo=UTC)
+    run_ids = [UUID(int=1000 + index) for index in range(21)]
+    latest_id = run_ids[-1]
+    older_id = run_ids[0]
+    with Session(engine) as session:
+        for index, run_id in enumerate(run_ids):
+            session.add(
+                ResearchRun(
+                    id=run_id,
+                    project_id=UUID(project["id"]),
+                    owner_id=owner["id"],
+                    objective=f"Saved run {index}",
+                    run_type="discovery",
+                    status="succeeded",
+                    request_key=f"pagination-run-{index:02}",
+                    request_hash="0" * 64,
+                    snapshot_revision=1,
+                    input_snapshot={},
+                    effective_budgets={
+                        "max_queries": 1,
+                        "max_candidates": 100,
+                        "max_results": 100,
+                        "max_results_per_query": 20,
+                        "max_attempts": 1,
+                        "deadline_seconds": 10,
+                        "max_concurrent": 1,
+                    },
+                    task_name="plan_discovery.v1",
+                    prompt_version="shopping-discovery-1",
+                    schema_version=1,
+                    ai_provider="fake",
+                    search_provider="fake",
+                    queued_at=base_time,
+                    started_at=base_time,
+                    finished_at=base_time,
+                )
+            )
+        session.flush()
+        for index in range(55):
+            session.add(
+                DiscoveryCandidate(
+                    id=UUID(int=2000 + index),
+                    project_id=UUID(project["id"]),
+                    run_id=latest_id,
+                    provisional_name=f"Recent candidate {index}",
+                    discovery_reason="Pagination fixture",
+                    normalized_url=f"https://catalog.example/recent-{index}",
+                    created_at=base_time,
+                )
+            )
+        session.add(
+            DiscoveryCandidate(
+                id=UUID(int=1),
+                project_id=UUID(project["id"]),
+                run_id=older_id,
+                provisional_name="Older selected-run candidate",
+                discovery_reason="Pagination fixture",
+                normalized_url="https://catalog.example/older",
+                created_at=base_time,
+            )
+        )
+        session.commit()
+
+    first_runs = client.get(f"/projects/{project['id']}/research?limit=20").json()
+    assert [item["id"] for item in first_runs["items"]] == [
+        str(run_id) for run_id in reversed(run_ids[1:])
+    ]
+    assert first_runs["next_cursor"]
+    last_runs = client.get(
+        f"/projects/{project['id']}/research?limit=20&cursor={first_runs['next_cursor']}"
+    ).json()
+    assert [item["id"] for item in last_runs["items"]] == [str(older_id)]
+    assert last_runs["next_cursor"] is None
+
+    first_candidates = client.get(
+        f"/projects/{project['id']}/candidates?run_id={latest_id}&limit=20"
+    ).json()
+    candidate_ids = [item["id"] for item in first_candidates["items"]]
+    cursor = first_candidates["next_cursor"]
+    while cursor:
+        page = client.get(
+            f"/projects/{project['id']}/candidates?run_id={latest_id}&limit=20&cursor={cursor}"
+        ).json()
+        candidate_ids.extend(item["id"] for item in page["items"])
+        cursor = page["next_cursor"]
+    assert len(candidate_ids) == len(set(candidate_ids)) == 55
+    assert candidate_ids == [str(UUID(int=value)) for value in reversed(range(2000, 2055))]
+
+    unscoped = client.get(f"/projects/{project['id']}/candidates?limit=50").json()
+    assert str(UUID(int=1)) not in {item["id"] for item in unscoped["items"]}
+    older_candidates = client.get(
+        f"/projects/{project['id']}/candidates?run_id={older_id}&limit=20"
+    )
+    assert older_candidates.status_code == 200
+    assert [item["provisional_name"] for item in older_candidates.json()["items"]] == [
+        "Older selected-run candidate"
+    ]
+    assert (
+        client.get(f"/projects/{project['id']}/candidates?run_id={uuid4()}&limit=20").status_code
+        == 404
+    )
+
+
+def test_malformed_pagination_cursors_return_422(project_api):
+    import base64
+    import json
+
+    from shopping.research.service import _decode_cursor
+
+    client, _owner, _engine = project_api
+    project = _create_project(client)
+
+    def cursor(value):
+        return base64.urlsafe_b64encode(json.dumps(value).encode()).decode().rstrip("=")
+
+    invalid = [
+        "",
+        cursor({}),
+        cursor(["2026-10-01T00:00:00+00:00", str(uuid4()), "extra"]),
+        cursor([123, str(uuid4())]),
+        cursor(["2026-10-01T00:00:00", str(uuid4())]),
+        "%%%not-base64%%%",
+    ]
+    for value in invalid:
+        response = client.get(f"/projects/{project['id']}/candidates?cursor={value}")
+        assert response.status_code == 422, response.text
+        response = client.get(f"/projects/{project['id']}/research?cursor={value}")
+        assert response.status_code == 422, response.text
+
+    timestamp, identifier = _decode_cursor(cursor(["2026-10-01T12:00:00+02:00", str(uuid4())]))
+    assert timestamp == datetime(2026, 10, 1, 10, tzinfo=UTC)
+    assert timestamp.utcoffset() == timedelta(0)
+    assert isinstance(identifier, UUID)
 
 
 def test_cancellation_is_idempotent_and_late_provider_result_cannot_write(project_api):

@@ -112,6 +112,7 @@ class ResearchCreated(BaseModel):
 
 class ResearchRunPage(BaseModel):
     items: list[ResearchRunRead]
+    next_cursor: str | None = None
 
 
 class CandidateResultRead(BaseModel):

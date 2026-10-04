@@ -224,6 +224,7 @@ export interface components {
     };
     ResearchRunPage: {
       "items": Array<components["schemas"]["ResearchRunRead"]>;
+      "next_cursor"?: null | string;
     };
     ResearchRunRead: {
       "id": string;
@@ -638,6 +639,7 @@ export interface operations {
       query: {
         "cursor"?: null | string;
         "limit"?: number;
+        "run_id"?: null | string;
       };
     };
     responses: {
@@ -750,6 +752,7 @@ export interface operations {
         "project_id": string;
       };
       query: {
+        "cursor"?: null | string;
         "limit"?: number;
       };
     };
