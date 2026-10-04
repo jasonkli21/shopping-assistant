@@ -1,11 +1,11 @@
-# API Contract (Phased Planning Draft)
+# API Contract (Phase 0–1 Implemented; Later Phases Planned)
 
-Only `GET /health` is implemented. The [plans index](../planning/implementation-plans-index.md) and selected phase plan define future command/schema details; this is a route inventory, not an implementation claim. Implement/generate OpenAPI and TypeScript contracts incrementally.
+`GET /health` and the Phase 1 project/requirement API are implemented. Phase 2 onward remains a planning contract; the [plans index](../planning/implementation-plans-index.md) and selected phase plans define those future commands. OpenAPI is the source for committed TypeScript transport types in `packages/api-types/src/index.ts`; regenerate with `make api-types` and verify with `make api-types-check`.
 
 ## Shared conventions
 
 - Transport schemas are distinct from ORM models. Opaque UUID IDs, UTC ISO-8601 timestamps and decimal-string money with explicit currency; unknown values stay null/unknown.
-- Private resources are scoped to a stable server-side owner from Phase 1. Firebase auth/allowlisted identity mapping arrives before cloud exposure in Phase 9. A client cannot set owner_id.
+- Private resources are scoped to a stable server-side owner from Phase 1. Locally, `LOCAL_OWNER_ID` selects that principal (with a fixed development default); no client can set `owner_id`. Firebase auth/allowlisted identity mapping arrives before cloud exposure in Phase 9.
 - Context mutations carry `expected_version`, return the committed project revision and conflict with 409. Nested references must belong to the same owner/project. Catalog/profile/comparison revisions are explicit where relevant.
 - Conversation/research commands carry `request_key`: exact replay returns the same command result; same key/different payload returns 409. Validated AI proposals apply atomically and explicitly; prose/deltas cannot mutate durable state.
 - Error envelope `{error:{code,message,details?,request_id?}}`; field validation 422, unavailable/foreign-owner ID 404, revision/transition conflict 409. Sanitize provider errors. Bounded cursor pagination is specified in the index.
@@ -13,12 +13,16 @@ Only `GET /health` is implemented. The [plans index](../planning/implementation-
 
 ## System — Phase 0; readiness in Phase 9
 
+Implemented: `GET /health` is liveness and does not query PostgreSQL. Database/schema readiness arrives in Phase 9.
+
 ```text
 GET /health
 GET /ready       # Phase 9, bounded DB/schema readiness
 ```
 
 ## Projects and requirements — Phase 1
+
+Implemented against PostgreSQL. `POST /projects` returns 201 and a full project; list returns summaries and `next_cursor`; detail returns the project with requirements sorted by position. Project PATCH carries `expected_version` in its body. Requirement create carries it as a query parameter, while requirement PATCH carries it in the body. Project and requirement deletion carry it as a query parameter and return 204 for project tombstones or the updated project for requirement removal. Omitted PATCH fields stay unchanged; explicit `null` clears nullable fields. Money is transported as decimal strings with an explicit supported currency.
 
 ```text
 POST   /projects
@@ -32,7 +36,7 @@ PATCH  /projects/{project_id}/requirements/{requirement_id}
 DELETE /projects/{project_id}/requirements/{requirement_id}
 ```
 
-DELETE tombstones/hides; archive is a reversible status. Detail includes ordered requirements. No product/research feature is implied.
+DELETE tombstones/hides; archive is a reversible status. Every private read and write checks the local server-side owner. Mutations lock and validate the project revision, commit once, and return 409 with the current revision when stale. List pagination uses a bounded limit (default 20, max 100), opaque cursors and deterministic update-time/ID ordering. Inputs reject unknown fields. Errors use `{error:{code,message,details?,request_id?}}`; malformed requests are 422, missing or foreign-owner resources 404, stale revisions 409, and unexpected failures are sanitized. No product/research feature is implied.
 
 ## Conversations and proposals — Phase 2
 

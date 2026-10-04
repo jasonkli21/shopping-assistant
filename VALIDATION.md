@@ -1,6 +1,25 @@
-# Phase 0 review and validation
+# Validation record
 
-Reviewed 2026-10-03 in `/Users/jasonkli/projects/shopping-assistant`. This is an extracted scaffold without `.git`; no commit/diff/remote or hosted CI result is available. No Phase 1+ functionality was implemented.
+## Phase 1 completion and evidence — 2026-10-03
+
+Phase 1 was implemented on top of reviewed baseline `5ff030d` and committed in coherent slices: `0ff4fd1` (persistence/test harness), `c0aadc9` (service/API/generated types), and `6a1e673` (Home/Overview UI). The checkout is a local Git repository on `main`; `git remote -v` returned no configured remote, so GitHub-hosted CI could not be run. The planning docs record the contract and successor handoff.
+
+| Check | Result |
+|---|---|
+| `make validate` | Passed: Ruff check/format, ESLint, 17 deterministic API tests, 9 frontend interaction tests, generated-type check, TypeScript typecheck and Vite production build. Database/live tests are explicitly excluded from this deterministic target. |
+| `make api-types` then `make api-types-check` | Passed. Generated `packages/api-types/src/index.ts` matches the current FastAPI OpenAPI schema. |
+| `make test-db TEST_DATABASE_URL=postgresql+psycopg://postgres@127.0.0.1:55843/shopping_test` | Passed: 15 PostgreSQL-marked tests against isolated PostgreSQL 16.15. Covers migration up/down/re-up, database constraints/types, durability, ownership, revision conflicts, tombstone and pagination. The fixture creates and drops uniquely named schemas and rejects the configured application database and unsafe database names. |
+| `make migrate` with `DATABASE_URL=postgresql+psycopg://postgres@127.0.0.1:55843/shopping_phase1_test` | Passed against a fresh disposable database in the isolated PostgreSQL cluster. |
+| `uv run alembic check` with the same disposable `DATABASE_URL` | Passed: no new upgrade operations detected after migration. |
+| Manual browser flow | In-app browser loaded Home; created “Vacuum for apartment” with USD 400 maximum, added two requirements, reordered them, refreshed and confirmed persistence, then archived and restored the project. At 390×844, Home and Overview rendered as single-column layouts; Overview document width matched the viewport, and keyboard focus moved from the route heading to the project-name field with a visible focus indicator. The native delete-confirm click exceeded the browser bridge timeout; UI tests verified confirmation/focus/tombstone behavior, and a real API request returned 204 followed by GET 404. |
+| Accessibility/responsive checks | Interaction tests verify labels, focus after navigation, status/alert states, pending/duplicate submission, errors, retry, missing/deleted resources and conflict recovery. Responsive single-column rules exist at 860px and 600px. The 390px viewport and initial keyboard focus were manually verified; full keyboard-only traversal remains unverified. The browser bridge stopped responding after the native delete confirmation, so it could not reset its temporary viewport override or close the smoke tab. |
+| Hosted/operational checks | GitHub Actions and its PostgreSQL 16 job were updated but not run on a hosted runner. `git remote -v` is empty. Docker Compose was unavailable in the Phase 0 environment and was not used for Phase 1; native PostgreSQL 16.15 provided DB validation. No cloud or credentialed provider calls are in scope. |
+
+The local frontend environment used bundled Node 24.19.0 and pnpm 11.19.0; CI's Node 20 and pinned pnpm 10.34.6 installation path were not separately executed here. The workspace explicitly allows esbuild lifecycle scripts with `allowBuilds` (supported since pnpm 10.26). See the detailed [Phase 1 implementation plan](docs/planning/phase-1-implementation-plan.md) for acceptance-to-code mapping and limitations.
+
+## Phase 0 baseline review and validation (historical)
+
+Reviewed 2026-10-03 in `/Users/jasonkli/projects/shopping-assistant` before local Git history was established. The original supplied directory had no `.git`; it is now recorded at baseline commit `5ff030d`. No Phase 1+ functionality existed at the time of that review.
 
 ## Review result
 
@@ -41,8 +60,8 @@ The ten plans were cross-reviewed for ordering, schema/API/provider handoffs, ow
 ## Remaining verification and known warnings
 
 - Docker executable/Compose runtime was not available on PATH; Compose PostgreSQL startup/health was not run. Native PostgreSQL validates DB/Alembic behavior, not Compose behavior.
-- Real-browser frontend → API connectivity, keyboard/mobile visual inspection, and API-stop/retry recovery were not manually exercised. Mocked interaction tests and separate real HTTP startup checks passed.
-- GitHub Actions was inspected/updated but not run on a hosted runner; no Git repository/remote exists here. CI Node 20 has not been checked locally.
+- At the original Phase 0 review, real-browser frontend → API connectivity, keyboard/mobile visual inspection, and API-stop/retry recovery were not manually exercised. The Phase 1 browser flow/responsive checks are recorded above; a focused Phase 0 health retry remains unverified.
+- At the original Phase 0 review, GitHub Actions could not be run because the extracted directory had no Git metadata. The current local workflow was updated in Phase 1 but remains unrun on a hosted runner; this checkout has no configured remote. CI Node 20 has not been checked locally.
 - No real Personal AI, Tavily/Brave, HTTP page retrieval, Firebase, Cloud Run, Neon, authentication or cloud deployment checks were run. Those adapters/features are not implemented in Phase 0.
 - The resolved FastAPI/Starlette test client warns that its httpx integration is deprecated. Tests pass using the declared httpx dependency; do not add an unrelated transport migration without a concrete compatibility need. Resolved ESLint 9 and a jsdom transitive package emit deprecation warnings. No security audit or dependency upgrade exercise was performed/claimed.
 

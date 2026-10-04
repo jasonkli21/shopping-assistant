@@ -1,13 +1,13 @@
 # Shopping Assistant implementation plans
 
-Reviewed baseline: 2026-10-03. This is the execution entry point for a Luna Max agent. The repository remains a Phase 0 scaffold; Phases 1–9 are plans, not implemented capabilities. Read [validation](../../VALIDATION.md) and [handoff](../../CODEX_HANDOFF.md) before selecting a phase. The original [roadmap outline](implementation-plan.md) remains a summary.
+Reviewed 2026-10-03 after Phase 1 completion. Phase 0 and Phase 1 are implemented; Phase 2–9 remain plans. Read [validation](../../VALIDATION.md) and [handoff](../../CODEX_HANDOFF.md) before selecting a phase. The original [roadmap outline](implementation-plan.md) remains a summary.
 
 ## Sequence and gates
 
 | Phase | Outcome and prerequisite | Plan | Status |
 |---|---|---|---|
 | 0 | Corrected, validated foundation | [Foundation](phase-0-implementation-plan.md) | Code corrections complete; Docker/browser/hosted CI checks remain |
-| 1 | Durable manual projects and requirements; uses 0 | [Projects](phase-1-implementation-plan.md) | Planned |
+| 1 | Durable manual projects and requirements; uses 0 | [Projects](phase-1-implementation-plan.md) | Implemented and locally validated; 390px responsive view and initial keyboard focus verified; full keyboard traversal and hosted CI remain unverified |
 | 2 | Inspectable intent proposals and conversation; uses 1 | [Intent](phase-2-implementation-plan.md) | Planned |
 | 3 | Bounded discovery and persisted candidates; uses 1–2 | [Discovery](phase-3-implementation-plan.md) | Planned |
 | 4 | Canonical product/variant/offer identities; uses 3 | [Normalization](phase-4-implementation-plan.md) | Planned |
@@ -52,7 +52,7 @@ uv run alembic upgrade head --sql
 uv run alembic check          # online, after upgrade; model imports must be complete
 ```
 
-Phase 1 must make default CI/`make test` explicitly exclude database/live markers, and introduce `uv run pytest -m db` and `uv run pytest -m 'not db and not live'`, register markers and provision a disposable PostgreSQL test database using `TEST_DATABASE_URL`. Add a dedicated PostgreSQL CI service/job; never fall back to SQLite or use a developer/production database. Phase 2 introduces `live` opt-in collection/execution guarded by an explicit `--run-live` option plus dedicated provider configuration (use `uv run pytest -m live --run-live`); no credentialed calls during default `pytest`. Each plan specifies its additional tests/evals and manual checks. `make validate` stays deterministic and must either run the selected database CI job separately or explicitly report which database checks it excludes.
+Phase 1 establishes the test split: default CI/`make test` excludes `db` and `live`, while `make test-db TEST_DATABASE_URL=...` runs against isolated schemas inside a disposable, explicitly named PostgreSQL database. Its CI job provisions PostgreSQL 16. Phase 2 introduces `live` opt-in collection/execution guarded by an explicit `--run-live` option plus dedicated provider configuration (use `uv run pytest -m live --run-live`); no credentialed calls during default `pytest`. Each plan specifies its additional tests/evals and manual checks. `make validate` remains deterministic and explicitly reports that PostgreSQL integration tests run separately.
 
 After every phase, update that phase's status with a table mapping acceptance criterion → actual files/contracts → executed command/test → result, plus date, commit if available, and outstanding external checks. Record architectural changes in the relevant doc/ADR only when actually justified. Keep API draft and generated TypeScript types aligned. Do not mark provider/cloud checks passed based on fixtures. Retain a concise handoff of contracts, migrations and limitations for the successor.
 

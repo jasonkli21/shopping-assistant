@@ -30,16 +30,16 @@ Acceptance: locked install, `make validate`, migration environment, browser heal
 
 ### 0B — Close verification gaps and preserve the phase boundary
 
-Inspect hosted GitHub Actions when the checkout is placed in Git. This supplied directory has no `.git`; do not invent commit hashes or initialize/push a repository merely for the review. Generated artifact manifest excludes caches/dependencies/build products. Existing placeholder modules and frontend feature folders need no architecture framework.
+The original Phase 0 review used an extracted directory without `.git`. Git is now available locally: baseline `5ff030d` records that reviewed scaffold, with Phase 1 commits following it. `git remote -v` currently returns no remote, so hosted workflow status cannot be inspected or run from this checkout. Generated artifact manifest excludes caches/dependencies/build products. Existing placeholder modules and frontend feature folders need no architecture framework.
 
 Acceptance: validation record has honest statuses and the plans/docs are linked; any actual foundation failure is fixed narrowly with evidence. Stop before project models/endpoints/UI.
 
 ## Verification, commits and handoff
 
-Already executed checks and limitations are recorded in `VALIDATION.md`; PostgreSQL 16 online checks used an isolated temporary native instance, not Docker Compose. HTTP health/CORS and Vite startup passed. Frontend tests mock the network; full real-browser frontend/backend interaction remains a manual check. Hosted CI and deployed/provider checks were not run.
+Phase 0 checks and limitations are recorded historically in `VALIDATION.md`; PostgreSQL 16 online checks used an isolated temporary native instance, not Docker Compose. HTTP health/CORS and Vite startup passed. The later Phase 1 browser smoke exercised the real web/API project flow, but a focused Phase 0 health retry and keyboard/mobile visual check remains unverified. Hosted CI and deployed/provider checks were not run.
 
 Suggested commit boundaries when Git is available: (1) settings/migration/tooling/lock corrections and focused tests, (2) health connectivity and frontend test repair, (3) review record and plans. Preserve existing edits rather than resetting the checkout.
 
 Completion review: Is each documented command correct? Are lockfiles present? Does the frontend surface connectivity failure? Does Alembic read the same URL as the app, including encoded passwords? Are provider interfaces intentionally minimal and local execution described accurately? Are source/test directories clean? Are unrun checks visibly unrun?
 
-Handoff to Phase 1: this exact health slice, Base/session/Alembic setup, locked dependency/toolchain versions, module boundaries and deterministic baseline. Add no domain migrations here. Remaining operational gaps are Compose/browser/hosted CI; no unresolved architecture choice prevents Phase 1 local work.
+Original handoff to Phase 1: this exact health slice, Base/session/Alembic setup, locked dependency/toolchain versions, module boundaries and deterministic baseline. Phase 1 has since added the first domain migration and project workflow. Phase 0-specific Compose startup, focused health retry and hosted CI checks remain unverified; no unresolved architecture choice blocked Phase 1.

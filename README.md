@@ -10,7 +10,7 @@ This repository is intentionally scaffolded as a **modular monolith** with a Rea
 
 ## Status
 
-This repository is at **Phase 0: technical foundation**. Product behavior is intentionally not implemented yet. The scaffold exists to give Codex a verified starting point and to preserve the product and architectural decisions already made.
+**Phase 1 is complete:** projects and editable requirements persist in PostgreSQL, with owner-scoped APIs and Home/Overview workflows. Phase 2 (AI-assisted intent and conversation) is planned and not implemented. See the [Phase 1 evidence](docs/planning/phase-1-implementation-plan.md) and [validation record](VALIDATION.md).
 
 ## Quick start
 
@@ -30,6 +30,8 @@ cp apps/web/.env.example apps/web/.env.local
 ```
 
 The API and Alembic load repository-root `.env`; process environment variables override it. Frontend public configuration lives in `apps/web/.env.local`. Keep credentials out of `VITE_` variables.
+
+`LOCAL_OWNER_ID` optionally selects the stable local owner; it defaults to a fixed development UUID and is never accepted from request data. This unauthenticated local mode is intended for localhost development only.
 
 ### 2. Start PostgreSQL
 
@@ -52,6 +54,8 @@ API health endpoint:
 GET http://localhost:8000/health
 ```
 
+The Home page at `/` creates projects; `/projects/{project_id}` opens their Overview. Project and requirement routes are listed in the [API contract](docs/api/api-contract.md). Apply database migrations before starting the API.
+
 ### 4. Start the web app
 
 In a separate terminal from the repository root:
@@ -62,9 +66,9 @@ pnpm install --frozen-lockfile
 pnpm dev
 ```
 
-The default frontend dev server uses strict port 5173 and talks to `http://localhost:8000`. The landing page shows API connection status and retry. `/health` is liveness, not database readiness.
+The default frontend dev server uses strict port 5173 and talks to `http://localhost:8000`. `/health` is liveness, not database readiness.
 
-Run `make validate` for lint/format/tests/typecheck/build, `make migrate` for online migrations, and `bash scripts/validate_scaffold.sh` for compilation. See [validation results and remaining checks](VALIDATION.md).
+Run `make validate` for lint/format, deterministic offline tests, generated API type checking, typechecking and build. PostgreSQL integration tests are explicit: set `TEST_DATABASE_URL` to a disposable database whose name starts with `test_` or ends with `_test`/`_tests`, then run `make test-db TEST_DATABASE_URL=...`. The test fixture creates and drops isolated schemas and refuses the configured application database. CI has a separate PostgreSQL 16 job. See [validation results and remaining checks](VALIDATION.md).
 
 ## Repository map
 

@@ -1,6 +1,6 @@
 # Phased Implementation Roadmap
 
-Detailed execution contracts and work packages are in [the Phase 0–9 plans index](implementation-plans-index.md). This document is the summary roadmap; the selected detailed plan and index govern implementation. Phase 0 review/corrections are complete, with honest verification gaps in [VALIDATION.md](../../VALIDATION.md). Phases 1–9 are planned, not implemented.
+Detailed execution contracts and work packages are in [the Phase 0–9 plans index](implementation-plans-index.md). This document is the summary roadmap; the selected detailed plan and index govern implementation. Phase 0 foundation and Phase 1 project workflows are implemented; validation evidence and remaining checks are in [VALIDATION.md](../../VALIDATION.md). Phases 2–9 are planned, not implemented.
 
 Implement phases in order. Complete and review each phase before starting the next. Do not pull later infrastructure forward without a demonstrated need.
 
@@ -37,6 +37,8 @@ The corrected scaffold and completed checks are recorded in [Phase 0](phase-0-im
 ---
 
 ## Phase 1 — Shopping projects and requirements
+
+Status: implemented and locally validated. See [Phase 1 acceptance evidence](phase-1-implementation-plan.md).
 
 ### Goal
 

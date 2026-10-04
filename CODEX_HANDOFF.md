@@ -9,9 +9,9 @@ Use this repository as the starting point for implementing a personal shopping a
 - Product design is defined in `docs/product/`.
 - Architecture and technology decisions are defined in `docs/architecture/`.
 - Detailed Phase 0–9 plans and shared contracts are in [the index](docs/planning/implementation-plans-index.md); `docs/planning/implementation-plan.md` is the roadmap summary.
-- The Phase 0 review and small corrections were completed on 2026-10-03. See [validation evidence and unrun checks](VALIDATION.md).
-- The API contract is a planning contract, not a promise that all endpoints already exist.
-- Code is intentionally limited to Phase 0 scaffolding and a minimal health path.
+- Phase 0 foundation work is recorded at baseline commit `5ff030d`; Phase 1 persistence, API/types, and UI are in commits `0ff4fd1`, `c0aadc9`, and `6a1e673`. See [Phase 1 acceptance evidence](docs/planning/phase-1-implementation-plan.md) and [validation record](VALIDATION.md).
+- Phase 1 implements durable manual projects and requirements. Phase 2–9 remain planned; the API contract labels implemented Phase 0–1 routes separately from later drafts.
+- The checkout is a local Git repository on `main`; `git remote -v` returned no configured remote. Hosted CI has not been run.
 
 ## Next implementation task
 
@@ -20,9 +20,9 @@ Use this repository as the starting point for implementing a personal shopping a
 3. Implement only the selected phase, including migrations, failure handling and UX.
 4. Run its acceptance/verification, keeping CI offline and deterministic with provider fakes and real PostgreSQL integration where specified.
 5. Update phase status with plan → code → test evidence and explicitly outstanding external checks.
-6. Review the completed phase and stop before its successor. Phase 6 requires the documented repository-wide gate.
+6. Review the completed phase and stop before its successor. Phase 2 is next. Phase 6 requires the documented repository-wide gate.
 
-This supplied directory has no `.git`. Do not invent commit/CI evidence. The Phase 0 source and frontend tests pass; Docker Compose, real-browser connectivity and hosted CI remain externally unverified. No shopping domain feature is present.
+The Phase 1 feature is implemented and validated locally. The PostgreSQL 16 test suite, online migration check, deterministic offline tests, generated API types, frontend checks, and browser flow/responsive smoke are recorded in `VALIDATION.md`. Hosted CI and full keyboard-only traversal remain unverified. Do not report those checks as passed.
 
 ## Non-negotiable boundaries
 
