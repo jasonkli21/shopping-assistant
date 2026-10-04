@@ -25,7 +25,7 @@ Complete phases 1–9 sequentially. **Latest user clarification: use Luna Extra 
 
 Dispatch Phase 5 to fresh Luna Extra High before scheduled restart. Scope logical commits: immutable evidence persistence/migration; bounded targeted research planning/retrieval; grounded claim extraction/evals; relations/assessment/freshness; API/types/inspection UX; evidence/handoff. Reuse existing PageRetriever and research run lifecycle; preserve catalog/offer identity, source provenance, owner/subject membership and immutable histories. Every sourced assertion needs validated evidence; assessments cite compatible claims or remain unknown. Persist attempts/budgets before I/O; no SQL transaction over network. External Personal AI structured endpoint remains unavailable; fixture contracts/local deterministic path must be honest. Main review after agent finishes, Phase 6 full-system gate still mandatory.
 
-Phase 4 Luna fix agent completed. Just-dispatched `/root/phase4_review_fixes` Sol Medium remains interrupted; do not restart it. After scheduled restart, use Sol Medium for newly spawned implementation/fix agents.
+Active `/root/phase5_implementation` is fresh Luna Extra High, dispatched from Phase 4 signoff `cc7fdf4` to implement all Phase 5 in six logical commits and stop for main review. Remain idle during implementation except health checks. Phase 4 Luna fix agent completed. Just-dispatched `/root/phase4_review_fixes` Sol Medium remains interrupted; do not restart it. After scheduled restart, use Sol Medium for newly spawned implementation/fix agents.
 
 ## Restart schedule correction
 
