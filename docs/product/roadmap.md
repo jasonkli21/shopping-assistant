@@ -1,6 +1,6 @@
 # Product Roadmap
 
-Implementation sequence: [Phase 0–9 plans and shared contracts](../planning/implementation-plans-index.md). Phase 0 foundation and Phase 1 project/requirement workflows are implemented. Phase 2 is next; Phases 2–9 remain planned. Each phase is implemented/reviewed separately. Phase 6 completes the MVP and requires a repo-wide review before Phase 7.
+Implementation sequence: [Phase 0–9 plans and shared contracts](../planning/implementation-plans-index.md). Phase 0 foundation, Phase 1 project/requirement workflows, and Phase 2 intent proposals/conversation are implemented locally. Phase 3 bounded discovery is next; Phases 3–9 remain planned. Each phase is implemented/reviewed separately. Phase 6 completes the MVP and requires a repo-wide review before Phase 7. Phase 2 uses a local deterministic AI fake until the separate Personal AI service exposes a verified structured-task contract.
 
 The implementation roadmap is intentionally different from a marketing feature roadmap. Product growth should follow validated use cases rather than infrastructure ambition.
 

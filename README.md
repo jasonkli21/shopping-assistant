@@ -10,7 +10,7 @@ This repository is intentionally scaffolded as a **modular monolith** with a Rea
 
 ## Status
 
-**Phase 1 is complete:** projects and editable requirements persist in PostgreSQL, with owner-scoped APIs and Home/Overview workflows. Phase 2 (AI-assisted intent and conversation) is planned and not implemented. See the [Phase 1 evidence](docs/planning/phase-1-implementation-plan.md) and [validation record](VALIDATION.md).
+**Phases 1 and 2 are complete locally:** projects, requirements, conversations, and confirmed intent proposals persist in PostgreSQL behind owner-scoped APIs. AI suggestions remain reviewable until explicitly applied. The upstream Personal AI task contract is not yet available, so local development uses a deterministic fake and live compatibility remains pending. See the [Phase 2 evidence](docs/planning/phase-2-implementation-plan.md), [API contract](docs/api/api-contract.md), and [validation record](VALIDATION.md).
 
 ## Quick start
 
@@ -32,6 +32,8 @@ cp apps/web/.env.example apps/web/.env.local
 The API and Alembic load repository-root `.env`; process environment variables override it. Frontend public configuration lives in `apps/web/.env.local`. Keep credentials out of `VITE_` variables.
 
 `LOCAL_OWNER_ID` optionally selects the stable local owner; it defaults to a fixed development UUID and is never accepted from request data. This unauthenticated local mode is intended for localhost development only.
+
+Assistant generation defaults to `PERSONAL_AI_MODE=fake` for deterministic local work. `PERSONAL_AI_MODE=external` stays unavailable until the separate Personal AI service publishes a verified structured shopping-task contract; see the [contract check](apps/api/src/shopping/integrations/personal_ai/CONTRACT.md).
 
 ### 2. Start PostgreSQL
 

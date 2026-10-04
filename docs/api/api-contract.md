@@ -1,6 +1,6 @@
-# API Contract (Phase 0–1 Implemented; Later Phases Planned)
+# API Contract (Phases 0–2 Implemented; Later Phases Planned)
 
-`GET /health` and the Phase 1 project/requirement API are implemented. Phase 2 onward remains a planning contract; the [plans index](../planning/implementation-plans-index.md) and selected phase plans define those future commands. OpenAPI is the source for committed TypeScript transport types in `packages/api-types/src/index.ts`; regenerate with `make api-types` and verify with `make api-types-check`.
+`GET /health`, the Phase 1 project/requirement API, and the Phase 2 conversation/proposal API are implemented. Phase 3 onward remains a planning contract; the [plans index](../planning/implementation-plans-index.md) and selected phase plans define those future commands. OpenAPI is the source for committed TypeScript transport types in `packages/api-types/src/index.ts`; regenerate with `make api-types` and verify with `make api-types-check`.
 
 ## Shared conventions
 
@@ -49,7 +49,11 @@ POST /projects/{project_id}/proposals/{proposal_id}/apply
 POST /projects/{project_id}/proposals/{proposal_id}/dismiss
 ```
 
-POST returns durable message IDs; the local Phase 2 stream attaches to one existing generation, with snapshot/delta/proposal/complete/error events. Reconnect cannot create another command. Token-level replay is not guaranteed; persisted history/snapshot is authoritative. Phase 9 must verify/adapt execution lifetime and authenticated fetch streaming for deployed multi-instance/request lifecycle; such an adaptation must preserve command/proposal idempotency.
+POST accepts `text`, `request_key`, and `expected_version`; it saves the user message and assistant placeholder before returning 202 with durable IDs. Exact command replay is checked before revision validation and includes both text and version; a changed payload with the same key returns 409. The page API uses ordered ordinal cursors and is the history source of truth.
+
+The local Phase 2 stream attaches to one existing generation, with snapshot/delta/proposal/complete/error events and heartbeats. Reconnect cannot create another command. Token-level replay is not guaranteed; persisted history/snapshot is authoritative. Assistant output and its validated proposal persist together. Applying all proposal operations runs through the Phase 1 project service in one transaction and increments project revision once. Applied replay returns its saved project result even after later edits. Dismissal is also replay-safe.
+
+Generation is local single-process work owned by application lifespan. The supervisor uses its own database sessions, bounded concurrency and timeout; a disconnected stream detaches, and restart recovery marks unfinished work interrupted. The task output is bounded JSON, stored prompt snapshots are cleared at terminal state, and only validated proposals can change project context. The current external Personal AI contract has ordinary chat streaming but does not define the task-specific structured generation envelope, so external mode reports `provider_unavailable`; local mode uses deterministic fake responses. The assistant SSE stream must therefore not be represented as upstream provider token streaming. Phase 9 must verify/adapt execution lifetime and authenticated fetch streaming for deployed multi-instance/request lifecycle; such an adaptation must preserve command/proposal idempotency.
 
 ## Discovery/research — Phase 3, extended in Phases 5/7
 

@@ -54,6 +54,23 @@ The ORM and new migration `0002_project_revision_notes` now enforce `revision >=
 
 The available bundled pnpm version still differs from the locked wrapper version, so `make validate` was not used for this follow-up; its constituent deterministic checks are listed above. Browser, hosted CI and cloud/provider checks were not repeated and retain the limitations recorded earlier in this file.
 
+## Phase 2 completion and validation — 2026-10-04
+
+Phase 2 adds owner-scoped conversation persistence, a bounded shopping-intent task schema and deterministic fixtures, a lifespan-owned generation supervisor, attach-only SSE, atomic proposal confirmation, and a persisted-history assistant panel. The complete acceptance mapping is in the [Phase 2 implementation plan](docs/planning/phase-2-implementation-plan.md).
+
+| Check | Result |
+|---|---|
+| `cd apps/api && UV_CACHE_DIR=/private/tmp/shopping-uv-cache /opt/homebrew/bin/uv run pytest` | Passed: 33 deterministic tests. Pytest defaults exclude DB/live markers. Includes seven intent fixtures and structural checks for invalid IDs, budget, schema, context and response size. |
+| `cd apps/api && UV_CACHE_DIR=/private/tmp/shopping-uv-cache TEST_DATABASE_URL=postgresql+psycopg://postgres@127.0.0.1:55843/shopping_test /opt/homebrew/bin/uv run pytest -m db` | Passed: 36 Phase 1 + Phase 2 tests against isolated local PostgreSQL 16.15. Covers migrations and ORM drift, owner scope, message replay/payload mismatch, concurrency, history cursor paging, no duplicate generation on reconnect, detached completion, restart interruption, proposal staleness, concurrent atomic apply/replay, dismissal and no project mutation on generation failures. |
+| `cd apps/api && UV_CACHE_DIR=/private/tmp/shopping-uv-cache /opt/homebrew/bin/uv run ruff check src tests migrations && UV_CACHE_DIR=/private/tmp/shopping-uv-cache /opt/homebrew/bin/uv run ruff format --check src tests migrations` | Passed; all 59 API source/test/migration files are clean and formatted. |
+| `cd apps/api && UV_CACHE_DIR=/private/tmp/shopping-uv-cache /opt/homebrew/bin/uv run python ../../scripts/generate_api_types.py --check` | Passed; committed TypeScript types match OpenAPI. |
+| `cd apps/web && /Users/jasonkli/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node node_modules/vitest/vitest.mjs run` | Passed: 25 UI tests. Assistant coverage includes pending vs stale proposal controls, old/new requirement diffs, lost-ack replay using the same request key, draft recovery after revision conflict, older history paging, and keyboard focus/Escape close. SSE tests cover split UTF-8, multiline data, heartbeat comments and truncated terminal frames. |
+| Direct bundled-Node ESLint, `tsc -b`, and Vite production build | Passed. The installed pnpm wrapper was 11.19.0 while the project pins 10.34.6, so checks used the existing dependencies without relinking or installing. `make validate` was not run as an aggregate. |
+| Real Personal AI compatibility | Not run. The checked upstream route contract has chat text SSE but no verified structured shopping-task endpoint/schema. No endpoint was guessed; external mode returns sanitized `provider_unavailable`, and the fake is explicitly local-only. |
+| Browser smoke, hosted CI, cloud/multi-instance behavior | Not run. The local supervisor is intentionally single-process, and Phase 9 must revisit execution lifetime before multi-instance hosting. The checkout has no configured Git remote for hosted CI. |
+
+Default tests and configuration make no external calls. `--run-live` is recognized as an explicit pytest opt-in; no live compatibility test can pass until the upstream task contract and adapter are verified. The schema/prompt context is capped at 24,000 characters, accepted structured output at 256,000 characters, each user message at 8,000 characters, and concurrent in-process generations are capped by `CONVERSATION_MAX_CONCURRENT_GENERATIONS` (default 4). Prompt snapshots are removed once generation reaches a terminal state.
+
 ## Phase 0 baseline review and validation (historical)
 
 Reviewed 2026-10-03 in `/Users/jasonkli/projects/shopping-assistant` before local Git history was established. The original supplied directory had no `.git`; it is now recorded at baseline commit `5ff030d`. No Phase 1+ functionality existed at the time of that review.

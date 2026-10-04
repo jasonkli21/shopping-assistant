@@ -53,4 +53,6 @@ A possible long-term preference such as “prefers compact furniture” may beco
 
 Avoid silently turning one shopping decision into permanent memory.
 
-The current Phase 0 client implements only `generate` with minimal dictionary envelopes and an echo fake. Streaming/task validation arrives in Phase 2; memory methods are conditional on the verified external API in Phase 8. Conceptual methods above do not assert external service availability.
+Phase 2 now defines a provider-neutral `generate(AIRequest) -> AIResponse` boundary and shopping-owned `interpret_shopping_intent.v1` prompt/schema. The local deterministic fake exercises that contract. Verification of the separate Personal AI route inventory found ordinary chat text/SSE, but no typed structured-task endpoint, JSON-schema-constrained output contract, or task refusal envelope. The external adapter therefore remains unavailable and must not guess a route. See the [Phase 2 contract note](../../apps/api/src/shopping/integrations/personal_ai/CONTRACT.md).
+
+The assistant's persisted local SSE route attaches to database-backed messages; it is not evidence of upstream provider token streaming. A future verified provider implementation can return one structured response through `generate`; only add a provider `stream` method when actual structured-event semantics are documented. Memory methods remain conditional on a verified external API in Phase 8. Conceptual methods above do not assert external service availability.
