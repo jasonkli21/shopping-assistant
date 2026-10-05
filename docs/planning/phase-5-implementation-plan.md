@@ -1,6 +1,6 @@
 # Phase 5 — Detailed research and inspectable evidence
 
-Status: implemented locally on 2026-10-04; pending independent main-session review. Requires Phase 4 canonical variant/project-product IDs, bounded retriever and observation provenance, and Phase 3 run/attempt semantics. Read the [index](implementation-plans-index.md), research/evidence model, data model, AI/search architecture, product detail UX and ADR 0004.
+Status: accepted after independent main-session review and verification on 2026-10-04. Local implementation is complete; live/provider/hosted and manual browser checks remain unverified. Requires Phase 4 canonical variant/project-product IDs, bounded retriever and observation provenance, and Phase 3 run/attempt semantics. Read the [index](implementation-plans-index.md), research/evidence model, data model, AI/search architecture, product detail UX and ADR 0004.
 
 ## Outcome, vertical slice and boundary
 
@@ -112,4 +112,4 @@ The review fixes map to the acceptance criteria above and remain within Phase 5:
 - Assessments retain the full supported set of 100 accepted requirements through bounded planning and final storage; [migration 0012](../../apps/api/migrations/versions/0012_assessment_budget.py), [evidence models](../../apps/api/src/shopping/evidence/models.py) and [research commands](../../apps/api/src/shopping/research/commands.py) update persistence bounds. The [planner budget eval](../../apps/api/tests/evals/evidence/test_product_plan_budget.py) and ProductResearch database tests cover planner identity and the full assessment.
 - Product execution responsibilities were split between focused [execution](../../apps/api/src/shopping/research/product_execution.py) and [persistence](../../apps/api/src/shopping/research/product_persistence.py) modules while retaining the `research.service` facade.
 
-The final local checks and their limits are in `VALIDATION.md`. The main session should perform its light verification of these review fixes before Phase 6 begins; this handoff does not authorize Phase 6 work.
+The final local checks and their limits are in `VALIDATION.md`. Main-session review accepted fixes `4323296`, `47669e3` and `7e5a948`, independently rerunning 130 offline API/evaluation tests (including 33 evidence evals), 90 PostgreSQL tests, 53 frontend tests and generated API types. The worktree was clean at signoff. Work stops here per the user's instruction; Phase 6 is not authorized.
