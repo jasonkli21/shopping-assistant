@@ -1,6 +1,6 @@
 # Phase 6 — Decision workspace and MVP review gate
 
-Status: planned. Requires completed Phases 1–5 and their honest external verification record. Read the [index](implementation-plans-index.md), complete product/UX/API docs and all architecture/ADRs. This is the major product and repository review gate, not merely another feature increment.
+Status: implementation delivered locally on 2026-10-05; mandatory gate not passed. Decisions, comparison snapshots, workspace screens and explicit assistant operations are implemented. PostgreSQL integration/migration execution and the planned Playwright journey suite/manual browser review remain outstanding. See the [validation record](../../VALIDATION.md) and [Phase 6 review report](phase-6-review.md). Phase 7 remains blocked until these acceptance gaps are resolved and the gate is explicitly passed.
 
 ## Outcome and scope
 
@@ -70,3 +70,14 @@ Run `make validate`, PostgreSQL decision/comparison/migration tests, OpenAPI/typ
 Suggested commits: decisions/notes; comparisons/snapshots; workspace UI; proposal commands; E2E journey; gate fixes/review evidence (split fixes by concern). Completion questions: Can a user make an informed decision from the whole journey? Does every asserted cell have provenance? Do state edits preserve work? Are variants/offer dates visible? Is the repository still a coherent modular monolith? Are gate findings actually resolved?
 
 Handoff: complete MVP contract, reproducible journey fixtures, comparison/decision invariants, reviewed dependency map, performance/budget measurements and mandatory gate report. Phase 7 is authorized only after the gate. No automatic preference promotion, cloud/auth claims or background execution need is implied.
+
+## Phase 6 implementation evidence — 2026-10-05
+
+| Work package | Implementation evidence | Verification and status |
+|---|---|---|
+| 6A decisions, notes, favorites | Project decision/event and note services in `apps/api/src/shopping/projects/`; favorite service in `apps/api/src/shopping/catalog/favorites.py`; migration `0013_mvp_decisions_comparisons.py`; decision and note controls in `apps/web/src/features/decisions/` | PostgreSQL API cases are authored in `apps/api/tests/projects/test_decision_comparison_api.py` but could not run because local PostgreSQL initialization fails on the host shared-memory limit. Frontend state tests pass. |
+| 6B comparison snapshots | `apps/api/src/shopping/comparisons/` and migration 0013 store ordered exact variants, dimensions, provenance cells, revisions and immutable snapshots | Comparison API/migration tests are authored but not executed without PostgreSQL. `tests/comparisons/test_comparison_equivalence.py` covers deterministic unit normalization and unknown/incompatible equality offline. |
+| 6C workspace | Project navigation, comparison builder/table, shortlist, research, saved products, notes and favorites under `apps/web/src/features/`; routes in `apps/web/src/app/App.tsx` | 57 Vitest tests, TypeScript check, ESLint and Vite build pass. Browser E2E and manual 320px/keyboard/citation inspection remain outstanding. |
+| 6D assistant proposals | Versioned v2 operation schema, bounded owner-scoped current state, exact ProjectProduct/requirement/comparison checks, and atomic decision/note/comparison application in `apps/api/src/shopping/conversations/` | Database regression for combined proposal application is authored in `apps/api/tests/conversations/test_conversation_api.py` but was not executable without PostgreSQL. Existing offline intent fixtures remain passing. |
+| 6E journey | UI and API integration coverage described above | Full browser E2E suite and deterministic provider failure/recovery journey have not been added or run. |
+| 6F repository-wide gate | Findings and dispositions are recorded in [phase-6-review.md](phase-6-review.md). | Gate remains open: database integrity/migration verification, E2E, manual browser review, and one live provider/source audit remain incomplete. No Phase 7 work is authorized. |

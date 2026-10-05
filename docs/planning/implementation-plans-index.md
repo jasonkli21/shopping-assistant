@@ -1,6 +1,6 @@
 # Shopping Assistant implementation plans
 
-Reviewed 2026-10-04 after Phase 5 local implementation. Phases 0–5 are implemented locally; Phase 5 awaits independent main-session review and Phases 6–9 remain plans. Read [validation](../../VALIDATION.md) and [handoff](../../CODEX_HANDOFF.md) before selecting a phase. The original [roadmap outline](implementation-plan.md) remains a summary.
+Updated 2026-10-05 after Phase 6 implementation. Phases 0–5 are accepted; Phase 6 code is implemented locally, with the mandatory review gate still open because PostgreSQL and browser journey verification could not be completed. Phases 7–9 remain planned. Read [validation](../../VALIDATION.md), the [Phase 6 review](phase-6-review.md), and [handoff](../../CODEX_HANDOFF.md) before continuing. The original [roadmap outline](implementation-plan.md) remains a summary.
 
 ## Sequence and gates
 
@@ -12,7 +12,7 @@ Reviewed 2026-10-04 after Phase 5 local implementation. Phases 0–5 are impleme
 | 3 | Bounded discovery and persisted candidates; uses 1–2 | [Discovery](phase-3-implementation-plan.md) | Implemented and locally validated; live Tavily and Personal AI remain unverified |
 | 4 | Canonical product/variant/offer identities; uses 3 | [Normalization](phase-4-implementation-plan.md) | Implemented and locally validated; live page coverage and browser smoke remain unverified |
 | 5 | Multi-source claims, evidence and assessments; uses 4 | [Evidence](phase-5-implementation-plan.md) | Accepted after main-session review and local verification; live/provider/browser/hosted checks unverified |
-| 6 | Complete decision journey; uses 1–5 | [MVP](phase-6-implementation-plan.md) | Planned; mandatory repository-wide gate |
+| 6 | Complete decision journey; uses 1–5 | [MVP](phase-6-implementation-plan.md) | Implemented locally; gate open pending PostgreSQL integration/migration checks and browser E2E/manual review |
 | 7 | Durable job reliability and deeper research; requires signed-off 6 gate | [Orchestration](phase-7-implementation-plan.md) | Planned; remote execution conditional |
 | 8 | Explicit persistent preferences and optional external memory; uses 7 | [Memory](phase-8-implementation-plan.md) | Planned |
 | 9 | Authorized and verified cloud deployment; uses 1–8 | [Production](phase-9-implementation-plan.md) | Planned |

@@ -1,10 +1,10 @@
 # Implementation coordinator state
 
-Updated: 2026-10-04. Phase 5 is accepted; work has stopped at the user's requested boundary.
+Updated: 2026-10-05. Phase 6 implementation is delivered locally; its repository gate remains open.
 
 ## Scope and operating contract
 
-Latest user instruction: finish the current Phase 5 and STOP. Do not begin Phase 6 or later without a new request. All orchestration and independent review stay in the main session. Latest agent preference is fresh Luna Extra High (gpt-6-luna, xhigh). No active implementation remains. Earlier interrupted Sol agents must not be resumed. During implementation, the main session remains idle except infrequent health checks; substantive fixes use a fresh agent, followed by light main-session verification and small residual fixes.
+Latest user instruction: implement Phase 6 using its plan/docs and make a few coherent commits. Phase 6 is the only authorized phase; do not begin Phase 7 unless the mandatory review gate is passed. Work and review stay in the main session. No agents are active. PostgreSQL integration checks and the browser E2E/manual journey review remain outstanding; see `phase-6-review.md` and `VALIDATION.md`.
 
 ## Accepted phases
 
@@ -14,14 +14,15 @@ Latest user instruction: finish the current Phase 5 and STOP. Do not begin Phase
 - Phase 3 accepted after e66d0d6 and fixes af01fcb, 0eb78d6 and c5f9387; root verified 66 offline API/eval, 68 PG and 42 frontend tests plus types.
 - Phase 4 accepted at cc7fdf4 after catalog implementation and fixes 0d7c7ae, 6787e1b, a270343, 3a7d279 and 15dfb23; root verified 96 offline API/eval, 80 PG and 46 frontend tests plus types. Includes a small revert acknowledgement replay fix.
 - Phase 5 implemented in 2196671, 438980e, 77ec2e3, b3ae74b and 9cec784. Independent review found grounding, classification, late-write/budget, cache/replay, history/polling and output-bound gaps. Final fixes 4323296, 47669e3 and 7e5a948 resolve these with regressions and focused execution/persistence modules. Main lightly reviewed those fixes and independently verified 130 offline API/evaluation tests (including 33 evidence evals), 90 PostgreSQL tests including migrations, 53 frontend tests and current generated API types. Agent also passed Ruff/format, ESLint, TypeScript and Vite build. Local Phase 5 signoff is complete.
+- Phase 6 adds owner-scoped decisions/events, notes, favorites, provenance-backed comparison snapshots, workspace screens and explicit v2 assistant proposal operations. Offline/API type/frontend checks pass. New database tests are authored but unrun, and no browser E2E suite/manual browser review has been completed; the phase gate is therefore open, not passed.
 
 ## Handoff and remaining limits
 
-See CODEX_HANDOFF.md, VALIDATION.md and the Phase 5 plan for contracts/evidence. Immutable sources/snapshots, validated claims/quotes/qualifiers, contextual relations, cited revision-snapshotted assessments, bounded selected-product runs, paged history and source/claim inspection are implemented. The external Personal AI structured-shopping endpoint remains unavailable; deterministic fake task execution does not establish live compatibility or quality. Live Tavily/page/source coverage, manual browser/mobile/keyboard checks, hosted CI and multi-instance execution remain unverified. No cloud deployment occurred. Phases 6–9 remain planned. A future Phase 6 requires its full-system review gate; it is not authorized now.
+See CODEX_HANDOFF.md, VALIDATION.md and the Phase 6 review for contracts/evidence. Phase 5 evidence snapshots/claims/assessments and the Phase 6 decision/comparison implementation are present. The external Personal AI structured-shopping endpoint remains unavailable; deterministic fakes do not establish live compatibility or quality. PostgreSQL 16 initialization currently fails with a shared-memory `shmget` limit even under the escalated test attempt. Phase 6 database/migration verification, E2E/manual browser review and a live provider/source audit remain unverified. No cloud deployment occurred. Phase 7 is not authorized until the gate passes.
 
 ## Local environment
 
-Checkout /Users/jasonkli/projects/shopping-assistant. UV_CACHE_DIR=/private/tmp/shopping-uv-cache with /opt/homebrew/bin/uv; apps/api .venv exists. Isolated PostgreSQL 16 cluster at 127.0.0.1:55843, shopping_test database, schema-isolated tests with TEST_DATABASE_URL=postgresql+psycopg://postgres@127.0.0.1:55843/shopping_test. PostgreSQL access and Git writes may require escalated exec. Node /Users/jasonkli/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node; frontend dependencies remain installed. Direct constituent checks avoid bundled pnpm 11 versus repository pin 10.34.6 mismatch. No Git remote is configured.
+Checkout /Users/jasonkli/projects/shopping-assistant. UV_CACHE_DIR=/private/tmp/shopping-uv-cache with /opt/homebrew/bin/uv; apps/api .venv exists. PostgreSQL client/server binaries are installed, but the disposable cluster cannot initialize in this host environment because shared memory allocation fails. PostgreSQL/Git writes may require escalated exec. Node /Users/jasonkli/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node; frontend dependencies remain installed. Direct constituent checks avoid bundled pnpm 11 versus repository pin 10.34.6 mismatch. No Git remote is configured.
 
 ## Restart history
 

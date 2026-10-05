@@ -1,6 +1,6 @@
-# API Contract (Phases 0–4 Implemented; Later Phases Planned)
+# API Contract (Phases 0–6 Implemented Locally; Phase 6 Gate Open)
 
-`GET /health`, the Phase 1 project/requirement API, Phase 2 conversation/proposal API, Phase 3 discovery API, and Phase 4 catalog API are implemented. Phase 5 onward remains a planning contract; the [plans index](../planning/implementation-plans-index.md) and selected phase plans define those future commands. OpenAPI is the source for committed TypeScript transport types in `packages/api-types/src/index.ts`; regenerate with `make api-types` and verify with `make api-types-check`.
+`GET /health`, the Phase 1 project/requirement API, Phase 2 conversation/proposal API, Phase 3 discovery API, Phase 4 catalog API, Phase 5 evidence/research API, and Phase 6 decision/comparison API are implemented locally. The Phase 6 repository gate remains open pending PostgreSQL migration/integration checks and browser journey review; Phases 7–9 remain a planning contract. See the [plans index](../planning/implementation-plans-index.md), [Phase 6 review](../planning/phase-6-review.md), and [validation record](../../VALIDATION.md). OpenAPI is the source for committed TypeScript transport types in `packages/api-types/src/index.ts`; regenerate with `make api-types` and verify with `make api-types-check`.
 
 ## Shared conventions
 
@@ -116,18 +116,35 @@ GET /projects/{project_id}/sources/{snapshot_id}
 
 ```text
 GET    /projects/{project_id}/shortlist
-POST   /projects/{project_id}/shortlist
+GET    /projects/{project_id}/rejections
+GET    /projects/{project_id}/products/{project_product_id}/decision
+POST   /projects/{project_id}/shortlist/{project_product_id}
 DELETE /projects/{project_id}/shortlist/{project_product_id}
-POST   /projects/{project_id}/rejections
+POST   /projects/{project_id}/rejections/{project_product_id}
 DELETE /projects/{project_id}/rejections/{project_product_id}
+POST   /projects/{project_id}/products/{project_product_id}/purchased
+DELETE /projects/{project_id}/products/{project_product_id}/purchased
+GET    /projects/{project_id}/notes
+PUT    /projects/{project_id}/notes
+DELETE /projects/{project_id}/notes
+GET    /projects/{project_id}/products/{project_product_id}/notes
+PUT    /projects/{project_id}/products/{project_product_id}/notes
+DELETE /projects/{project_id}/products/{project_product_id}/notes
 POST   /projects/{project_id}/comparisons
 GET    /projects/{project_id}/comparisons
 GET    /projects/{project_id}/comparisons/{comparison_id}
 PATCH  /projects/{project_id}/comparisons/{comparison_id}
+POST   /projects/{project_id}/comparisons/{comparison_id}/regenerate
 DELETE /projects/{project_id}/comparisons/{comparison_id}
+GET    /saved-products
+GET    /saved-products/{variant_id}
+PUT    /saved-products/{variant_id}/favorite
+DELETE /saved-products/{variant_id}/favorite
 ```
 
-Use exact ProjectProduct IDs, not family-level product IDs, for decisions/comparison membership. Notes, favorites and manual purchased/undo commands are added by the Phase 6 plan. One current decision state prevents simultaneous shortlist/rejection. Comparisons persist dimensions/provenance and expose unknown/conflict/stale cells; saved snapshots do not silently regenerate.
+Use exact ProjectProduct IDs, not family-level product IDs, for project decisions and comparison membership. Decision commands carry `expected_version` and an idempotency `request_key`; notes and comparison edits use project revisions, while comparison edits also carry `expected_comparison_version`. Favorites are owner/variant scoped and use their own version without changing a project revision. Purchased is a reversible manual judgment. One current decision state prevents simultaneous shortlist/rejection.
+
+Comparisons persist ordered variants, dimensions and immutable generated snapshots. Facts, offers, cited evidence, project-fit assessments and user notes retain cell provenance; unknown, conflicting, stale and incomparable cells remain visible in differences mode. Only demonstrably equal known values are hidden. Supported units normalize deterministically; unequal currencies are not ranked. `GET` does not regenerate a snapshot; use the explicit `/regenerate` command with both expected versions. These local routes and schemas are generated into the committed API types.
 
 ## Profiles/memory and production — Phases 8/9
 

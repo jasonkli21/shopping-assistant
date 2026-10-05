@@ -1,8 +1,27 @@
 # Validation record
 
+## Phase 6 implementation and verification — 2026-10-05
+
+Decisions and audit events, owner-scoped project/product notes, independent favorites, saved comparison dimensions/snapshots, workspace UI and explicit v2 assistant proposal actions are implemented locally. The repository-wide gate is **open, not passed**. Findings and dispositions are in [the Phase 6 review](docs/planning/phase-6-review.md).
+
+| Check | Result |
+|---|---|
+| Offline API and eval suite | `cd apps/api && UV_CACHE_DIR=/private/tmp/shopping-uv-cache uv run pytest -m 'not db and not live'`: 133 passed, 97 database/live tests deselected. Includes comparison unit normalization, unsupported-unit equality and unknown-value regressions. |
+| API lint and formatting | `ruff check src tests migrations` and `ruff format --check src tests migrations`: passed; 133 Python files are formatted. |
+| API schema/types | App OpenAPI import succeeded with 39 paths, including Phase 6 decisions, notes, favorites and comparisons. `scripts/generate_api_types.py --check` passed; committed TypeScript transport types match OpenAPI. |
+| Migration generation | `alembic upgrade head --sql` passed and emitted the full upgrade chain through `0013_mvp_decisions_comparisons`. This checks SQL generation only, not execution against PostgreSQL. |
+| PostgreSQL integration/migration checks | Not run. A disposable PostgreSQL 16 cluster attempt, including an escalated attempt with mmap primary shared memory, failed during `initdb` with `shmget: No space left on device`. Consequently `pytest -m db`, online migration, downgrade/re-upgrade and `alembic check` remain unverified. |
+| Frontend interaction suite | 57 Vitest tests passed across 6 files, including 4 Phase 6 tests for note-save failure/draft preservation, independent favorites, shortlist transitions and comparison conflict recovery. |
+| Frontend quality/build | ESLint, TypeScript project check and Vite production build passed using the bundled Node runtime. |
+| Aggregate validation wrapper | `make validate` was not run: the available fallback pnpm is 11.19.0 while the repository pins 10.34.6 and attempts an interactive install. Each deterministic constituent check was run directly. |
+| Browser E2E/manual journey | Not completed. No Playwright package or browser executable is installed, and the Phase 6 `pnpm test:e2e` suite has not been added. Desktop/mobile journey, keyboard-only use, citations and provider failure/recovery remain unreviewed in a browser. |
+| Live provider/source audit | Not run; deterministic fakes establish local task behavior only. Hosted CI, cloud deployment and multi-instance checks were also not run. |
+
+The offline review caught and fixed a comparison equality bug where unsupported numeric units were omitted from the equality key; units now participate in equality unless a deterministic conversion is defined, and decimal values use stable canonical formatting. Phase 6 acceptance remains open until the PostgreSQL and browser journey checks above are completed. Do not begin Phase 7.
+
 ## Phase 5 local implementation — 2026-10-04
 
-Selected-product runs persist bounded plans, source retrieval attempts and short immutable snapshots; exact validated claims feed contextual relations and requirement-linked cited assessments. The Phase 5 review fixes tighten quote, qualifier, measurement, source-class and variant-identity grounding; make terminal skips, deadline failures and canceled writes inspectable; isolate ProductResearch query state and preserve exact command replay after uncertain acknowledgements; page assessment history; and support the full 100-requirement limit. The main-session owner still needs to verify this handoff before Phase 6.
+Selected-product runs persist bounded plans, source retrieval attempts and short immutable snapshots; exact validated claims feed contextual relations and requirement-linked cited assessments. The Phase 5 review fixes tighten quote, qualifier, measurement, source-class and variant-identity grounding; make terminal skips, deadline failures and canceled writes inspectable; isolate ProductResearch query state and preserve exact command replay after uncertain acknowledgements; page assessment history; and support the full 100-requirement limit. Phase 5 was accepted after main-session review; Phase 6 verification is recorded above.
 
 | Check | Result |
 |---|---|
