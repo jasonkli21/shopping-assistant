@@ -6,6 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from shopping.comparisons.schemas import ComparisonDimensionInput, DisplayMode
 from shopping.projects.schemas import (
     ProjectRead,
     RequirementCreate,
@@ -79,11 +80,74 @@ RequirementOperation = Annotated[
 ]
 
 
+class RefineRequirements(StrictModel):
+    operation: Literal["refine_requirements"]
+    project_updates: IntentProjectUpdates = Field(default_factory=IntentProjectUpdates)
+    requirement_operations: list[RequirementOperation] = Field(default_factory=list, max_length=20)
+
+
+class ShortlistProduct(StrictModel):
+    operation: Literal["shortlist"]
+    project_product_id: UUID
+    reason: str = Field(default="", max_length=2000)
+    concerns: list[str] = Field(default_factory=list, max_length=20)
+
+
+class RejectProduct(StrictModel):
+    operation: Literal["reject"]
+    project_product_id: UUID
+    rejection_reason: Literal[
+        "too_expensive",
+        "missing_feature",
+        "too_large",
+        "appearance",
+        "weak_evidence",
+        "wrong_category",
+        "already_owned",
+        "other",
+    ]
+    reason: str = Field(default="", max_length=2000)
+    concerns: list[str] = Field(default_factory=list, max_length=20)
+
+
+class AddNote(StrictModel):
+    operation: Literal["add_note"]
+    project_product_id: UUID | None = None
+    text: str = Field(min_length=1, max_length=10000)
+
+
+class SetComparisonDimensions(StrictModel):
+    operation: Literal["set_comparison_dimensions"]
+    project_product_ids: list[UUID] = Field(min_length=2, max_length=6)
+    dimensions: list[ComparisonDimensionInput] = Field(min_length=1, max_length=20)
+    title: str = Field(default="Assistant comparison", min_length=1, max_length=160)
+    display_mode: DisplayMode = "all"
+    comparison_id: UUID | None = None
+    expected_comparison_version: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def unique_scope(self):
+        if len(self.project_product_ids) != len(set(self.project_product_ids)):
+            raise ValueError("comparison products must be unique")
+        if len({item.key for item in self.dimensions}) != len(self.dimensions):
+            raise ValueError("comparison dimension keys must be unique")
+        if (self.comparison_id is None) != (self.expected_comparison_version is None):
+            raise ValueError("an existing comparison ID requires its expected version")
+        return self
+
+
+AssistantOperation = Annotated[
+    RefineRequirements | ShortlistProduct | RejectProduct | AddNote | SetComparisonDimensions,
+    Field(discriminator="operation"),
+]
+
+
 class InterpretationOutput(StrictModel):
     assistant_message: str = Field(min_length=1, max_length=6000)
     clarification_questions: list[str] = Field(default_factory=list, max_length=5)
     project_updates: IntentProjectUpdates = Field(default_factory=IntentProjectUpdates)
     requirement_operations: list[RequirementOperation] = Field(default_factory=list, max_length=20)
+    operations: list[AssistantOperation] = Field(default_factory=list, max_length=20)
 
     @model_validator(mode="after")
     def bound_questions(self) -> InterpretationOutput:
@@ -91,16 +155,39 @@ class InterpretationOutput(StrictModel):
             raise ValueError("clarification questions must contain 1 to 500 characters")
         return self
 
+    @model_validator(mode="after")
+    def unambiguous_operations(self) -> InterpretationOutput:
+        if self.operations and (
+            self.project_updates.model_fields_set or self.requirement_operations
+        ):
+            raise ValueError("use either explicit operations or the compatibility fields, not both")
+        if sum(isinstance(item, RefineRequirements) for item in self.operations) > 1:
+            raise ValueError("only one requirements refinement operation is allowed")
+        return self
+
     def mutation_payload(self) -> dict[str, Any] | None:
         updates = self.project_updates.model_dump(exclude_unset=True, exclude_none=True)
-        operations = [
+        requirement_operations = [
             item.model_dump(mode="json", exclude_unset=True) for item in self.requirement_operations
         ]
-        if not updates and not operations:
+        decision_operations: list[dict[str, Any]] = []
+        for operation in self.operations:
+            if isinstance(operation, RefineRequirements):
+                updates = operation.project_updates.model_dump(
+                    exclude_unset=True, exclude_none=True
+                )
+                requirement_operations = [
+                    item.model_dump(mode="json", exclude_unset=True)
+                    for item in operation.requirement_operations
+                ]
+            else:
+                decision_operations.append(operation.model_dump(mode="json", exclude_unset=True))
+        if not updates and not requirement_operations and not decision_operations:
             return None
         return {
             "project_updates": updates,
-            "requirement_operations": operations,
+            "requirement_operations": requirement_operations,
+            "decision_operations": decision_operations,
         }
 
 

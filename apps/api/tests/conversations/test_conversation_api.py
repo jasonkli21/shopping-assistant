@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from shopping.catalog.models import Product, ProductVariant, ProjectProduct
 from shopping.conversations import service
 from shopping.conversations.models import ConversationMessage, ProjectUpdateProposal
 from shopping.integrations.personal_ai.fake import FakePersonalAIClient
@@ -29,6 +30,43 @@ def create_project(client: TestClient) -> dict:
 
 def set_fake(client: TestClient, fake: FakePersonalAIClient) -> None:
     client.app.state.generation_supervisor.client = fake
+
+
+def add_project_product(engine, owner_id: UUID, project_id: UUID, number: int) -> UUID:
+    product_id, variant_id, membership_id = uuid4(), uuid4(), uuid4()
+    with Session(engine) as session:
+        product = Product(
+            id=product_id,
+            owner_id=owner_id,
+            canonical_name=f"Vacuum {number}",
+            brand="Example",
+            category="vacuum",
+            revision=1,
+        )
+        session.add(product)
+        session.flush()
+        session.add(
+            ProductVariant(
+                id=variant_id,
+                product_id=product_id,
+                display_name=f"Model {number}, US",
+                identity_key=f"model:{number}|region:us",
+                identity_attributes={"region": {"value": "US"}},
+                category_attributes={},
+                revision=1,
+            )
+        )
+        session.flush()
+        session.add(
+            ProjectProduct(
+                id=membership_id,
+                project_id=project_id,
+                variant_id=variant_id,
+                discovery_reason="Created by a deterministic proposal fixture",
+            )
+        )
+        session.commit()
+    return membership_id
 
 
 def send_message(
@@ -246,6 +284,80 @@ def test_invalid_persisted_proposal_operation_rolls_back_project_write(project_a
         persisted = session.get(ProjectUpdateProposal, proposal_id)
         assert persisted is not None
         assert persisted.status == "pending"
+
+
+def test_phase6_proposal_applies_decision_note_and_comparison_atomically(project_api):
+    client, owner, engine = project_api
+    project = create_project(client)
+    first = add_project_product(engine, owner["id"], UUID(project["id"]), 1)
+    second = add_project_product(engine, owner["id"], UUID(project["id"]), 2)
+    set_fake(
+        client,
+        FakePersonalAIClient(
+            response={
+                "assistant_message": "I prepared your decision workspace changes for review.",
+                "operations": [
+                    {
+                        "operation": "shortlist",
+                        "project_product_id": str(first),
+                        "reason": "Fits the entryway storage limit.",
+                    },
+                    {
+                        "operation": "add_note",
+                        "project_product_id": str(first),
+                        "text": "Measure the entryway before ordering.",
+                    },
+                    {
+                        "operation": "set_comparison_dimensions",
+                        "project_product_ids": [str(first), str(second)],
+                        "dimensions": [
+                            {
+                                "key": "width",
+                                "label": "Width",
+                                "dimension_type": "fact",
+                            }
+                        ],
+                        "title": "Entryway fit",
+                        "display_mode": "differences",
+                    },
+                ],
+            }
+        ),
+    )
+
+    accepted = send_message(
+        client,
+        project["id"],
+        "phase6-proposal-workspace-0001",
+        "Shortlist one and compare the options.",
+    )
+    assert accepted.status_code == 202, accepted.text
+    assistant = wait_for_message(client, project["id"], accepted.json()["assistant_message_id"])
+    proposal_id = assistant["proposal"]["id"]
+    assert client.get(f"/projects/{project['id']}").json()["revision"] == 1
+    assert (
+        client.get(f"/projects/{project['id']}/products/{first}/decision").json()["state"]
+        == "considering"
+    )
+
+    applied = client.post(
+        f"/projects/{project['id']}/proposals/{proposal_id}/apply",
+        json={"expected_version": 1},
+    )
+    assert applied.status_code == 200, applied.text
+    assert applied.json()["project"]["revision"] == 2
+    assert (
+        client.get(f"/projects/{project['id']}/products/{first}/decision").json()["state"]
+        == "shortlisted"
+    )
+    assert (
+        client.get(f"/projects/{project['id']}/products/{first}/notes").json()["text"]
+        == "Measure the entryway before ordering."
+    )
+    comparisons = client.get(f"/projects/{project['id']}/comparisons").json()["items"]
+    assert len(comparisons) == 1
+    assert comparisons[0]["project_revision"] == 2
+    assert comparisons[0]["dimensions"][0]["key"] == "width"
 
 
 def test_proposal_can_replace_an_item_at_the_requirement_limit(project_api):

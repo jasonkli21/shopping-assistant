@@ -46,7 +46,7 @@ def complete_generation(
             owner_id=owner_id,
             assistant_message_id=message.id,
             base_revision=message.snapshot_revision,
-            schema_version=1,
+            schema_version=2,
             operations=mutation_payload,
             status="pending" if project.revision == message.snapshot_revision else "stale",
         )

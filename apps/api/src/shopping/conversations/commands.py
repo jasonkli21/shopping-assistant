@@ -11,12 +11,16 @@ from sqlalchemy import desc, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from shopping.catalog.models import Product, ProductVariant, ProjectProduct, RetailOffer
+from shopping.comparisons.models import ComparisonDimension, ComparisonItem, SavedComparison
 from shopping.conversations.models import Conversation, ConversationMessage
 from shopping.conversations.schemas import MessageCreated
 from shopping.conversations.task import build_request
+from shopping.evidence.models import Claim, ProductAssessment, Source, SourceSnapshot
 from shopping.projects import repository
 from shopping.projects import service as project_service
 from shopping.projects.errors import ProjectError
+from shopping.projects.models import ProjectProductDecision, UserNote
 
 
 @dataclass(frozen=True)
@@ -123,6 +127,7 @@ def create_message_command(
             project_read,
             text,
             [{"role": item.role, "text": item.content} for item in history],
+            _current_state(session, owner_id, project_id),
         )
         input_snapshot = task_request.input["context"]
         context_error = None
@@ -165,9 +170,9 @@ def create_message_command(
         status="failed" if context_error else "generating",
         snapshot_revision=project.revision,
         task_metadata={
-            "task": "interpret_shopping_intent.v1",
-            "prompt_version": "shopping-intent-1",
-            "schema_version": 1,
+            "task": "interpret_shopping_intent.v2",
+            "prompt_version": "shopping-intent-2",
+            "schema_version": 2,
             "provider_request_id": None,
         },
         input_snapshot=input_snapshot,
@@ -203,3 +208,166 @@ def create_message_command(
 
 def _not_found(message: str) -> ProjectError:
     return ProjectError(404, "not_found", message)
+
+
+def _current_state(session: Session, owner_id: UUID, project_id: UUID) -> dict:
+    """Bounded, owner-scoped context for explicit Phase 6 assistant proposals."""
+    rows = session.execute(
+        select(ProjectProduct, ProductVariant, Product)
+        .join(ProductVariant, ProductVariant.id == ProjectProduct.variant_id)
+        .join(Product, Product.id == ProductVariant.product_id)
+        .where(ProjectProduct.project_id == project_id, Product.owner_id == owner_id)
+        .order_by(ProjectProduct.created_at, ProjectProduct.id)
+        .limit(8)
+    ).all()
+    products = []
+    for membership, variant, product in rows:
+        decision = session.scalar(
+            select(ProjectProductDecision).where(
+                ProjectProductDecision.owner_id == owner_id,
+                ProjectProductDecision.project_product_id == membership.id,
+            )
+        )
+        note = session.scalar(
+            select(UserNote).where(
+                UserNote.owner_id == owner_id,
+                UserNote.project_id == project_id,
+                UserNote.project_product_id == membership.id,
+            )
+        )
+        offers = list(
+            session.scalars(
+                select(RetailOffer)
+                .where(RetailOffer.owner_id == owner_id, RetailOffer.variant_id == variant.id)
+                .order_by(RetailOffer.observed_at.desc(), RetailOffer.id.desc())
+                .limit(2)
+            ).all()
+        )
+        assessment = session.scalar(
+            select(ProductAssessment)
+            .where(
+                ProductAssessment.owner_id == owner_id,
+                ProductAssessment.project_product_id == membership.id,
+            )
+            .order_by(ProductAssessment.generated_at.desc(), ProductAssessment.id.desc())
+            .limit(1)
+        )
+        claim_rows = session.execute(
+            select(Claim, SourceSnapshot, Source)
+            .join(SourceSnapshot, SourceSnapshot.id == Claim.snapshot_id)
+            .join(Source, Source.id == SourceSnapshot.source_id)
+            .where(
+                Claim.owner_id == owner_id,
+                Claim.subject_variant_id == variant.id,
+                SourceSnapshot.owner_id == owner_id,
+                Source.owner_id == owner_id,
+            )
+            .order_by(Claim.extracted_at.desc(), Claim.id)
+            .limit(3)
+        ).all()
+        products.append(
+            {
+                "project_product_id": str(membership.id),
+                "product_id": str(product.id),
+                "variant_id": str(variant.id),
+                "canonical_name": product.canonical_name[:250],
+                "brand": product.brand,
+                "variant_name": variant.display_name[:250],
+                "identity_attributes": _compact_attributes(variant.identity_attributes),
+                "category_attributes": _compact_attributes(variant.category_attributes),
+                "decision": {
+                    "state": decision.state if decision else "considering",
+                    "reason": decision.reason[:600] if decision else "",
+                    "rejection_reason": decision.rejection_reason if decision else None,
+                },
+                "note": note.text[:1000] if note else None,
+                "offers": [
+                    {
+                        "offer_id": str(offer.id),
+                        "amount": format(offer.amount, ".2f") if offer.amount is not None else None,
+                        "currency": offer.currency,
+                        "retailer": offer.retailer_name[:100],
+                        "observed_at": offer.observed_at.isoformat(),
+                    }
+                    for offer in offers
+                ],
+                "assessment": (
+                    {
+                        "assessment_id": str(assessment.id),
+                        "summary": assessment.summary[:600],
+                        "conclusions": assessment.conclusions[:6],
+                    }
+                    if assessment
+                    else None
+                ),
+                "claims": [
+                    {
+                        "claim_id": str(claim.id),
+                        "snapshot_id": str(snapshot.id),
+                        "attribute_key": claim.attribute_key,
+                        "assertion": claim.assertion_text[:400],
+                        "normalized_value": claim.normalized_value,
+                        "qualifiers": claim.qualifiers,
+                        "evidence_category": claim.evidence_category,
+                        "source_title": (snapshot.title or source.title or "")[:200],
+                        "source_url": source.normalized_url[:1000],
+                        "retrieved_at": snapshot.retrieved_at.isoformat(),
+                    }
+                    for claim, snapshot, source in claim_rows
+                ],
+            }
+        )
+    comparisons = []
+    for comparison in session.scalars(
+        select(SavedComparison)
+        .where(SavedComparison.owner_id == owner_id, SavedComparison.project_id == project_id)
+        .order_by(SavedComparison.updated_at.desc(), SavedComparison.id)
+        .limit(10)
+    ).all():
+        item_ids = list(
+            session.scalars(
+                select(ComparisonItem.project_product_id)
+                .where(ComparisonItem.comparison_id == comparison.id)
+                .order_by(ComparisonItem.position)
+            ).all()
+        )
+        dimensions = list(
+            session.scalars(
+                select(ComparisonDimension)
+                .where(ComparisonDimension.comparison_id == comparison.id)
+                .order_by(ComparisonDimension.position)
+            ).all()
+        )
+        comparisons.append(
+            {
+                "id": str(comparison.id),
+                "title": comparison.title,
+                "comparison_revision": comparison.comparison_revision,
+                "project_product_ids": [str(item) for item in item_ids],
+                "dimensions": [
+                    {
+                        "key": item.key,
+                        "label": item.label,
+                        "unit": item.unit,
+                        "dimension_type": item.dimension_type,
+                    }
+                    for item in dimensions
+                ],
+            }
+        )
+    return {"products": products, "comparisons": comparisons}
+
+
+def _compact_attributes(attributes: dict) -> dict:
+    compact = {}
+    for key, value in list(attributes.items())[:12]:
+        if isinstance(value, dict):
+            bounded = dict(value)
+            if isinstance(bounded.get("value"), str):
+                bounded["value"] = bounded["value"][:200]
+            compact[key[:100]] = bounded
+        elif isinstance(value, str):
+            compact[key[:100]] = value[:200]
+        elif isinstance(value, (int, float, bool)) or value is None:
+            compact[key[:100]] = value
+    return compact

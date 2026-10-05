@@ -54,16 +54,23 @@ class FakePersonalAIClient(PersonalAIClient):
             return AIResponse(output=self.response)
         if request.task == "plan_discovery.v1":
             return AIResponse(output=self._plan_discovery(request.input.get("context", {})))
-        if request.task != "interpret_shopping_intent.v1":
+        if request.task not in {"interpret_shopping_intent.v1", "interpret_shopping_intent.v2"}:
             raise AIProviderError("unsupported_task")
         message = str(context.get("new_user_message", ""))
-        result = self._interpret(message, context.get("requirements", []))
+        result = self._interpret(
+            message, context.get("requirements", []), context.get("current_state", {})
+        )
         return result if isinstance(result, AIResponse) else AIResponse(output=result)
 
     def _interpret(
-        self, message: str, requirements: list[dict[str, Any]]
+        self,
+        message: str,
+        requirements: list[dict[str, Any]],
+        current_state: dict[str, Any] | None = None,
     ) -> dict[str, Any] | AIResponse:
         lowered = message.lower()
+        current_state = current_state or {}
+        products = current_state.get("products", [])
         if self.scenario == "malformed":
             return {
                 "assistant_message": "Here is an incomplete proposal",
@@ -113,6 +120,95 @@ class FakePersonalAIClient(PersonalAIClient):
                 "clarification_questions": ["What product are you shopping for?"],
                 "project_updates": {},
                 "requirement_operations": [],
+            }
+
+        if products and ("shortlist" in lowered or "short list" in lowered):
+            return {
+                "assistant_message": "I prepared a shortlist suggestion for your review.",
+                "operations": [
+                    {
+                        "operation": "shortlist",
+                        "project_product_id": products[0]["project_product_id"],
+                        "reason": "Selected for further consideration.",
+                    }
+                ],
+            }
+
+        if products and "reject" in lowered:
+            rejection_reason = next(
+                (
+                    reason
+                    for phrase, reason in (
+                        ("expensive", "too_expensive"),
+                        ("too large", "too_large"),
+                        ("missing feature", "missing_feature"),
+                        ("weak evidence", "weak_evidence"),
+                        ("wrong category", "wrong_category"),
+                        ("appearance", "appearance"),
+                    )
+                    if phrase in lowered
+                ),
+                "other",
+            )
+            return {
+                "assistant_message": (
+                    "I prepared a rejection suggestion with a reason for your review."
+                ),
+                "operations": [
+                    {
+                        "operation": "reject",
+                        "project_product_id": products[0]["project_product_id"],
+                        "rejection_reason": rejection_reason,
+                        "reason": message[:500],
+                    }
+                ],
+            }
+
+        if products and ("compare" in lowered or "differences" in lowered):
+            selected = products[: min(3, len(products))]
+            dimensions = []
+            if "warranty" in lowered:
+                dimensions.append(
+                    {"key": "warranty", "label": "Warranty", "dimension_type": "evidence"}
+                )
+            if "price" in lowered or not dimensions:
+                dimensions.append(
+                    {"key": "price", "label": "Latest offer", "dimension_type": "offer"}
+                )
+            if "durability" in lowered:
+                dimensions.append(
+                    {
+                        "key": "durability",
+                        "label": "Durability evidence",
+                        "dimension_type": "evidence",
+                    }
+                )
+            return {
+                "assistant_message": (
+                    "I prepared a comparison using the selected products and requested dimensions."
+                ),
+                "operations": [
+                    {
+                        "operation": "set_comparison_dimensions",
+                        "project_product_ids": [item["project_product_id"] for item in selected],
+                        "dimensions": dimensions,
+                        "display_mode": "differences"
+                        if "difference" in lowered or "meaningful" in lowered
+                        else "all",
+                    }
+                ],
+            }
+
+        if products and ("add a note" in lowered or "note that" in lowered):
+            return {
+                "assistant_message": "I prepared a product note for your review.",
+                "operations": [
+                    {
+                        "operation": "add_note",
+                        "project_product_id": products[0]["project_product_id"],
+                        "text": message[:1000],
+                    }
+                ],
             }
 
         if "contradict" in lowered or ("quiet" in lowered and "loud" in lowered):

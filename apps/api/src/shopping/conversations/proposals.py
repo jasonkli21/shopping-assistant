@@ -6,10 +6,15 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from shopping.catalog.models import Product, ProductVariant, ProjectProduct
+from shopping.comparisons import service as comparison_service
 from shopping.conversations.models import ProjectUpdateProposal
 from shopping.conversations.schemas import ProposalMutationResult
+from shopping.projects import decisions as decision_service
+from shopping.projects import notes as note_service
 from shopping.projects import repository
 from shopping.projects import service as project_service
+from shopping.projects.decision_schemas import DecisionCommand
 from shopping.projects.errors import ProjectError
 from shopping.projects.schemas import ProjectRead
 
@@ -70,6 +75,61 @@ def apply_proposal(
 
     operations = proposal.operations
     try:
+        decision_operations = operations.get("decision_operations", [])
+        for index, operation in enumerate(decision_operations):
+            kind = operation.get("operation")
+            if kind in {"shortlist", "reject"}:
+                project_product_id = UUID(operation["project_product_id"])
+                membership = session.scalar(
+                    select(ProjectProduct)
+                    .join(ProductVariant, ProductVariant.id == ProjectProduct.variant_id)
+                    .join(Product, Product.id == ProductVariant.product_id)
+                    .where(
+                        ProjectProduct.id == project_product_id,
+                        ProjectProduct.project_id == project.id,
+                        Product.owner_id == owner_id,
+                    )
+                )
+                if membership is None:
+                    raise ProjectError(
+                        409, "proposal_invalid", "A proposed product is no longer available."
+                    )
+                command_data = {
+                    "expected_version": project.revision,
+                    "request_key": f"assistant-{proposal.id}-{index}",
+                    "reason": operation.get("reason", ""),
+                    "concerns": operation.get("concerns", []),
+                }
+                if kind == "reject":
+                    command_data["rejection_reason"] = operation.get("rejection_reason")
+                command = DecisionCommand.model_validate(command_data)
+                decision_service.apply_decision_locked(
+                    session,
+                    project,
+                    owner_id,
+                    membership,
+                    "shortlisted" if kind == "shortlist" else "rejected",
+                    command,
+                    actor="assistant",
+                    origin="proposal",
+                )
+            elif kind == "add_note":
+                target = (
+                    UUID(operation["project_product_id"])
+                    if operation.get("project_product_id")
+                    else None
+                )
+                text = operation.get("text")
+                if not isinstance(text, str) or not 1 <= len(text.strip()) <= 10000:
+                    raise ProjectError(409, "proposal_invalid", "A proposed note is invalid.")
+                note_service.put_note_locked(session, project, owner_id, target, text.strip())
+            elif kind == "set_comparison_dimensions":
+                continue
+            else:
+                raise ProjectError(
+                    409, "proposal_invalid", "The proposal contains an unsupported operation."
+                )
+
         updated = project_service.apply_ai_proposal(
             session,
             owner_id,
@@ -79,6 +139,9 @@ def apply_proposal(
             operations["requirement_operations"],
             commit=False,
         )
+        for operation in decision_operations:
+            if operation.get("operation") == "set_comparison_dimensions":
+                comparison_service.apply_proposal_locked(session, owner_id, project, operation)
         proposal.status = "applied"
         proposal.applied_revision = updated.revision
         proposal.applied_project = updated.model_dump(mode="json")

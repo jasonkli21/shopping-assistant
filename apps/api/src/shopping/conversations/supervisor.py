@@ -87,7 +87,10 @@ class GenerationSupervisor:
                     session, owner_id, project_id, message_id
                 )
             )
-            if context is None or task_name != "interpret_shopping_intent.v1":
+            if context is None or task_name not in {
+                "interpret_shopping_intent.v1",
+                "interpret_shopping_intent.v2",
+            }:
                 await self._fail(owner_id, project_id, message_id, "context_too_large")
                 return
             request = request_for_saved_context(context)
