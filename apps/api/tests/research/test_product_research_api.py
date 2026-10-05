@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import time
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
@@ -23,7 +24,13 @@ from shopping.evidence.models import (
 from shopping.extraction.fake import FakePageRetriever
 from shopping.extraction.retriever import RetrievedDocument
 from shopping.projects.models import ShoppingProject
-from shopping.research.models import DiscoveryCandidate, ResearchRun, ResearchRunTarget
+from shopping.research.models import (
+    DiscoveryCandidate,
+    ResearchRun,
+    ResearchRunTarget,
+    ResearchStageAttempt,
+    SearchQueryRecord,
+)
 from shopping.search.fake import FakeSearchProvider
 from shopping.search.provider import SearchResult
 
@@ -103,7 +110,8 @@ def test_product_research_persists_targeted_source_snapshot_without_candidates(p
     )
     body = """<!doctype html><html><head><title>Acme AX-4 specifications</title>
     <meta property="article:published_time" content="2025-02-03T12:00:00Z"></head>
-    <body><h1>AX-4 HEPA</h1><p>Measured runtime is 60 minutes in normal mode.</p></body></html>"""
+    <body><h1>Acme AX-4 HEPA</h1><p>Product specifications.</p>
+    <p>Measured runtime is 60 minutes in normal mode.</p></body></html>"""
     document = RetrievedDocument(
         requested_url=url,
         final_url=url,
@@ -127,7 +135,7 @@ def test_product_research_persists_targeted_source_snapshot_without_candidates(p
     assert accepted.status_code == 202, accepted.text
     run = _wait_for_run(client, project["id"], accepted.json()["run_id"])
     assert run["type"] == "product_research"
-    assert run["status"] == "succeeded"
+    assert run["status"] == "partial", run
     assert run["candidates_found"] == 0
     assert run["results_found"] == 1
     assert run["effective_budgets"]["max_products"] == 3
@@ -138,11 +146,11 @@ def test_product_research_persists_targeted_source_snapshot_without_candidates(p
             "project_product_id": str(project_product_id),
             "product_id": str(product_id),
             "variant_id": str(variant_id),
-            "status": "succeeded",
+            "status": "partial",
             "sources_attempted": 1,
             "sources_retrieved": 1,
             "claims_created": 0,
-            "error_code": None,
+            "error_code": "no_grounded_claims",
         }
     ]
 
@@ -168,7 +176,7 @@ def test_product_research_persists_targeted_source_snapshot_without_candidates(p
 
     replay = client.post(f"/projects/{project['id']}/research", json=request)
     assert replay.status_code == 202
-    assert replay.json() == {"run_id": run["id"], "status": "succeeded", "replayed": True}
+    assert replay.json() == {"run_id": run["id"], "status": "partial", "replayed": True}
 
 
 def test_product_research_rejects_non_member_project_product(project_api):
@@ -185,6 +193,184 @@ def test_product_research_rejects_non_member_project_product(project_api):
     response = client.post(f"/projects/{project['id']}/research", json=request)
     assert response.status_code == 404
     assert client.get(f"/projects/{project['id']}/research?limit=20").json()["items"] == []
+
+
+def test_product_research_assesses_all_one_hundred_requirements(project_api):
+    client, owner, engine = project_api
+    requirements = [
+        {
+            "kind": "must_have",
+            "label": f"Requirement {index:03d}: " + "specific criterion " * 6,
+            "detail": "Saved context that must survive planning and assessment. " * 22,
+        }
+        for index in range(100)
+    ]
+    response = client.post(
+        "/projects",
+        json={
+            "title": "Large requirement set",
+            "goal": "Assess every saved constraint",
+            "category": "Vacuum",
+            "requirements": requirements,
+        },
+    )
+    assert response.status_code == 201, response.text
+    project = response.json()
+    _product_id, _variant_id, project_product_id = _seed_project_product(project, owner, engine)
+    accepted = client.post(
+        f"/projects/{project['id']}/research",
+        json={
+            "objective": "Check each requirement",
+            "type": "product_research",
+            "request_key": "product-research-one-hundred-requirements",
+            "expected_version": project["revision"],
+            "selected_project_product_ids": [str(project_product_id)],
+        },
+    )
+    assert accepted.status_code == 202, accepted.text
+    run = _wait_for_run(client, project["id"], accepted.json()["run_id"])
+    assert run["status"] == "failed"
+    with Session(engine) as session:
+        assessment = session.scalar(select(ProductAssessment))
+        assert len(assessment.requirements_snapshot) == 100
+        assert len(assessment.conclusions) == 100
+        assert len(json.dumps(assessment.requirements_snapshot).encode()) > 24_000
+        assert len(json.dumps(assessment.conclusions).encode()) > 12_000
+        assert all(item["status"] == "unknown" for item in assessment.conclusions)
+
+
+def test_malformed_planner_output_is_terminal_and_inspectable(project_api):
+    client, owner, engine = project_api
+    project = _create_project(client)
+    _product_id, _variant_id, project_product_id = _seed_project_product(project, owner, engine)
+    client.app.state.discovery_supervisor.client.task_fixtures = {
+        "plan_product_research.v1": {"*": {"queries": "not a list"}}
+    }
+    accepted = client.post(
+        f"/projects/{project['id']}/research",
+        json={
+            "objective": "Check runtime",
+            "type": "product_research",
+            "request_key": "product-research-malformed-plan",
+            "expected_version": project["revision"],
+            "selected_project_product_ids": [str(project_product_id)],
+        },
+    )
+    assert accepted.status_code == 202, accepted.text
+    run = _wait_for_run(client, project["id"], accepted.json()["run_id"])
+    assert run["status"] == "failed"
+    assert run["error_code"] == "malformed_response"
+    assert run["targets"][0]["status"] in {"failed", "skipped"}
+    assert run["stages"] == [
+        {
+            "stage": "planning",
+            "target_project_product_id": None,
+            "source_snapshot_id": None,
+            "attempt_number": 1,
+            "status": "failed",
+            "error_code": "malformed_response",
+            "validation_warnings": [],
+        }
+    ]
+    with Session(engine) as session:
+        assert session.scalar(select(ProductAssessment)) is not None
+
+
+def test_canceled_product_planner_cannot_persist_late_plan(project_api):
+    client, owner, engine = project_api
+    project = _create_project(client)
+    _product_id, _variant_id, project_product_id = _seed_project_product(project, owner, engine)
+    client.app.state.discovery_supervisor.client.delay_seconds = 0.4
+    accepted = client.post(
+        f"/projects/{project['id']}/research",
+        json={
+            "objective": "Check runtime",
+            "type": "product_research",
+            "request_key": "product-research-cancel-plan",
+            "expected_version": project["revision"],
+            "selected_project_product_ids": [str(project_product_id)],
+        },
+    )
+    assert accepted.status_code == 202, accepted.text
+    run_id = accepted.json()["run_id"]
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        run = client.get(f"/projects/{project['id']}/research/{run_id}").json()
+        if any(
+            stage["stage"] == "planning" and stage["status"] == "running" for stage in run["stages"]
+        ):
+            break
+        time.sleep(0.01)
+    else:
+        raise AssertionError("planner stage did not start")
+    canceled = client.post(f"/projects/{project['id']}/research/{run_id}/cancel")
+    assert canceled.status_code == 200, canceled.text
+    assert canceled.json()["run"]["status"] == "canceled"
+    assert canceled.json()["run"]["stages"][0]["status"] == "canceled"
+    with Session(engine) as session:
+        assert session.scalars(select(SearchQueryRecord)).all() == []
+        assert session.scalar(select(ProductAssessment)) is None
+        stage = session.scalar(select(ResearchStageAttempt))
+        assert stage.status == "canceled"
+
+
+def test_exhausted_ai_budget_records_skipped_extraction_stage(project_api):
+    client, owner, engine = project_api
+    project = _create_project(client)
+    _product_id, _variant_id, project_product_id = _seed_project_product(project, owner, engine)
+    query = "Acme Clean Vacuum AX-4 AX-4 HEPA manufacturer specifications"
+    url = "https://acme.example/ax-4/specifications"
+    client.app.state.discovery_supervisor.search_provider = FakeSearchProvider(
+        {query: [SearchResult(title="AX-4 specifications", url=url, snippet="Runtime")]}
+    )
+    body = "<h1>Acme AX-4 HEPA</h1><p>Technical specifications. Runtime: 60 minutes.</p>"
+    client.app.state.discovery_supervisor.page_retriever = FakePageRetriever(
+        {
+            url: RetrievedDocument(
+                requested_url=url,
+                final_url=url,
+                content_type="text/html",
+                body=body,
+                content_hash=hashlib.sha256(body.encode()).hexdigest(),
+                retrieved_at=datetime.now(UTC),
+                decoded_bytes=len(body.encode()),
+            )
+        }
+    )
+    client.app.state.discovery_supervisor.client.task_fixtures = {
+        "plan_product_research.v1": {
+            "*": {
+                "queries": [
+                    {
+                        "project_product_id": str(project_product_id),
+                        "text": query,
+                        "purpose": "Find manufacturer specifications.",
+                        "source_class": "manufacturer_specification",
+                    }
+                ]
+            }
+        }
+    }
+    accepted = client.post(
+        f"/projects/{project['id']}/research",
+        json={
+            "objective": "Check runtime",
+            "type": "product_research",
+            "request_key": "product-research-ai-budget",
+            "expected_version": project["revision"],
+            "selected_project_product_ids": [str(project_product_id)],
+            "budgets": {"max_ai_calls": 1},
+        },
+    )
+    assert accepted.status_code == 202, accepted.text
+    run = _wait_for_run(client, project["id"], accepted.json()["run_id"])
+    assert run["status"] == "partial"
+    assert run["targets"][0]["error_code"] == "ai_call_budget_exhausted"
+    extraction = next(stage for stage in run["stages"] if stage["stage"] == "extraction")
+    assert extraction["status"] == "skipped"
+    assert extraction["error_code"] == "ai_call_budget_exhausted"
+    with Session(engine) as session:
+        assert session.scalar(select(ProductAssessment)) is not None
 
 
 def test_over_budget_response_records_failed_attempt_without_source_snapshot(project_api):
@@ -262,7 +448,7 @@ def test_product_research_persists_grounded_claim_and_cited_assessment(project_a
     client.app.state.discovery_supervisor.search_provider = FakeSearchProvider(
         {query: [SearchResult(title="AX-4 Specifications", url=url, snippet="Runtime")]}
     )
-    body = "<h1>AX-4 HEPA</h1><p>60 minutes runtime in normal mode.</p>"
+    body = "<h1>Acme AX-4 HEPA US</h1><p>60 minutes runtime in normal mode.</p>"
     client.app.state.discovery_supervisor.page_retriever = FakePageRetriever(
         {
             url: RetrievedDocument(
@@ -283,7 +469,7 @@ def test_product_research_persists_grounded_claim_and_cited_assessment(project_a
                     {
                         "attribute_key": "runtime",
                         "quote": "60 minutes runtime in normal mode.",
-                        "context_quote": "AX-4 HEPA 60 minutes runtime in normal mode.",
+                        "context_quote": "AX-4 HEPA US 60 minutes runtime in normal mode.",
                         "normalized_value": 60,
                         "unit": "min",
                         "qualifiers": {"mode": "normal"},
@@ -323,6 +509,40 @@ def test_product_research_persists_grounded_claim_and_cited_assessment(project_a
         assert citation.claim_id == claim.id
         claim_id, snapshot_id = claim.id, claim.snapshot_id
     research = client.get(f"/projects/{project['id']}/products/{project_product_id}/research")
+    assert research.json()["latest_run_id"] == run["id"]
+    assert research.json()["has_more_assessments"] is False
+    selected_history = client.get(
+        f"/projects/{project['id']}/products/{project_product_id}/research",
+        params={"research_run_id": run["id"], "assessment_offset": 0},
+    )
+    assert selected_history.status_code == 200
+    assert selected_history.json()["claims"] == research.json()["claims"]
+    assert selected_history.json()["has_more_claims"] is False
+    assert selected_history.json()["has_more_sources"] is False
+    older_claims = client.get(
+        f"/projects/{project['id']}/products/{project_product_id}/research",
+        params={"research_run_id": run["id"], "claim_offset": 20},
+    )
+    assert older_claims.status_code == 200
+    assert older_claims.json()["claims"] == []
+    assert older_claims.json()["state"] == "researched"
+    older_sources = client.get(
+        f"/projects/{project['id']}/products/{project_product_id}/research",
+        params={"research_run_id": run["id"], "source_offset": 20},
+    )
+    assert older_sources.status_code == 200
+    assert older_sources.json()["sources"] == []
+    assert older_sources.json()["state"] == "researched"
+    invalid_page = client.get(
+        f"/projects/{project['id']}/products/{project_product_id}/research",
+        params={"assessment_offset": 1},
+    )
+    assert invalid_page.status_code == 422
+    invalid_claim_page = client.get(
+        f"/projects/{project['id']}/products/{project_product_id}/research",
+        params={"claim_offset": 1},
+    )
+    assert invalid_claim_page.status_code == 422
     assert research.status_code == 200, research.text
     assert research.json()["state"] == "researched"
     assert research.json()["assessments"][0]["conclusions"][0]["claim_ids"] == [str(claim_id)]
@@ -387,8 +607,9 @@ def test_runtime_contexts_retain_both_quotes_and_cite_only_comparable_result(pro
         }
     )
     bodies = {
-        marketing_url: "<h1>AX-4 HEPA</h1><p>Up to 60 minutes runtime in eco mode.</p>",
-        measured_url: "<h1>AX-4 HEPA runtime test</h1><p>Measured 37 minutes in normal mode.</p>",
+        marketing_url: "<h1>Acme AX-4 HEPA US</h1><p>Up to 60 minutes runtime in eco mode.</p>",
+        measured_url: "<h1>AX-4 HEPA US runtime test</h1>"
+        "<p>Measured 37 minutes in normal mode.</p>",
     }
     client.app.state.discovery_supervisor.page_retriever = FakePageRetriever(
         {
@@ -411,7 +632,7 @@ def test_runtime_contexts_retain_both_quotes_and_cite_only_comparable_result(pro
                     {
                         "attribute_key": "runtime",
                         "quote": "Up to 60 minutes runtime in eco mode.",
-                        "context_quote": "AX-4 HEPA Up to 60 minutes runtime in eco mode.",
+                        "context_quote": "AX-4 HEPA US Up to 60 minutes runtime in eco mode.",
                         "normalized_value": 60,
                         "unit": "min",
                         "qualifiers": {"mode": "eco", "limit": "up_to"},
@@ -424,7 +645,7 @@ def test_runtime_contexts_retain_both_quotes_and_cite_only_comparable_result(pro
                         "attribute_key": "runtime",
                         "quote": "Measured 37 minutes in normal mode.",
                         "context_quote": (
-                            "AX-4 HEPA runtime test Measured 37 minutes in normal mode."
+                            "AX-4 HEPA US runtime test Measured 37 minutes in normal mode."
                         ),
                         "normalized_value": 37,
                         "unit": "min",

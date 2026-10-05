@@ -340,9 +340,14 @@ export interface components {
     };
     ProjectProductResearchRead: {
       "project_product_id": string;
+      "latest_run_id": null | string;
+      "latest_run_status": null | string;
       "assessments": Array<components["schemas"]["AssessmentRead"]>;
+      "has_more_assessments": boolean;
       "claims": Array<components["schemas"]["ClaimSummaryRead"]>;
+      "has_more_claims": boolean;
       "sources": Array<components["schemas"]["SourceAttemptRead"]>;
+      "has_more_sources": boolean;
       "state": "no_research" | "no_evidence" | "blocked" | "partial" | "researched";
     };
     ProjectRead: {
@@ -1314,6 +1319,12 @@ export interface operations {
       path: {
         "project_id": string;
         "project_product_id": string;
+      };
+      query: {
+        "assessment_offset"?: number;
+        "claim_offset"?: number;
+        "research_run_id"?: null | string;
+        "source_offset"?: number;
       };
     };
     responses: {

@@ -59,11 +59,39 @@ class ProductResearchPlanOutput(BaseModel):
 
 
 def build_request(snapshot: dict[str, Any], max_queries: int) -> AIRequest:
+    # The durable snapshot can contain 100 detailed requirements. Planning only
+    # needs concise search hints; assessment still uses the complete snapshot.
+    requirements = [
+        {
+            "label": str(item.get("label", ""))[:50],
+            "attribute_key": str(item.get("attribute_key") or "")[:40] or None,
+            "kind": item.get("kind"),
+        }
+        for item in snapshot.get("requirements", [])[:100]
+    ]
+    selected_products = []
+    for item in snapshot.get("selected_products", [])[:3]:
+        selected_products.append(
+            {
+                key: str(item.get(key) or "")[:100]
+                for key in (
+                    "project_product_id",
+                    "product_name",
+                    "brand",
+                    "model_family",
+                    "variant_name",
+                )
+            }
+            | {"identity_attributes": _bounded_identity_attributes(item.get("identity_attributes"))}
+        )
     bounded = {
-        "objective": snapshot.get("objective", ""),
-        "project": snapshot.get("project", {}),
-        "requirements": snapshot.get("requirements", []),
-        "selected_products": snapshot.get("selected_products", []),
+        "objective": str(snapshot.get("objective", ""))[:500],
+        "project": {
+            "goal": str(snapshot.get("project", {}).get("goal", ""))[:300],
+            "category": snapshot.get("project", {}).get("category"),
+        },
+        "requirements": requirements,
+        "selected_products": selected_products,
         "limits": {"maximum_queries": max_queries},
     }
     encoded = json.dumps(bounded, ensure_ascii=False, separators=(",", ":"))
@@ -78,6 +106,18 @@ def build_request(snapshot: dict[str, Any], max_queries: int) -> AIRequest:
             "context": bounded,
         },
     )
+
+
+def _bounded_identity_attributes(value: Any) -> dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+    bounded = {}
+    for key, item in list(value.items())[:8]:
+        if isinstance(item, dict):
+            item = item.get("value")
+        if isinstance(item, (str, int, float, bool)):
+            bounded[str(key)[:40]] = str(item)[:60]
+    return bounded
 
 
 def validate_output(

@@ -23,12 +23,21 @@ TERMINAL_STATES = {"succeeded", "partial", "failed", "canceled", "interrupted"}
 
 
 SAFE_ERROR_CODES = {
+    "ai_call_budget_exhausted",
     "attempt_budget_exhausted",
+    "blocked_address",
+    "blocked_port",
+    "byte_budget_exhausted",
     "deadline_exceeded",
     "discovery_failed",
     "discovery_stopped",
     "invalid_plan",
+    "invalid_redirect",
     "malformed_response",
+    "no_grounded_claims",
+    "no_sources_retrieved",
+    "page_budget_exhausted",
+    "page_too_large",
     "planner_failed",
     "planner_timeout",
     "process_restarted",
@@ -42,6 +51,10 @@ SAFE_ERROR_CODES = {
     "quota_exceeded",
     "rate_limited",
     "result_budget_exhausted",
+    "source_budget_exhausted",
+    "stage_attempt_budget_exhausted",
+    "unsupported_content_type",
+    "url_too_long",
     "user_canceled",
     "worker_interrupted",
 }

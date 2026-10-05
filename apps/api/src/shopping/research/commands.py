@@ -243,7 +243,10 @@ def _snapshot(
             for selected_id in selected_ids
         ]
     encoded = json.dumps(snapshot, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
-    if len(encoded) > 24_000:
+    # This is a durable user-context snapshot, not the bounded planner prompt.
+    # A project may validly contain 100 detailed requirements; the planner builds
+    # a smaller search-hint view before any AI call.
+    if len(encoded) > 1_500_000:
         raise _invalid("Project discovery context exceeds its configured size limit")
     return snapshot
 

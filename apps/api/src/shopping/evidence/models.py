@@ -254,11 +254,11 @@ class ProductAssessment(Base):
     __table_args__ = (
         CheckConstraint("char_length(summary) <= 1200", name="ck_assessment_summary"),
         CheckConstraint(
-            "octet_length(requirements_snapshot::text) <= 24000",
+            "octet_length(requirements_snapshot::text) <= 1500000",
             name="ck_assessment_requirements_size",
         ),
         CheckConstraint(
-            "octet_length(conclusions::text) <= 12000", name="ck_assessment_conclusions_size"
+            "octet_length(conclusions::text) <= 1500000", name="ck_assessment_conclusions_size"
         ),
         UniqueConstraint(
             "owner_id",

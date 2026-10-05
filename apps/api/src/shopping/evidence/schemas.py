@@ -72,9 +72,14 @@ class AssessmentRead(BaseModel):
 
 class ProjectProductResearchRead(BaseModel):
     project_product_id: UUID
+    latest_run_id: UUID | None
+    latest_run_status: str | None
     assessments: list[AssessmentRead]
+    has_more_assessments: bool
     claims: list[ClaimSummaryRead]
+    has_more_claims: bool
     sources: list[SourceAttemptRead]
+    has_more_sources: bool
     state: Literal["no_research", "no_evidence", "blocked", "partial", "researched"]
 
 

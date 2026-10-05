@@ -5,7 +5,7 @@ from collections.abc import Callable
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from shopping.evidence import reads
@@ -40,11 +40,28 @@ async def product_research(
     project_product_id: UUID,
     request: Request,
     owner_id: OwnerDependency,
+    research_run_id: UUID | None = None,
+    assessment_offset: int = 0,
+    claim_offset: int = 0,
+    source_offset: int = 0,
 ) -> ProjectProductResearchRead:
+    if assessment_offset < 0 or assessment_offset > 10000 or assessment_offset % 20:
+        raise HTTPException(status_code=422, detail="Invalid assessment page")
+    if claim_offset < 0 or claim_offset > 10000 or claim_offset % 20:
+        raise HTTPException(status_code=422, detail="Invalid claim page")
+    if source_offset < 0 or source_offset > 10000 or source_offset % 20:
+        raise HTTPException(status_code=422, detail="Invalid source page")
     return await _with_session(
         request,
         lambda session: reads.project_product_research(
-            session, owner_id, project_id, project_product_id
+            session,
+            owner_id,
+            project_id,
+            project_product_id,
+            research_run_id=research_run_id,
+            assessment_offset=assessment_offset,
+            claim_offset=claim_offset,
+            source_offset=source_offset,
         ),
     )
 

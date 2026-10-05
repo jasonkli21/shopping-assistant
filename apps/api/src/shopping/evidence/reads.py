@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from shopping.catalog.models import Product, ProductVariant, ProjectProduct
@@ -128,12 +128,16 @@ def project_product_research(
     project_product_id: UUID,
     *,
     now: datetime | None = None,
+    research_run_id: UUID | None = None,
+    assessment_offset: int = 0,
+    claim_offset: int = 0,
+    source_offset: int = 0,
 ) -> ProjectProductResearchRead:
     now = now or datetime.now(UTC)
     project, _membership, variant, product = _member(
         session, owner_id, project_id, project_product_id
     )
-    assessments = list(
+    assessment_page = list(
         session.scalars(
             select(ProductAssessment)
             .where(
@@ -142,9 +146,12 @@ def project_product_research(
                 ProductAssessment.project_product_id == project_product_id,
             )
             .order_by(ProductAssessment.generated_at.desc(), ProductAssessment.id.desc())
-            .limit(20)
+            .offset(assessment_offset)
+            .limit(21)
         ).all()
     )
+    has_more_assessments = len(assessment_page) > 20
+    assessments = assessment_page[:20]
     assessment_reads = [
         AssessmentRead(
             id=item.id,
@@ -165,61 +172,137 @@ def project_product_research(
         )
         for item in assessments
     ]
-    source_rows = session.execute(
-        select(ResearchRunSource, SourceSnapshot, Source)
-        .join(ResearchRun, ResearchRun.id == ResearchRunSource.research_run_id)
-        .join(Source, Source.id == ResearchRunSource.source_id)
-        .outerjoin(SourceSnapshot, SourceSnapshot.id == ResearchRunSource.snapshot_id)
+    latest_run = session.scalar(
+        select(ResearchRun)
+        .join(ResearchRunTarget, ResearchRunTarget.research_run_id == ResearchRun.id)
         .where(
             ResearchRun.owner_id == owner_id,
             ResearchRun.project_id == project_id,
-            ResearchRunSource.owner_id == owner_id,
-            ResearchRunSource.project_product_id == project_product_id,
-            Source.owner_id == owner_id,
+            ResearchRun.run_type == "product_research",
+            ResearchRunTarget.project_product_id == project_product_id,
         )
-        .order_by(ResearchRunSource.retrieved_at.desc(), ResearchRunSource.id.desc())
-        .limit(100)
-    ).all()
+        .order_by(ResearchRun.queued_at.desc(), ResearchRun.id.desc())
+        .limit(1)
+    )
+    selected_run_id = research_run_id or (latest_run.id if latest_run else None)
+    if research_run_id is not None and not any(
+        item.research_run_id == research_run_id for item in assessments
+    ):
+        raise _not_found("Research history not found for this selected product")
+    source_page = list(
+        session.execute(
+            select(ResearchRunSource, SourceSnapshot, Source)
+            .join(ResearchRun, ResearchRun.id == ResearchRunSource.research_run_id)
+            .join(Source, Source.id == ResearchRunSource.source_id)
+            .outerjoin(SourceSnapshot, SourceSnapshot.id == ResearchRunSource.snapshot_id)
+            .where(
+                ResearchRun.owner_id == owner_id,
+                ResearchRun.project_id == project_id,
+                ResearchRunSource.owner_id == owner_id,
+                ResearchRunSource.project_product_id == project_product_id,
+                ResearchRunSource.research_run_id == selected_run_id,
+                Source.owner_id == owner_id,
+            )
+            .order_by(ResearchRunSource.retrieved_at.desc(), ResearchRunSource.id.desc())
+            .offset(source_offset)
+            .limit(21)
+        ).all()
+    )
+    has_more_sources = len(source_page) > 20
+    source_rows = source_page[:20]
     sources = [
         _source_read(attempt, snapshot, source, now) for attempt, snapshot, source in source_rows
     ]
-    snapshot_ids = [source.snapshot_id for source in sources if source.snapshot_id is not None]
-    claim_rows = session.execute(
-        select(Claim, SourceSnapshot, Source)
-        .join(SourceSnapshot, SourceSnapshot.id == Claim.snapshot_id)
-        .join(Source, Source.id == SourceSnapshot.source_id)
-        .where(
-            Claim.owner_id == owner_id,
-            Claim.subject_product_id == product.id,
-            Claim.subject_variant_id == variant.id,
-            Claim.snapshot_id.in_(snapshot_ids),
-            SourceSnapshot.owner_id == owner_id,
-            Source.owner_id == owner_id,
-        )
-        .order_by(Claim.extracted_at.desc(), Claim.id.desc())
-        .limit(200)
-    ).all()
+    run_snapshot_ids = select(ResearchRunSource.snapshot_id).where(
+        ResearchRunSource.owner_id == owner_id,
+        ResearchRunSource.research_run_id == selected_run_id,
+        ResearchRunSource.project_product_id == project_product_id,
+        ResearchRunSource.status == "retrieved",
+        ResearchRunSource.snapshot_id.is_not(None),
+    )
+    claim_page = list(
+        session.execute(
+            select(Claim, SourceSnapshot, Source)
+            .join(SourceSnapshot, SourceSnapshot.id == Claim.snapshot_id)
+            .join(Source, Source.id == SourceSnapshot.source_id)
+            .where(
+                Claim.owner_id == owner_id,
+                Claim.subject_product_id == product.id,
+                Claim.subject_variant_id == variant.id,
+                Claim.snapshot_id.in_(run_snapshot_ids),
+                SourceSnapshot.owner_id == owner_id,
+                Source.owner_id == owner_id,
+            )
+            .order_by(Claim.extracted_at.desc(), Claim.id.desc())
+            .offset(claim_offset)
+            .limit(21)
+        ).all()
+    )
+    has_more_claims = len(claim_page) > 20
+    claim_rows = claim_page[:20]
     claims = [
         _claim_summary(claim, snapshot, source, now) for claim, snapshot, source in claim_rows
     ]
-    if not sources:
-        state = "no_research"
-    elif not claims and all(
-        item.status in {"blocked", "timeout", "unsupported", "failed", "skipped"}
-        for item in sources
-    ):
+    source_count = (
+        session.scalar(
+            select(func.count(ResearchRunSource.id)).where(
+                ResearchRunSource.owner_id == owner_id,
+                ResearchRunSource.research_run_id == selected_run_id,
+                ResearchRunSource.project_product_id == project_product_id,
+            )
+        )
+        or 0
+    )
+    failed_source_count = (
+        session.scalar(
+            select(func.count(ResearchRunSource.id)).where(
+                ResearchRunSource.owner_id == owner_id,
+                ResearchRunSource.research_run_id == selected_run_id,
+                ResearchRunSource.project_product_id == project_product_id,
+                ResearchRunSource.status.in_(
+                    ["blocked", "timeout", "unsupported", "failed", "skipped"]
+                ),
+            )
+        )
+        or 0
+    )
+    has_claims = (
+        session.scalar(
+            select(Claim.id)
+            .join(SourceSnapshot, SourceSnapshot.id == Claim.snapshot_id)
+            .join(Source, Source.id == SourceSnapshot.source_id)
+            .where(
+                Claim.owner_id == owner_id,
+                Claim.subject_product_id == product.id,
+                Claim.subject_variant_id == variant.id,
+                Claim.snapshot_id.in_(run_snapshot_ids),
+                SourceSnapshot.owner_id == owner_id,
+                Source.owner_id == owner_id,
+            )
+            .limit(1)
+        )
+        is not None
+    )
+    if source_count == 0:
+        state = "no_research" if latest_run is None else "no_evidence"
+    elif not has_claims and failed_source_count == source_count:
         state = "blocked"
-    elif not claims:
+    elif not has_claims:
         state = "no_evidence"
-    elif any(item.status != "retrieved" for item in sources):
+    elif failed_source_count:
         state = "partial"
     else:
         state = "researched"
     return ProjectProductResearchRead(
         project_product_id=project_product_id,
+        latest_run_id=latest_run.id if latest_run else None,
+        latest_run_status=latest_run.status if latest_run else None,
         assessments=assessment_reads,
+        has_more_assessments=has_more_assessments,
         claims=claims,
+        has_more_claims=has_more_claims,
         sources=sources,
+        has_more_sources=has_more_sources,
         state=state,
     )
 
