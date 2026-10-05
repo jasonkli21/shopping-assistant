@@ -12,7 +12,7 @@ Updated: 2026-10-04. This file is a resumable operational record, not completion
 
 ## Operating contract
 
-**Latest user scope: finish and verify current Phase 5, then STOP. Do not continue to Phase 6 or later.** Use Sol Medium (`gpt-6-sol`, `medium`) for new implementation/fix agents after the October 4 15:05 PDT / 22:05 UTC restart (already delivered). All coordination and independent review happen in main (`/root`), no separate coordinator/reviewer. Fresh implementer finishes Phase 5; main reviews plan and broader intent; fresh fix agent resolves substantive findings; main lightly verifies, fixes small residual gaps, commits and records handoff, then stops. Remain idle during agent implementation except health checks. Phase 6 full-system gate remains a future requirement, not authorization to start it. Do not report external/cloud checks as passed when unrun.
+**Latest user scope: finish and verify current Phase 5, then STOP. Do not continue to Phase 6 or later. Latest model steering: fresh Luna Extra High (`gpt-6-luna`, `xhigh`) agents replace Sol.** All coordination and independent review happen in main (`/root`), no separate coordinator/reviewer. Fresh fix agent resolves substantive findings; main lightly verifies, fixes small residual gaps, commits and records handoff, then stops. Remain idle during agent implementation except health checks. Phase 6 full-system gate remains a future requirement, not authorization to start it. Do not report external/cloud checks as passed when unrun.
 
 ## Known local environment
 
@@ -30,6 +30,8 @@ Scheduled restart delivered October 4 at 15:05:02 PDT / 22:05:02 UTC. Sol Medium
 Replacement `/root/phase5_implementation_resume` also errored at usage limit after substantial uncommitted 5C–E work. Active fresh Sol Medium `/root/phase5_finish` preserves and finishes that work, tests/docs/logical commits, then stops for main review. Latest reported partial checks: 3 product-research PG tests, 7 evidence evals, 46 existing UI tests; final suite/new UI tests pending. Main has not reviewed Phase 5 yet. User explicitly revoked proceeding beyond Phase 5.
 
 Phase 5 implementer finished `77ec2e3`, `b3ae74b`, `9cec784` with clean tree; reports 109 offline API / 86 PG / 48 UI tests and lint/types/build passed. Main source review found substantive fixes: omitted qualifiers/units and loose target identity grounding; publisher-domain spoof classification; canceled/deadline/overbudget late persistence and failed-byte accounting; ProductResearch query cache shape collision and regenerated request keys on uncertain acknowledgements; endless/hidden polling and first-page-only history; output-size limits for many requirements; oversized product_execution module. Main reproduced missing up-to accepted, missing-unit requirement falsely supports, and rtings.com.evil.example classified independent_measurement. Next: fresh Sol Medium fixes, main light verification/signoff, then STOP before Phase 6.
+
+Active replacement `/root/phase5_final_fixes_luna` follows latest Luna Extra High steering. Prior Sol fix agents errored at capacity/usage limits; all partial uncommitted fixes preserved, including 0012 and product_persistence split. Latest partial report: 117 offline API pass, 48 UI pass with new paging test pending; PG 85/86 then stale status expectation corrected, rerun pending. Agent finishes all review findings, full verification/docs/logical commits, then main light review and STOP. Do not spawn overlapping implementations.
 
 ## Restart schedule correction
 
