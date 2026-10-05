@@ -2,8 +2,12 @@ import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 
-import { ApiRequestError, ProductRead, catalogApi } from "../../api/client";
+import { ApiRequestError, ProductRead, catalogApi, projectsApi } from "../../api/client";
 import { ProductResearch } from "./ProductResearch";
+import { ProjectNavigation } from "../projects/ProjectNavigation";
+import { FavoriteButton } from "./FavoriteButton";
+import { ProductDecisionActions } from "../decisions/ProductDecisionActions";
+import { UserNoteEditor } from "../decisions/UserNoteEditor";
 
 function message(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
@@ -118,6 +122,12 @@ function ProductDetail({ product, variantId, projectId, projectProductId, setVar
   projectProductId: string;
   setVariantId: (id: string) => void;
 }) {
+  const projectQuery = useQuery({
+    queryKey: ["project", projectId],
+    queryFn: ({ signal }) => projectsApi.get(projectId, signal),
+    enabled: Boolean(projectId && projectProductId),
+    retry: false,
+  });
   const offersQuery = useInfiniteQuery({
     queryKey: ["product-offers", product.id, variantId],
     initialPageParam: undefined as string | undefined,
@@ -146,6 +156,7 @@ function ProductDetail({ product, variantId, projectId, projectProductId, setVar
       <nav aria-label="Breadcrumb" className="breadcrumbs">
         <Link to="/">Projects</Link><span aria-hidden="true">/</span><span>Product</span>
       </nav>
+      {projectId && <ProjectNavigation projectId={projectId} />}
 
       <section className="product-title-card card">
         <p className="eyebrow">Canonical product · Product revision {product.revision}</p>
@@ -153,11 +164,19 @@ function ProductDetail({ product, variantId, projectId, projectProductId, setVar
         <p className="product-identity-line">
           {[product.brand, product.model_family, product.category].filter(Boolean).join(" · ") || "Brand, model, and category are unknown"}
         </p>
+        {variantId && <FavoriteButton variantId={variantId} />}
       </section>
       {projectId && projectProductId && variantId && <ProductResearch
         projectId={projectId}
         projectProductId={projectProductId}
       />}
+      {projectId && projectProductId && projectQuery.data && (
+        <section className="card product-project-state">
+          <p className="eyebrow">This project’s decision</p>
+          <ProductDecisionActions project={projectQuery.data} projectProductId={projectProductId} />
+          <UserNoteEditor project={projectQuery.data} projectProductId={projectProductId} title="Product note" />
+        </section>
+      )}
 
       <section className="product-detail-layout">
         <div className="card product-variant-card">

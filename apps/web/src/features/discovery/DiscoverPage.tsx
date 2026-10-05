@@ -11,6 +11,9 @@ import {
 } from "../../api/client";
 import { catalogApi } from "../../api/client";
 import { CatalogCandidateActions } from "./CatalogCandidateActions";
+import { ProjectNavigation } from "../projects/ProjectNavigation";
+import { ProductDecisionActions } from "../decisions/ProductDecisionActions";
+import { ProjectAssistant } from "../assistant/ProjectAssistant";
 
 type SavedCommand = { command: ResearchCreate; requestKey: string };
 const TERMINAL = new Set<ResearchRunRead["status"]>([
@@ -357,6 +360,7 @@ function DiscoverPageContent({ projectId }: { projectId?: string }) {
         <Link to={`/projects/${project.id}`}>{project.title}</Link><span aria-hidden="true">/</span>
         <span>Discover</span>
       </nav>
+      <ProjectNavigation projectId={project.id} />
 
       <section className="discover-title-row">
         <div>
@@ -564,9 +568,10 @@ function DiscoverPageContent({ projectId }: { projectId?: string }) {
                 <ul className="normalized-product-list">
                   {normalizedProducts.map((item) => (
                     <li key={item.id}>
-                      <div>
+                      <div className="normalized-product-identity">
                         <Link to={`/products/${item.product_id}?${new URLSearchParams({ variant: item.variant_id, project: projectId!, project_product: item.id }).toString()}`}>{item.canonical_name}</Link>
                         <p>{[item.brand, item.model_family, item.variant_name].filter(Boolean).join(" · ")}</p>
+                        <ProductDecisionActions project={project} projectProductId={item.id} />
                       </div>
                       <span>{item.offers.length} recent {item.offers.length === 1 ? "offer" : "offers"}</span>
                     </li>
@@ -653,6 +658,7 @@ function DiscoverPageContent({ projectId }: { projectId?: string }) {
           </section>
         </aside>
       </section>
+      <ProjectAssistant project={project} />
     </main>
   );
 }

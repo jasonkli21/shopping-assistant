@@ -5,6 +5,8 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { ApiRequestError, Project, Requirement, projectsApi } from "../../api/client";
 import { AssistantPanel } from "../assistant/AssistantPanel";
 import { FieldError, NewRequirement, RequirementEditor } from "./RequirementEditor";
+import { ProjectNavigation } from "./ProjectNavigation";
+import { UserNoteEditor } from "../decisions/UserNoteEditor";
 import {
   CURRENCIES,
   displayProjectValue,
@@ -42,6 +44,7 @@ function ProjectOverviewContent({ projectId }: { projectId?: string }) {
     () => new Set(),
   );
   const [proposalActionPending, setProposalActionPending] = useState(false);
+  const [projectNoteOpen, setProjectNoteOpen] = useState(false);
 
   const reportRequirementDraftState = useCallback((key: string, dirty: boolean) => {
     setDirtyRequirementDrafts((current) => {
@@ -298,6 +301,7 @@ function ProjectOverviewContent({ projectId }: { projectId?: string }) {
       <nav aria-label="Breadcrumb" className="breadcrumbs">
         <Link to="/">Projects</Link><span aria-hidden="true">/</span><span>{project.title}</span>
       </nav>
+      <ProjectNavigation projectId={project.id} />
 
       <section className="overview-title-row">
         <div>
@@ -570,6 +574,11 @@ function ProjectOverviewContent({ projectId }: { projectId?: string }) {
           )}
         </section>
       </div>
+
+      <details className="card project-private-note-card" onToggle={(event) => setProjectNoteOpen(event.currentTarget.open)}>
+        <summary><span className="eyebrow">Decision context</span><strong>Private project note</strong><small>Keep context for this shopping goal.</small></summary>
+        {projectNoteOpen && <UserNoteEditor project={project} title="Private project note" />}
+      </details>
 
       <section className="danger-zone" aria-labelledby="delete-title">
         <div>

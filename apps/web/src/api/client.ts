@@ -36,6 +36,20 @@ export type CatalogVariantChoicePage = components["schemas"]["CatalogVariantChoi
 export type ProjectProductResearchRead = components["schemas"]["ProjectProductResearchRead"];
 export type ClaimDetailRead = components["schemas"]["ClaimDetailRead"];
 export type SourceSnapshotRead = components["schemas"]["SourceSnapshotRead"];
+export type DecisionRead = components["schemas"]["DecisionRead"];
+export type DecisionPage = components["schemas"]["DecisionPage"];
+export type DecisionCommand = components["schemas"]["DecisionCommand"];
+export type DecisionMutationResult = components["schemas"]["DecisionMutationResult"];
+export type NoteRead = components["schemas"]["NoteRead"];
+export type NoteWrite = components["schemas"]["NoteWrite"];
+export type NoteMutationResult = components["schemas"]["NoteMutationResult"];
+export type ComparisonRead = components["schemas"]["ComparisonRead"];
+export type ComparisonPage = components["schemas"]["ComparisonPage"];
+export type ComparisonCreate = components["schemas"]["ComparisonCreate"];
+export type ComparisonPatch = components["schemas"]["ComparisonPatch"];
+export type ComparisonDimension = components["schemas"]["ComparisonDimensionInput"];
+export type FavoriteRead = components["schemas"]["FavoriteRead"];
+export type SavedProductPage = components["schemas"]["SavedProductPage"];
 
 export class ApiRequestError extends Error {
   constructor(
@@ -273,5 +287,132 @@ export const catalogApi = {
     request<CatalogCorrectionRead>(
       `/projects/${projectId}/candidates/${candidateId}/correction/revert`,
       jsonRequest("POST", command),
+    ),
+  listSavedProducts: (limit = 20, cursor?: string, signal?: AbortSignal) => {
+    const query = new URLSearchParams({ limit: String(limit) });
+    if (cursor) query.set("cursor", cursor);
+    return request<SavedProductPage>(`/saved-products?${query.toString()}`, { signal });
+  },
+  favorite: (variantId: string, expectedVersion: number) =>
+    request<FavoriteRead>(
+      `/saved-products/${variantId}/favorite`,
+      jsonRequest("PUT", { expected_version: expectedVersion }),
+    ),
+  unfavorite: (variantId: string, expectedVersion: number) =>
+    request<FavoriteRead>(
+      `/saved-products/${variantId}/favorite`,
+      jsonRequest("DELETE", { expected_version: expectedVersion }),
+    ),
+  favoriteState: (variantId: string, signal?: AbortSignal) =>
+    request<FavoriteRead>(`/saved-products/${variantId}`, { signal }),
+};
+
+export const decisionsApi = {
+  listShortlist: (projectId: string, signal?: AbortSignal) =>
+    request<DecisionPage>(`/projects/${projectId}/shortlist`, { signal }),
+  listRejections: (projectId: string, signal?: AbortSignal) =>
+    request<DecisionPage>(`/projects/${projectId}/rejections`, { signal }),
+  get: (projectId: string, projectProductId: string, signal?: AbortSignal) =>
+    request<DecisionRead>(
+      `/projects/${projectId}/products/${projectProductId}/decision`,
+      { signal },
+    ),
+  shortlist: (projectId: string, projectProductId: string, command: DecisionCommand) =>
+    request<DecisionMutationResult>(
+      `/projects/${projectId}/shortlist/${projectProductId}`,
+      jsonRequest("POST", command),
+    ),
+  undoShortlist: (projectId: string, projectProductId: string, command: DecisionCommand) =>
+    request<DecisionMutationResult>(
+      `/projects/${projectId}/shortlist/${projectProductId}`,
+      jsonRequest("DELETE", command),
+    ),
+  reject: (projectId: string, projectProductId: string, command: DecisionCommand) =>
+    request<DecisionMutationResult>(
+      `/projects/${projectId}/rejections/${projectProductId}`,
+      jsonRequest("POST", command),
+    ),
+  undoRejection: (projectId: string, projectProductId: string, command: DecisionCommand) =>
+    request<DecisionMutationResult>(
+      `/projects/${projectId}/rejections/${projectProductId}`,
+      jsonRequest("DELETE", command),
+    ),
+  purchased: (projectId: string, projectProductId: string, command: DecisionCommand) =>
+    request<DecisionMutationResult>(
+      `/projects/${projectId}/products/${projectProductId}/purchased`,
+      jsonRequest("POST", command),
+    ),
+  undoPurchased: (projectId: string, projectProductId: string, command: DecisionCommand) =>
+    request<DecisionMutationResult>(
+      `/projects/${projectId}/products/${projectProductId}/purchased`,
+      jsonRequest("DELETE", command),
+    ),
+};
+
+export const notesApi = {
+  get: (projectId: string, projectProductId?: string, signal?: AbortSignal) =>
+    request<NoteRead | null>(
+      projectProductId
+        ? `/projects/${projectId}/products/${projectProductId}/notes`
+        : `/projects/${projectId}/notes`,
+      { signal },
+    ),
+  put: (projectId: string, command: NoteWrite, projectProductId?: string) =>
+    request<NoteMutationResult>(
+      projectProductId
+        ? `/projects/${projectId}/products/${projectProductId}/notes`
+        : `/projects/${projectId}/notes`,
+      jsonRequest("PUT", command),
+    ),
+  delete: (projectId: string, expectedVersion: number, projectProductId?: string) => {
+    const path = projectProductId
+      ? `/projects/${projectId}/products/${projectProductId}/notes`
+      : `/projects/${projectId}/notes`;
+    return request<void>(
+      `${path}?${new URLSearchParams({ expected_version: String(expectedVersion) })}`,
+      jsonRequest("DELETE"),
+    );
+  },
+};
+
+export const comparisonsApi = {
+  create: (projectId: string, command: ComparisonCreate) =>
+    request<ComparisonRead>(
+      `/projects/${projectId}/comparisons`,
+      jsonRequest("POST", command),
+    ),
+  list: (projectId: string, limit = 20, cursor?: string, signal?: AbortSignal) => {
+    const query = new URLSearchParams({ limit: String(limit) });
+    if (cursor) query.set("cursor", cursor);
+    return request<ComparisonPage>(
+      `/projects/${projectId}/comparisons?${query.toString()}`,
+      { signal },
+    );
+  },
+  get: (projectId: string, comparisonId: string, signal?: AbortSignal) =>
+    request<ComparisonRead>(
+      `/projects/${projectId}/comparisons/${comparisonId}`,
+      { signal },
+    ),
+  update: (projectId: string, comparisonId: string, command: ComparisonPatch) =>
+    request<ComparisonRead>(
+      `/projects/${projectId}/comparisons/${comparisonId}`,
+      jsonRequest("PATCH", command),
+    ),
+  regenerate: (projectId: string, comparisonId: string, expectedVersion: number, expectedComparisonVersion: number) =>
+    request<ComparisonRead>(
+      `/projects/${projectId}/comparisons/${comparisonId}/regenerate`,
+      jsonRequest("POST", {
+        expected_version: expectedVersion,
+        expected_comparison_version: expectedComparisonVersion,
+      }),
+    ),
+  delete: (projectId: string, comparisonId: string, expectedVersion: number, expectedComparisonVersion: number) =>
+    request<void>(
+      `/projects/${projectId}/comparisons/${comparisonId}?${new URLSearchParams({
+        expected_version: String(expectedVersion),
+        expected_comparison_version: String(expectedComparisonVersion),
+      })}`,
+      jsonRequest("DELETE"),
     ),
 };
