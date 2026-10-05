@@ -166,10 +166,17 @@ export const projectsApi = {
 };
 
 export const researchApi = {
-  productEvidence: (projectId: string, projectProductId: string, signal?: AbortSignal) =>
-    request<ProjectProductResearchRead>(
-      `/projects/${projectId}/products/${projectProductId}/research`, { signal },
-    ),
+  productEvidence: (projectId: string, projectProductId: string, assessmentOffset = 0, researchRunId?: string, claimOffset = 0, sourceOffset = 0, signal?: AbortSignal) => {
+    const query = new URLSearchParams({
+      assessment_offset: String(assessmentOffset),
+      claim_offset: String(claimOffset),
+      source_offset: String(sourceOffset),
+    });
+    if (researchRunId) query.set("research_run_id", researchRunId);
+    return request<ProjectProductResearchRead>(
+      `/projects/${projectId}/products/${projectProductId}/research?${query.toString()}`, { signal },
+    );
+  },
   claim: (projectId: string, claimId: string, signal?: AbortSignal) =>
     request<ClaimDetailRead>(`/projects/${projectId}/claims/${claimId}`, { signal }),
   source: (projectId: string, snapshotId: string, signal?: AbortSignal) =>

@@ -2,16 +2,16 @@
 
 ## Phase 5 local implementation — 2026-10-04
 
-Selected-product runs now persist bounded plans, source retrieval attempts and short immutable snapshots; exact validated claims feed contextual relations and requirement-linked cited assessments. The product detail view exposes run progress, source attempts and focus-managed claim/source inspection. This implementation awaits independent main-session review before Phase 6.
+Selected-product runs persist bounded plans, source retrieval attempts and short immutable snapshots; exact validated claims feed contextual relations and requirement-linked cited assessments. The Phase 5 review fixes tighten quote, qualifier, measurement, source-class and variant-identity grounding; make terminal skips, deadline failures and canceled writes inspectable; isolate ProductResearch query state and preserve exact command replay after uncertain acknowledgements; page assessment history; and support the full 100-requirement limit. The main-session owner still needs to verify this handoff before Phase 6.
 
 | Check | Result |
 |---|---|
-| Offline API/evidence evals | `pytest -m 'not db and not live'`: 109 passed. `pytest tests/evals/evidence`: 12 passed, including exact runtime quotes, adversarial/malformed output, variant mismatch, unsupported units/qualifiers, contextual relation and frozen freshness cases. |
-| PostgreSQL integration | `pytest -m db`: 86 passed on isolated PostgreSQL 16.15. Includes Phase 5 targeted run, grounded claim/citation, owner/project 404, 60-minute/37-minute multi-source path, byte-budget failure without snapshot, and fresh/down/up migration plus `alembic check` in isolated schemas. |
-| API/frontend checks | Ruff check/format passed; generated API types current; 48 Vitest tests passed; ESLint, TypeScript and Vite production build passed using the bundled Node runtime. |
+| Offline API/evidence evals | `pytest -m 'not db and not live'`: 130 passed; `pytest tests/evals/evidence`: 33 passed. Coverage includes quote-verifiable bound/qualifier semantics, type-checked normalized values, sentence-local attribute grounding, nested identity dimensions, publisher spoof boundaries, contextual relations and frozen freshness. |
+| PostgreSQL integration | `pytest -m db`: 90 passed; the selected-product test file passes 9 tests, including the 100-requirement assessment, malformed planner terminal record, cancel-before-plan-save, terminal AI-budget skip and failed-byte accounting. The suite upgrades, downgrades and re-upgrades the schema and runs `alembic check` in isolated PostgreSQL 16.15 schemas. |
+| API/frontend checks | Ruff check/format and generated API types passed; 53 Vitest tests passed; ESLint, TypeScript and Vite production build passed using the bundled Node runtime. |
 | External/manual checks | Live source-class coverage, real Personal AI structured extraction, manual citation audit, browser/mobile/keyboard inspection, hosted CI and multi-instance execution were not run. The checkout has no configured Git remote. Deterministic fakes establish local contract behavior only. |
 
-The PostgreSQL suite requires sandbox access to the local test port. Its first restricted invocation failed with `Operation not permitted`; the approved local invocation passed. `make validate` was not run as a wrapper because this host's bundled pnpm does not match the pinned version; every constituent deterministic check ran directly. The tested migration path starts from a fresh isolated schema and upgrades/downgrades/re-upgrades through the Phase 5 head. A separate credentialed live run was unavailable.
+The final offline and PostgreSQL runs include the latest grounding and product-research terminal/cancellation cases. PostgreSQL requires sandbox access to the local test port: a restricted invocation failed with `Operation not permitted`, and the isolated-database invocation passed. `make validate` was not run as a wrapper because this host's bundled pnpm does not match the pinned version; every constituent deterministic check ran directly. A separate credentialed live run was unavailable. The test runs report existing Starlette/httpx and Alembic configuration deprecation warnings.
 
 ## Phase 1 completion and evidence — 2026-10-03
 
