@@ -8,17 +8,20 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
 
-from shopping.catalog import commands, reads
+from shopping.catalog import commands, favorites, reads
 from shopping.catalog.schemas import (
     CatalogCorrectionCommand,
     CatalogCorrectionRead,
     CatalogCorrectionRevertCommand,
     CatalogNormalizationRead,
     CatalogVariantChoicePage,
+    FavoriteCommand,
+    FavoriteRead,
     NormalizeCandidateCommand,
     OfferPage,
     ProductRead,
     ProjectProductPage,
+    SavedProductPage,
 )
 from shopping.db.session import get_db
 from shopping.extraction.http_retriever import HTTPPageRetriever
@@ -224,3 +227,40 @@ def list_product_offers(
         limit=limit,
         cursor=cursor,
     )
+
+
+@router.get("/saved-products", response_model=SavedProductPage)
+def list_saved_products(
+    session: SessionDependency,
+    owner_id: OwnerDependency,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    cursor: Annotated[str | None, Query(max_length=256)] = None,
+) -> SavedProductPage:
+    return favorites.list_favorites(session, owner_id, limit=limit, cursor=cursor)
+
+
+@router.get("/saved-products/{variant_id}", response_model=FavoriteRead)
+def get_saved_product(
+    variant_id: UUID, session: SessionDependency, owner_id: OwnerDependency
+) -> FavoriteRead:
+    return favorites.get_favorite(session, owner_id, variant_id)
+
+
+@router.put("/saved-products/{variant_id}/favorite", response_model=FavoriteRead)
+def favorite_product(
+    variant_id: UUID,
+    command: FavoriteCommand,
+    session: SessionDependency,
+    owner_id: OwnerDependency,
+) -> FavoriteRead:
+    return favorites.set_favorite(session, owner_id, variant_id, True, command)
+
+
+@router.delete("/saved-products/{variant_id}/favorite", response_model=FavoriteRead)
+def unfavorite_product(
+    variant_id: UUID,
+    command: FavoriteCommand,
+    session: SessionDependency,
+    owner_id: OwnerDependency,
+) -> FavoriteRead:
+    return favorites.set_favorite(session, owner_id, variant_id, False, command)

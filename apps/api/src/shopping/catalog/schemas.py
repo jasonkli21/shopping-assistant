@@ -241,6 +241,32 @@ class OfferPage(StrictCatalogModel):
     catalog_version: int
 
 
+class FavoriteCommand(StrictCatalogModel):
+    expected_version: int = Field(ge=0)
+
+
+class FavoriteRead(StrictCatalogModel):
+    variant_id: UUID
+    favorite: bool
+    version: int
+    updated_at: datetime | None = None
+
+
+class SavedProductRead(FavoriteRead):
+    product_id: UUID
+    canonical_name: str
+    brand: str | None
+    category: str | None
+    variant_name: str
+    identity_attributes: dict[str, Any]
+    offers: list[OfferRead]
+
+
+class SavedProductPage(StrictCatalogModel):
+    items: list[SavedProductRead]
+    next_cursor: str | None = None
+
+
 class CatalogNormalizationRead(StrictCatalogModel):
     candidate_id: UUID
     observation_id: UUID

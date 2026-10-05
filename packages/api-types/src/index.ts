@@ -176,6 +176,77 @@ export interface components {
       "retrieved_at": string;
       "freshness": "current" | "stale" | "unknown";
     };
+    ComparisonCell: {
+      "project_product_id": string;
+      "status": "known" | "unknown" | "conflict" | "stale" | "incomparable";
+      "value"?: unknown;
+      "unit"?: null | string;
+      "comparison_value"?: unknown;
+      "provenance"?: Record<string, unknown>;
+    };
+    ComparisonCreate: {
+      "expected_version": number;
+      "title"?: string;
+      "project_product_ids": Array<string>;
+      "dimensions": Array<components["schemas"]["ComparisonDimensionInput"]>;
+      "display_mode"?: "all" | "differences";
+    };
+    ComparisonDimensionInput: {
+      "key": string;
+      "label": string;
+      "unit"?: null | string;
+      "dimension_type": "fact" | "offer" | "evidence" | "project_fit" | "user_note";
+    };
+    ComparisonDimensionRead: {
+      "key": string;
+      "label": string;
+      "unit": null | string;
+      "dimension_type": "fact" | "offer" | "evidence" | "project_fit" | "user_note";
+      "cells": Array<components["schemas"]["ComparisonCell"]>;
+      "equal"?: boolean;
+    };
+    ComparisonPage: {
+      "items": Array<components["schemas"]["ComparisonRead"]>;
+      "next_cursor"?: null | string;
+    };
+    ComparisonPatch: {
+      "expected_version": number;
+      "expected_comparison_version": number;
+      "title"?: null | string;
+      "project_product_ids"?: Array<string> | null;
+      "dimensions"?: Array<components["schemas"]["ComparisonDimensionInput"]> | null;
+      "display_mode"?: "all" | "differences" | null;
+    };
+    ComparisonProductRead: {
+      "project_product_id": string;
+      "product_id": string;
+      "variant_id": string;
+      "canonical_name": string;
+      "brand": null | string;
+      "category": null | string;
+      "variant_name": string;
+      "identity_attributes": Record<string, unknown>;
+      "product_revision": number;
+      "variant_revision": number;
+    };
+    ComparisonRead: {
+      "id": string;
+      "project_id": string;
+      "title": string;
+      "display_mode": "all" | "differences";
+      "comparison_revision": number;
+      "project_revision": number;
+      "snapshot_id": string;
+      "generated_at": string;
+      "stale": boolean;
+      "products": Array<components["schemas"]["ComparisonProductRead"]>;
+      "dimensions": Array<components["schemas"]["ComparisonDimensionRead"]>;
+      "hidden_equal_dimensions"?: number;
+    };
+    ComparisonRegenerate: {
+      "expected_version": number;
+      "expected_comparison_version": number;
+    };
     ConversationPage: {
       "items": Array<components["schemas"]["ConversationRead"]>;
       "next_cursor"?: null | string;
@@ -185,6 +256,56 @@ export interface components {
       "project_id": string;
       "created_at": string;
       "updated_at": string;
+    };
+    DecisionCommand: {
+      "expected_version": number;
+      "request_key": string;
+      "reason"?: string;
+      "rejection_reason"?: "too_expensive" | "missing_feature" | "too_large" | "appearance" | "weak_evidence" | "wrong_category" | "already_owned" | "other" | null;
+      "concerns"?: Array<string>;
+      "selected_offer_id"?: null | string;
+    };
+    DecisionEventRead: {
+      "id": string;
+      "project_product_id": string;
+      "command_type": string;
+      "from_state": "considering" | "shortlisted" | "rejected" | "purchased";
+      "to_state": "considering" | "shortlisted" | "rejected" | "purchased";
+      "actor": "owner" | "assistant";
+      "reason": string;
+      "rejection_reason": "too_expensive" | "missing_feature" | "too_large" | "appearance" | "weak_evidence" | "wrong_category" | "already_owned" | "other" | null;
+      "project_version": number;
+      "created_at": string;
+      "replayed"?: boolean;
+    };
+    DecisionMutationResult: {
+      "event": components["schemas"]["DecisionEventRead"];
+      "replayed": boolean;
+    };
+    DecisionPage: {
+      "items": Array<components["schemas"]["ProjectProductDecisionRead"]>;
+      "project_version": number;
+      "next_cursor"?: null | string;
+    };
+    DecisionRead: {
+      "project_product_id": string;
+      "state": "considering" | "shortlisted" | "rejected" | "purchased";
+      "reason": string;
+      "rejection_reason": "too_expensive" | "missing_feature" | "too_large" | "appearance" | "weak_evidence" | "wrong_category" | "already_owned" | "other" | null;
+      "concerns": Array<string>;
+      "selected_offer_id": null | string;
+      "version": number;
+      "updated_at": null | string;
+      "events"?: Array<components["schemas"]["DecisionEventRead"]>;
+    };
+    FavoriteCommand: {
+      "expected_version": number;
+    };
+    FavoriteRead: {
+      "variant_id": string;
+      "favorite": boolean;
+      "version": number;
+      "updated_at"?: null | string;
     };
     MessageCreate: {
       "text": string;
@@ -238,6 +359,23 @@ export interface components {
       "request_key": string;
       "expected_catalog_version": number;
       "expected_project_version": number;
+    };
+    NoteMutationResult: {
+      "note": components["schemas"]["NoteRead"];
+      "project_version": number;
+    };
+    NoteRead: {
+      "id": string;
+      "project_id": string;
+      "project_product_id": null | string;
+      "text": string;
+      "version": number;
+      "created_at": string;
+      "updated_at": string;
+    };
+    NoteWrite: {
+      "expected_version": number;
+      "text": string;
     };
     OfferPage: {
       "items": Array<components["schemas"]["OfferRead"]>;
@@ -314,6 +452,10 @@ export interface components {
       "budget_maximum"?: null | string;
       "budget_currency"?: null | string;
       "notes"?: null | string;
+    };
+    ProjectProductDecisionRead: {
+      "product": components["schemas"]["ProjectProductRead"];
+      "decision": components["schemas"]["DecisionRead"];
     };
     ProjectProductPage: {
       "items": Array<components["schemas"]["ProjectProductRead"]>;
@@ -513,6 +655,23 @@ export interface components {
       "claims_created": number;
       "error_code"?: null | string;
     };
+    SavedProductPage: {
+      "items": Array<components["schemas"]["SavedProductRead"]>;
+      "next_cursor"?: null | string;
+    };
+    SavedProductRead: {
+      "variant_id": string;
+      "favorite": boolean;
+      "version": number;
+      "updated_at"?: null | string;
+      "product_id": string;
+      "canonical_name": string;
+      "brand": null | string;
+      "category": null | string;
+      "variant_name": string;
+      "identity_attributes": Record<string, unknown>;
+      "offers": Array<components["schemas"]["OfferRead"]>;
+    };
     SearchAttemptRead: {
       "id": string;
       "attempt_number": number;
@@ -613,6 +772,18 @@ export interface paths {
   "/projects/{project_id}/claims/{claim_id}": {
     "get": operations["claim_detail_projects__project_id__claims__claim_id__get"];
   };
+  "/projects/{project_id}/comparisons": {
+    "get": operations["list_comparisons_projects__project_id__comparisons_get"];
+    "post": operations["create_comparison_projects__project_id__comparisons_post"];
+  };
+  "/projects/{project_id}/comparisons/{comparison_id}": {
+    "delete": operations["delete_comparison_projects__project_id__comparisons__comparison_id__delete"];
+    "get": operations["get_comparison_projects__project_id__comparisons__comparison_id__get"];
+    "patch": operations["patch_comparison_projects__project_id__comparisons__comparison_id__patch"];
+  };
+  "/projects/{project_id}/comparisons/{comparison_id}/regenerate": {
+    "post": operations["regenerate_comparison_projects__project_id__comparisons__comparison_id__regenerate_post"];
+  };
   "/projects/{project_id}/conversations": {
     "get": operations["list_conversations_projects__project_id__conversations_get"];
   };
@@ -623,8 +794,25 @@ export interface paths {
   "/projects/{project_id}/messages/stream": {
     "get": operations["attach_message_stream_projects__project_id__messages_stream_get"];
   };
+  "/projects/{project_id}/notes": {
+    "delete": operations["delete_project_note_projects__project_id__notes_delete"];
+    "get": operations["get_project_note_projects__project_id__notes_get"];
+    "put": operations["put_project_note_projects__project_id__notes_put"];
+  };
   "/projects/{project_id}/products": {
     "get": operations["list_project_products_projects__project_id__products_get"];
+  };
+  "/projects/{project_id}/products/{project_product_id}/decision": {
+    "get": operations["get_decision_projects__project_id__products__project_product_id__decision_get"];
+  };
+  "/projects/{project_id}/products/{project_product_id}/notes": {
+    "delete": operations["delete_product_note_projects__project_id__products__project_product_id__notes_delete"];
+    "get": operations["get_product_note_projects__project_id__products__project_product_id__notes_get"];
+    "put": operations["put_product_note_projects__project_id__products__project_product_id__notes_put"];
+  };
+  "/projects/{project_id}/products/{project_product_id}/purchased": {
+    "delete": operations["undo_product_purchased_projects__project_id__products__project_product_id__purchased_delete"];
+    "post": operations["mark_product_purchased_projects__project_id__products__project_product_id__purchased_post"];
   };
   "/projects/{project_id}/products/{project_product_id}/research": {
     "get": operations["product_research_projects__project_id__products__project_product_id__research_get"];
@@ -634,6 +822,13 @@ export interface paths {
   };
   "/projects/{project_id}/proposals/{proposal_id}/dismiss": {
     "post": operations["dismiss_proposal_projects__project_id__proposals__proposal_id__dismiss_post"];
+  };
+  "/projects/{project_id}/rejections": {
+    "get": operations["list_rejections_projects__project_id__rejections_get"];
+  };
+  "/projects/{project_id}/rejections/{project_product_id}": {
+    "delete": operations["undo_rejection_projects__project_id__rejections__project_product_id__delete"];
+    "post": operations["reject_product_projects__project_id__rejections__project_product_id__post"];
   };
   "/projects/{project_id}/requirements": {
     "get": operations["list_requirements_projects__project_id__requirements_get"];
@@ -653,8 +848,25 @@ export interface paths {
   "/projects/{project_id}/research/{research_run_id}/cancel": {
     "post": operations["cancel_research_projects__project_id__research__research_run_id__cancel_post"];
   };
+  "/projects/{project_id}/shortlist": {
+    "get": operations["list_shortlist_projects__project_id__shortlist_get"];
+  };
+  "/projects/{project_id}/shortlist/{project_product_id}": {
+    "delete": operations["undo_shortlist_projects__project_id__shortlist__project_product_id__delete"];
+    "post": operations["shortlist_product_projects__project_id__shortlist__project_product_id__post"];
+  };
   "/projects/{project_id}/sources/{snapshot_id}": {
     "get": operations["source_snapshot_projects__project_id__sources__snapshot_id__get"];
+  };
+  "/saved-products": {
+    "get": operations["list_saved_products_saved_products_get"];
+  };
+  "/saved-products/{variant_id}": {
+    "get": operations["get_saved_product_saved_products__variant_id__get"];
+  };
+  "/saved-products/{variant_id}/favorite": {
+    "delete": operations["unfavorite_product_saved_products__variant_id__favorite_delete"];
+    "put": operations["favorite_product_saved_products__variant_id__favorite_put"];
   };
 }
 
@@ -777,6 +989,30 @@ export interface operations {
       } };
     };
   };
+  "create_comparison_projects__project_id__comparisons_post": {
+    parameters: {
+      path: {
+        "project_id": string;
+      };
+    };
+    requestBody: { content: {
+      "application/json": components["schemas"]["ComparisonCreate"];
+    } };
+    responses: {
+      "201": { content?: {
+        "application/json": components["schemas"]["ComparisonRead"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
   "create_message_projects__project_id__messages_post": {
     parameters: {
       path: {
@@ -873,6 +1109,81 @@ export interface operations {
       } };
     };
   };
+  "delete_comparison_projects__project_id__comparisons__comparison_id__delete": {
+    parameters: {
+      path: {
+        "comparison_id": string;
+        "project_id": string;
+      };
+      query: {
+        "expected_comparison_version": number;
+        "expected_version": number;
+      };
+    };
+    responses: {
+      "204": { content?: {
+        "application/json"?: undefined;
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
+  "delete_product_note_projects__project_id__products__project_product_id__notes_delete": {
+    parameters: {
+      path: {
+        "project_id": string;
+        "project_product_id": string;
+      };
+      query: {
+        "expected_version": number;
+      };
+    };
+    responses: {
+      "204": { content?: {
+        "application/json"?: undefined;
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
+  "delete_project_note_projects__project_id__notes_delete": {
+    parameters: {
+      path: {
+        "project_id": string;
+      };
+      query: {
+        "expected_version": number;
+      };
+    };
+    responses: {
+      "204": { content?: {
+        "application/json"?: undefined;
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
   "delete_project_projects__project_id__delete": {
     parameters: {
       path: {
@@ -944,6 +1255,96 @@ export interface operations {
       } };
     };
   };
+  "favorite_product_saved_products__variant_id__favorite_put": {
+    parameters: {
+      path: {
+        "variant_id": string;
+      };
+    };
+    requestBody: { content: {
+      "application/json": components["schemas"]["FavoriteCommand"];
+    } };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["FavoriteRead"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
+  "get_comparison_projects__project_id__comparisons__comparison_id__get": {
+    parameters: {
+      path: {
+        "comparison_id": string;
+        "project_id": string;
+      };
+    };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["ComparisonRead"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
+  "get_decision_projects__project_id__products__project_product_id__decision_get": {
+    parameters: {
+      path: {
+        "project_id": string;
+        "project_product_id": string;
+      };
+    };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["DecisionRead"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
+  "get_product_note_projects__project_id__products__project_product_id__notes_get": {
+    parameters: {
+      path: {
+        "project_id": string;
+        "project_product_id": string;
+      };
+    };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["NoteRead"] | null;
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
   "get_product_products__product_id__get": {
     parameters: {
       path: {
@@ -953,6 +1354,27 @@ export interface operations {
     responses: {
       "200": { content?: {
         "application/json": components["schemas"]["ProductRead"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
+  "get_project_note_projects__project_id__notes_get": {
+    parameters: {
+      path: {
+        "project_id": string;
+      };
+    };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["NoteRead"] | null;
       } };
       "404": { content?: {
         "application/json": components["schemas"]["ApiErrorEnvelope"];
@@ -996,6 +1418,27 @@ export interface operations {
     responses: {
       "200": { content?: {
         "application/json": components["schemas"]["ResearchRunRead"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
+  "get_saved_product_saved_products__variant_id__get": {
+    parameters: {
+      path: {
+        "variant_id": string;
+      };
+    };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["FavoriteRead"];
       } };
       "404": { content?: {
         "application/json": components["schemas"]["ApiErrorEnvelope"];
@@ -1063,6 +1506,31 @@ export interface operations {
     responses: {
       "200": { content?: {
         "application/json": components["schemas"]["CatalogVariantChoicePage"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
+  "list_comparisons_projects__project_id__comparisons_get": {
+    parameters: {
+      path: {
+        "project_id": string;
+      };
+      query: {
+        "cursor"?: null | string;
+        "limit"?: number;
+      };
+    };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["ComparisonPage"];
       } };
       "404": { content?: {
         "application/json": components["schemas"]["ApiErrorEnvelope"];
@@ -1194,6 +1662,31 @@ export interface operations {
       } };
     };
   };
+  "list_rejections_projects__project_id__rejections_get": {
+    parameters: {
+      path: {
+        "project_id": string;
+      };
+      query: {
+        "cursor"?: null | string;
+        "limit"?: number;
+      };
+    };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["DecisionPage"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
   "list_requirements_projects__project_id__requirements_get": {
     parameters: {
       path: {
@@ -1240,6 +1733,78 @@ export interface operations {
       } };
     };
   };
+  "list_saved_products_saved_products_get": {
+    parameters: {
+      query: {
+        "cursor"?: null | string;
+        "limit"?: number;
+      };
+    };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["SavedProductPage"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
+  "list_shortlist_projects__project_id__shortlist_get": {
+    parameters: {
+      path: {
+        "project_id": string;
+      };
+      query: {
+        "cursor"?: null | string;
+        "limit"?: number;
+      };
+    };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["DecisionPage"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
+  "mark_product_purchased_projects__project_id__products__project_product_id__purchased_post": {
+    parameters: {
+      path: {
+        "project_id": string;
+        "project_product_id": string;
+      };
+    };
+    requestBody: { content: {
+      "application/json": components["schemas"]["DecisionCommand"];
+    } };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["DecisionMutationResult"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
   "normalize_candidate_projects__project_id__candidates__candidate_id__normalize_post": {
     parameters: {
       path: {
@@ -1259,6 +1824,31 @@ export interface operations {
       } };
       "409": { content?: {
         "application/json"?: undefined;
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
+  "patch_comparison_projects__project_id__comparisons__comparison_id__patch": {
+    parameters: {
+      path: {
+        "comparison_id": string;
+        "project_id": string;
+      };
+    };
+    requestBody: { content: {
+      "application/json": components["schemas"]["ComparisonPatch"];
+    } };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["ComparisonRead"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
       } };
       "422": { content?: {
         "application/json": components["schemas"]["ApiErrorEnvelope"];
@@ -1366,6 +1956,105 @@ export interface operations {
       } };
     };
   };
+  "put_product_note_projects__project_id__products__project_product_id__notes_put": {
+    parameters: {
+      path: {
+        "project_id": string;
+        "project_product_id": string;
+      };
+    };
+    requestBody: { content: {
+      "application/json": components["schemas"]["NoteWrite"];
+    } };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["NoteMutationResult"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
+  "put_project_note_projects__project_id__notes_put": {
+    parameters: {
+      path: {
+        "project_id": string;
+      };
+    };
+    requestBody: { content: {
+      "application/json": components["schemas"]["NoteWrite"];
+    } };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["NoteMutationResult"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
+  "regenerate_comparison_projects__project_id__comparisons__comparison_id__regenerate_post": {
+    parameters: {
+      path: {
+        "comparison_id": string;
+        "project_id": string;
+      };
+    };
+    requestBody: { content: {
+      "application/json": components["schemas"]["ComparisonRegenerate"];
+    } };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["ComparisonRead"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
+  "reject_product_projects__project_id__rejections__project_product_id__post": {
+    parameters: {
+      path: {
+        "project_id": string;
+        "project_product_id": string;
+      };
+    };
+    requestBody: { content: {
+      "application/json": components["schemas"]["DecisionCommand"];
+    } };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["DecisionMutationResult"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
   "revert_candidate_correction_projects__project_id__candidates__candidate_id__correction_revert_post": {
     parameters: {
       path: {
@@ -1391,6 +2080,31 @@ export interface operations {
       } };
     };
   };
+  "shortlist_product_projects__project_id__shortlist__project_product_id__post": {
+    parameters: {
+      path: {
+        "project_id": string;
+        "project_product_id": string;
+      };
+    };
+    requestBody: { content: {
+      "application/json": components["schemas"]["DecisionCommand"];
+    } };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["DecisionMutationResult"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
   "source_snapshot_projects__project_id__sources__snapshot_id__get": {
     parameters: {
       path: {
@@ -1401,6 +2115,105 @@ export interface operations {
     responses: {
       "200": { content?: {
         "application/json": components["schemas"]["SourceSnapshotRead"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
+  "undo_product_purchased_projects__project_id__products__project_product_id__purchased_delete": {
+    parameters: {
+      path: {
+        "project_id": string;
+        "project_product_id": string;
+      };
+    };
+    requestBody: { content: {
+      "application/json": components["schemas"]["DecisionCommand"];
+    } };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["DecisionMutationResult"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
+  "undo_rejection_projects__project_id__rejections__project_product_id__delete": {
+    parameters: {
+      path: {
+        "project_id": string;
+        "project_product_id": string;
+      };
+    };
+    requestBody: { content: {
+      "application/json": components["schemas"]["DecisionCommand"];
+    } };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["DecisionMutationResult"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
+  "undo_shortlist_projects__project_id__shortlist__project_product_id__delete": {
+    parameters: {
+      path: {
+        "project_id": string;
+        "project_product_id": string;
+      };
+    };
+    requestBody: { content: {
+      "application/json": components["schemas"]["DecisionCommand"];
+    } };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["DecisionMutationResult"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
+  "unfavorite_product_saved_products__variant_id__favorite_delete": {
+    parameters: {
+      path: {
+        "variant_id": string;
+      };
+    };
+    requestBody: { content: {
+      "application/json": components["schemas"]["FavoriteCommand"];
+    } };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["FavoriteRead"];
       } };
       "404": { content?: {
         "application/json": components["schemas"]["ApiErrorEnvelope"];

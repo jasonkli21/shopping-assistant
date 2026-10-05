@@ -5,6 +5,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -345,6 +346,31 @@ class OwnerCatalogState(Base):
 
     owner_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class SavedProduct(Base):
+    __tablename__ = "saved_products"
+    __table_args__ = (
+        UniqueConstraint("owner_id", "variant_id", name="uq_saved_product_owner_variant"),
+        CheckConstraint("version >= 1", name="ck_saved_product_version"),
+        Index("ix_saved_products_owner_favorite", "owner_id", "favorite", "updated_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    owner_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    variant_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("product_variants.id", ondelete="CASCADE"), nullable=False
+    )
+    favorite: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

@@ -13,9 +13,11 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    UniqueConstraint,
     Uuid,
     desc,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -148,3 +150,142 @@ class ProjectRequirement(Base):
     )
 
     project: Mapped[ShoppingProject] = relationship(back_populates="requirements")
+
+
+class ProjectProductDecision(Base):
+    __tablename__ = "project_product_decisions"
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('considering', 'shortlisted', 'rejected', 'purchased')",
+            name="ck_decision_state",
+        ),
+        CheckConstraint(
+            "rejection_reason IS NULL OR rejection_reason IN "
+            "('too_expensive', 'missing_feature', 'too_large', 'appearance', 'weak_evidence', "
+            "'wrong_category', 'already_owned', 'other')",
+            name="ck_decision_rejection_reason",
+        ),
+        CheckConstraint(
+            "(state = 'rejected') = (rejection_reason IS NOT NULL)",
+            name="ck_decision_rejection_state",
+        ),
+        CheckConstraint("char_length(reason) <= 2000", name="ck_decision_reason_length"),
+        CheckConstraint("octet_length(concerns::text) <= 12000", name="ck_decision_concerns_size"),
+        CheckConstraint("actor IN ('owner', 'assistant')", name="ck_decision_actor"),
+        CheckConstraint("origin IN ('command', 'proposal')", name="ck_decision_origin"),
+        CheckConstraint("version >= 1", name="ck_decision_version"),
+        UniqueConstraint("project_product_id", name="uq_project_product_decision"),
+        Index("ix_decisions_project_state", "project_id", "state"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    owner_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    project_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("shopping_projects.id", ondelete="CASCADE"), nullable=False
+    )
+    project_product_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("project_products.id", ondelete="CASCADE"), nullable=False
+    )
+    state: Mapped[str] = mapped_column(String(16), nullable=False, default="considering")
+    reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    rejection_reason: Mapped[str | None] = mapped_column(String(24))
+    concerns: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    selected_offer_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("retail_offers.id", ondelete="SET NULL")
+    )
+    actor: Mapped[str] = mapped_column(String(16), nullable=False, default="owner")
+    origin: Mapped[str] = mapped_column(String(16), nullable=False, default="command")
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class DecisionEvent(Base):
+    __tablename__ = "decision_events"
+    __table_args__ = (
+        CheckConstraint(
+            "char_length(command_type) BETWEEN 1 AND 40", name="ck_decision_event_type"
+        ),
+        CheckConstraint("request_hash ~ '^[0-9a-f]{64}$'", name="ck_decision_event_hash"),
+        CheckConstraint("project_version >= 1", name="ck_decision_event_project_version"),
+        CheckConstraint(
+            "from_state IN ('considering', 'shortlisted', 'rejected', 'purchased')",
+            name="ck_decision_event_from_state",
+        ),
+        CheckConstraint(
+            "to_state IN ('considering', 'shortlisted', 'rejected', 'purchased')",
+            name="ck_decision_event_to_state",
+        ),
+        CheckConstraint("actor IN ('owner', 'assistant')", name="ck_decision_event_actor"),
+        CheckConstraint(
+            "char_length(request_key) BETWEEN 8 AND 100", name="ck_decision_event_request_key"
+        ),
+        UniqueConstraint(
+            "owner_id",
+            "project_id",
+            "command_type",
+            "request_key",
+            name="uq_decision_event_request",
+        ),
+        Index("ix_decision_events_product_time", "project_product_id", "created_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    owner_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    project_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("shopping_projects.id", ondelete="CASCADE"), nullable=False
+    )
+    project_product_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("project_products.id", ondelete="CASCADE"), nullable=False
+    )
+    command_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    request_key: Mapped[str] = mapped_column(String(100), nullable=False)
+    request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    from_state: Mapped[str] = mapped_column(String(16), nullable=False)
+    to_state: Mapped[str] = mapped_column(String(16), nullable=False)
+    actor: Mapped[str] = mapped_column(String(16), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    rejection_reason: Mapped[str | None] = mapped_column(String(24))
+    project_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class UserNote(Base):
+    __tablename__ = "user_notes"
+    __table_args__ = (
+        CheckConstraint("char_length(btrim(text)) BETWEEN 1 AND 10000", name="ck_user_note_text"),
+        CheckConstraint("version >= 1", name="ck_user_note_version"),
+        Index(
+            "uq_user_note_project_product",
+            "project_id",
+            "project_product_id",
+            unique=True,
+            postgresql_where=text("project_product_id IS NOT NULL"),
+        ),
+        Index(
+            "uq_user_note_project_only",
+            "project_id",
+            unique=True,
+            postgresql_where=text("project_product_id IS NULL"),
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    owner_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    project_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("shopping_projects.id", ondelete="CASCADE"), nullable=False
+    )
+    project_product_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("project_products.id", ondelete="CASCADE")
+    )
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
