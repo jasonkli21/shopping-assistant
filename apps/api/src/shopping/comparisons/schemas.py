@@ -56,8 +56,14 @@ class ComparisonPatch(StrictModel):
 
     @model_validator(mode="after")
     def validate_changes(self):
-        if not (self.model_fields_set - {"expected_version", "expected_comparison_version"}):
+        changed_fields = self.model_fields_set - {
+            "expected_version",
+            "expected_comparison_version",
+        }
+        if not changed_fields:
             raise ValueError("at least one comparison field must be supplied")
+        if any(getattr(self, field) is None for field in changed_fields):
+            raise ValueError("comparison fields cannot be cleared with null")
         if self.project_product_ids and len(self.project_product_ids) != len(
             set(self.project_product_ids)
         ):
