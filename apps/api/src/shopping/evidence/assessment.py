@@ -21,7 +21,12 @@ from shopping.projects.models import ProjectRequirement
 from shopping.research.models import ResearchRun, ResearchRunTarget
 
 TASK_VERSION = "deterministic-cited-assessment.v1"
-WEAK_CATEGORIES = {"community_observation", "individual_anecdote", "editorial_assessment"}
+WEAK_CATEGORIES = {
+    "community_observation",
+    "individual_anecdote",
+    "editorial_assessment",
+    "unknown",
+}
 
 
 def _context(claim: Claim) -> tuple:
@@ -52,7 +57,11 @@ def _meets_requirement(claim: Claim, requirement: dict) -> bool | None:
     if not isinstance(threshold, (int, float)) or isinstance(threshold, bool):
         return None
     unit = (claim.qualifiers or {}).get("unit")
-    if unit and requirement.get("unit") and unit != requirement["unit"]:
+    if (
+        not isinstance(unit, str)
+        or not isinstance(requirement.get("unit"), str)
+        or unit != requirement["unit"]
+    ):
         return None
     operator = requirement.get("operator")
     bound = (claim.qualifiers or {}).get("limit")
@@ -61,6 +70,15 @@ def _meets_requirement(claim: Claim, requirement: dict) -> bool | None:
             return False if value < threshold else None
         if operator == "lte":
             return True if value <= threshold else None
+        # A bound is not an exact observed value, even when its endpoint happens
+        # to equal a project threshold.
+        return None
+    elif bound == "at_least":
+        if operator == "gte":
+            return True if value >= threshold else None
+        if operator == "lte":
+            return False if value > threshold else None
+        return None
     if operator == "gte":
         return value >= threshold
     if operator == "lte":

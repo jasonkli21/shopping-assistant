@@ -48,5 +48,29 @@ def test_promotional_upper_bound_does_not_prove_minimum_runtime():
     marketing = claim("Up to 60 minutes", 60, limit="up_to")
     requirement = {"operator": "gte", "value": 40, "unit": "min"}
     assert _meets_requirement(marketing, requirement) is None
-    measured = claim("37 minutes", 37, mode="normal")
+    measured = claim("37 minutes", 37, mode="normal", unit="min")
     assert _meets_requirement(measured, requirement) is False
+    assert _meets_requirement(claim("37 minutes", 37, mode="normal"), requirement) is None
+
+
+def test_bound_does_not_establish_an_exact_value_even_at_the_endpoint():
+    assert (
+        _meets_requirement(
+            claim("Up to 60 minutes", 60, unit="min", limit="up_to"),
+            {"operator": "eq", "value": 60, "unit": "min"},
+        )
+        is None
+    )
+    assert (
+        _meets_requirement(
+            claim("At least 45 minutes", 45, unit="min", limit="at_least"),
+            {"operator": "eq", "value": 45, "unit": "min"},
+        )
+        is None
+    )
+
+
+def test_stated_at_least_bound_supports_only_compatible_lower_bound():
+    stated = claim("At least 45 minutes", 45, unit="min", limit="at_least")
+    assert _meets_requirement(stated, {"operator": "gte", "value": 40, "unit": "min"}) is True
+    assert _meets_requirement(stated, {"operator": "lte", "value": 50, "unit": "min"}) is None

@@ -4,20 +4,23 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from shopping.catalog.models import Product, ProductVariant
 from shopping.evidence.claim_task import (
     PROMPT_VERSION,
     SCHEMA_VERSION,
     TASK_NAME,
     ValidatedExtraction,
 )
+from shopping.evidence.classification import classify_claim
 from shopping.evidence.models import Claim, ClaimEvidence, ResearchRunSource, Source, SourceSnapshot
-from shopping.research.models import ResearchRunTarget
+from shopping.research.common import _lock_live_run
+from shopping.research.models import ResearchRunTarget, ResearchStageAttempt
 
 
 def extraction_input(
@@ -46,12 +49,21 @@ def extraction_input(
     if row is None:
         return None
     attempt, snapshot, source, target = row
-    run_target = session.get(type(target), target.id)
-    del run_target
+    product, variant = session.execute(
+        select(Product, ProductVariant)
+        .join(ProductVariant, ProductVariant.product_id == Product.id)
+        .where(Product.id == target.product_id, ProductVariant.id == target.variant_id)
+    ).one()
     target_data = {
         "project_product_id": str(target.project_product_id),
         "product_id": str(target.product_id),
         "variant_id": str(target.variant_id),
+        "product_name": product.canonical_name,
+        "brand": product.brand,
+        "model_family": product.model_family,
+        "variant_name": variant.display_name,
+        "identity_attributes": variant.identity_attributes,
+        "category_attributes": variant.category_attributes,
     }
     source_data = {
         "snapshot_id": str(snapshot.id),
@@ -67,10 +79,20 @@ def persist_extraction(
     *,
     owner_id: UUID,
     run_id: UUID,
+    project_id: UUID,
     target_id: UUID,
     source_attempt_id: UUID,
+    stage_attempt_id: UUID,
     extraction: ValidatedExtraction,
 ) -> int:
+    _project, run = _lock_live_run(session, owner_id, project_id, run_id)
+    if (
+        run.status != "running"
+        or run.started_at is None
+        or datetime.now(UTC)
+        >= run.started_at + timedelta(seconds=run.effective_budgets["deadline_seconds"])
+    ):
+        return 0
     row = session.execute(
         select(ResearchRunSource, SourceSnapshot, Source, ResearchRunTarget)
         .join(SourceSnapshot, SourceSnapshot.id == ResearchRunSource.snapshot_id)
@@ -95,6 +117,20 @@ def persist_extraction(
     if row is None:
         raise ValueError("Source snapshot is unavailable for this research target")
     _attempt, snapshot, source, target = row
+    stage = session.scalar(
+        select(ResearchStageAttempt)
+        .where(
+            ResearchStageAttempt.id == stage_attempt_id,
+            ResearchStageAttempt.research_run_id == run_id,
+            ResearchStageAttempt.owner_id == owner_id,
+            ResearchStageAttempt.target_project_product_id == target_id,
+            ResearchStageAttempt.source_snapshot_id == snapshot.id,
+            ResearchStageAttempt.stage == "extraction",
+        )
+        .with_for_update()
+    )
+    if stage is None or stage.status != "running" or target.status != "running":
+        return 0
     if source.classification == "unknown":
         return 0
     created = 0
@@ -133,7 +169,9 @@ def persist_extraction(
                 **candidate.qualifiers,
                 **({"unit": candidate.unit} if candidate.unit else {}),
             },
-            evidence_category=source.classification,
+            evidence_category=classify_claim(
+                source.classification, candidate.quote, candidate.context_quote
+            ),
             extracted_at=datetime.now(UTC),
             task_name=TASK_NAME,
             prompt_version=PROMPT_VERSION,

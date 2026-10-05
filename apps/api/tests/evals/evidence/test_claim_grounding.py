@@ -30,7 +30,7 @@ def candidate(quote, context, **changes):
     [
         (
             "AX-4 HEPA: up to 60 minutes runtime in eco mode. "
-            "AX-4 HEPA: 37 minutes in normal mode.",
+            "AX-4 HEPA runtime test: 37 minutes in normal mode.",
             [
                 candidate(
                     "up to 60 minutes runtime in eco mode",
@@ -39,7 +39,7 @@ def candidate(quote, context, **changes):
                 ),
                 candidate(
                     "37 minutes in normal mode",
-                    "AX-4 HEPA: 37 minutes in normal mode",
+                    "AX-4 HEPA runtime test: 37 minutes in normal mode",
                     normalized_value=37,
                     qualifiers={"mode": "normal"},
                 ),
@@ -48,17 +48,18 @@ def candidate(quote, context, **changes):
             None,
         ),
         (
-            "AX-4 HEPA: 37 minutes in normal mode. AX-4 HEPA: 31 minutes in normal mode.",
+            "AX-4 HEPA runtime test: 37 minutes in normal mode. "
+            "AX-4 HEPA runtime test: 31 minutes in normal mode.",
             [
                 candidate(
                     "37 minutes in normal mode",
-                    "AX-4 HEPA: 37 minutes in normal mode",
+                    "AX-4 HEPA runtime test: 37 minutes in normal mode",
                     normalized_value=37,
                     qualifiers={"mode": "normal"},
                 ),
                 candidate(
                     "31 minutes in normal mode",
-                    "AX-4 HEPA: 31 minutes in normal mode",
+                    "AX-4 HEPA runtime test: 31 minutes in normal mode",
                     normalized_value=31,
                     qualifiers={"mode": "normal"},
                 ),
@@ -69,6 +70,18 @@ def candidate(quote, context, **changes):
         (
             "AX-4 standard: 60 minutes runtime. AX-4 HEPA: runtime not given.",
             [candidate("60 minutes runtime", "AX-4 standard: 60 minutes runtime")],
+            0,
+            "unrelated_variant",
+        ),
+        (
+            "AX-4 HEPA is shown above. AX-4 standard: 60 minutes runtime.",
+            [
+                candidate(
+                    "60 minutes runtime",
+                    "AX-4 HEPA is shown above. AX-4 standard: 60 minutes runtime",
+                    qualifiers={},
+                )
+            ],
             0,
             "unrelated_variant",
         ),
@@ -101,11 +114,13 @@ def candidate(quote, context, **changes):
             "AX-4 HEPA: 60 watts of suction in eco mode.",
             [
                 candidate(
-                    "60 watts of suction in eco mode", "AX-4 HEPA: 60 watts of suction in eco mode"
+                    "60 watts of suction in eco mode",
+                    "AX-4 HEPA: 60 watts of suction in eco mode",
+                    attribute_key="suction",
                 )
             ],
             0,
-            "unit_not_grounded",
+            "normalized_value_not_supported",
         ),
         (
             "AX-4 HEPA: 60 minutes runtime in eco mode.",
@@ -118,6 +133,153 @@ def candidate(quote, context, **changes):
             ],
             0,
             "qualifier_not_grounded",
+        ),
+        (
+            "AX-4 HEPA: 60 minutes runtime in EcoPlus mode.",
+            [
+                candidate(
+                    "60 minutes runtime in EcoPlus mode",
+                    "AX-4 HEPA: 60 minutes runtime in EcoPlus mode",
+                    qualifiers={"mode": "eco"},
+                )
+            ],
+            0,
+            "qualifier_not_grounded",
+        ),
+        (
+            "AX-4 HEPA: 60 minutes runtime.",
+            [
+                candidate(
+                    "60 minutes runtime",
+                    "AX-4 HEPA: 60 minutes runtime",
+                    qualifiers={"mode": ""},
+                )
+            ],
+            0,
+            "qualifier_not_grounded",
+        ),
+        (
+            "AX-4 HEPA: up to 60 minutes runtime in eco mode.",
+            [
+                candidate(
+                    "up to 60 minutes runtime in eco mode",
+                    "AX-4 HEPA: up to 60 minutes runtime in eco mode",
+                    qualifiers={"mode": "eco"},
+                )
+            ],
+            0,
+            "qualifier_not_grounded",
+        ),
+        (
+            "AX-4 HEPA: Up to 60 minutes runtime in eco mode.",
+            [
+                candidate(
+                    "Up to 60 minutes runtime in eco mode",
+                    "AX-4 HEPA: Up to 60 minutes runtime in eco mode",
+                )
+            ],
+            0,
+            "qualifier_not_grounded",
+        ),
+        (
+            "AX-4 HEPA: 60 minutes runtime in eco mode.",
+            [
+                candidate(
+                    "60 minutes runtime in eco mode",
+                    "AX-4 HEPA: 60 minutes runtime in eco mode",
+                    normalized_value="excellent",
+                )
+            ],
+            0,
+            "normalized_value_not_supported",
+        ),
+        (
+            "AX-4 HEPA: 37 minutes runtime.",
+            [
+                candidate(
+                    "37 minutes runtime",
+                    "AX-4 HEPA: 37 minutes runtime",
+                    normalized_value=True,
+                )
+            ],
+            0,
+            "normalized_value_not_supported",
+        ),
+        (
+            "AX-4 HEPA: 37 minutes runtime.",
+            [
+                candidate(
+                    "37 minutes runtime",
+                    "AX-4 HEPA: 37 minutes runtime",
+                    normalized_value="37",
+                )
+            ],
+            0,
+            "normalized_value_not_supported",
+        ),
+        (
+            "AX-4 HEPA: 37 minutes runtime.",
+            [
+                candidate(
+                    "37 minutes runtime",
+                    "AX-4 HEPA: 37 minutes runtime",
+                    normalized_value=37,
+                    qualifiers={"limit": "at_least"},
+                )
+            ],
+            0,
+            "qualifier_not_grounded",
+        ),
+        (
+            "AX-4 HEPA: at least 37 minutes runtime.",
+            [
+                candidate(
+                    "at least 37 minutes runtime",
+                    "AX-4 HEPA: at least 37 minutes runtime",
+                    normalized_value=37,
+                    qualifiers={"limit": "at_least"},
+                )
+            ],
+            1,
+            None,
+        ),
+        (
+            "AX-4 HEPA runtime specification. AX-4 HEPA: 37 minutes elapsed during the test.",
+            [
+                candidate(
+                    "37 minutes elapsed during the test",
+                    "AX-4 HEPA runtime specification. "
+                    "AX-4 HEPA: 37 minutes elapsed during the test",
+                    normalized_value=37,
+                    qualifiers={},
+                )
+            ],
+            0,
+            "attribute_not_grounded",
+        ),
+        (
+            "AX-4 HEPA: 60 minutes runtime in eco mode.",
+            [
+                candidate(
+                    "60 minutes runtime in eco mode",
+                    "AX-4 HEPA: 60 minutes runtime in eco mode",
+                    qualifiers={"mode": "eco", "region": "EU"},
+                )
+            ],
+            0,
+            "qualifier_not_grounded",
+        ),
+        (
+            "AX-4 HEPA: 60 minutes runtime in eco mode.",
+            [
+                candidate(
+                    "60 minutes runtime in eco mode",
+                    "AX-4 HEPA: 60 minutes runtime in eco mode",
+                    attribute_key="safety",
+                )
+            ],
+            0,
+            "attribute_not_grounded",
         ),
     ],
 )
@@ -138,3 +300,45 @@ def test_schema_rejects_malformed_citation():
             target=TARGET,
             source_text="AX-4 HEPA: 60 minutes",
         )
+
+
+def test_generic_variant_label_requires_variant_identity_dimensions():
+    target = {
+        "variant_name": "Unspecified",
+        "model_family": "AX-4",
+        "product_name": "Clean Vacuum",
+        "identity_attributes": {
+            "region": {"value": "US", "origin": "source"},
+            "voltage": {"value": "120V", "origin": "source"},
+        },
+    }
+    source = "AX-4 US: 37 minutes runtime"
+    result = validate_output(
+        {
+            "claims": [candidate("37 minutes runtime", source, normalized_value=37, qualifiers={})],
+            "explanation": "",
+        },
+        target=target,
+        source_text=source,
+    )
+    assert result.claims == []
+    assert result.warnings[0]["code"] == "unrelated_variant"
+
+
+def test_reworded_autogenerated_variant_label_still_requires_identity_dimensions():
+    target = {
+        "variant_name": "Region: US",
+        "model_family": "AX-4",
+        "product_name": "Clean Vacuum",
+        "identity_attributes": {"region": {"value": "US", "origin": "source"}},
+    }
+    source = "AX-4 US model: 37 minutes runtime"
+    result = validate_output(
+        {
+            "claims": [candidate("37 minutes runtime", source, normalized_value=37, qualifiers={})],
+            "explanation": "",
+        },
+        target=target,
+        source_text=source,
+    )
+    assert len(result.claims) == 1
