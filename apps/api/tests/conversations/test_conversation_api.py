@@ -14,7 +14,7 @@ from shopping.catalog.models import Product, ProductVariant, ProjectProduct
 from shopping.conversations import service
 from shopping.conversations.models import ConversationMessage, ProjectUpdateProposal
 from shopping.integrations.personal_ai.fake import FakePersonalAIClient
-from shopping.projects.models import ProjectRequirement
+from shopping.projects.models import ProjectRequirement, UserNote
 
 pytestmark = pytest.mark.db
 
@@ -291,6 +291,17 @@ def test_phase6_proposal_applies_decision_note_and_comparison_atomically(project
     project = create_project(client)
     first = add_project_product(engine, owner["id"], UUID(project["id"]), 1)
     second = add_project_product(engine, owner["id"], UUID(project["id"]), 2)
+    with Session(engine) as session:
+        session.add(
+            UserNote(
+                owner_id=owner["id"],
+                project_id=UUID(project["id"]),
+                project_product_id=first,
+                text="Existing rationale",
+                version=1,
+            )
+        )
+        session.commit()
     set_fake(
         client,
         FakePersonalAIClient(
@@ -306,6 +317,11 @@ def test_phase6_proposal_applies_decision_note_and_comparison_atomically(project
                         "operation": "add_note",
                         "project_product_id": str(first),
                         "text": "Measure the entryway before ordering.",
+                    },
+                    {
+                        "operation": "add_note",
+                        "project_product_id": str(first),
+                        "text": "Confirm the outlet location.",
                     },
                     {
                         "operation": "set_comparison_dimensions",
@@ -350,9 +366,9 @@ def test_phase6_proposal_applies_decision_note_and_comparison_atomically(project
         client.get(f"/projects/{project['id']}/products/{first}/decision").json()["state"]
         == "shortlisted"
     )
-    assert (
-        client.get(f"/projects/{project['id']}/products/{first}/notes").json()["text"]
-        == "Measure the entryway before ordering."
+    assert client.get(f"/projects/{project['id']}/products/{first}/notes").json()["text"] == (
+        "Existing rationale\n\nMeasure the entryway before ordering.\n\n"
+        "Confirm the outlet location."
     )
     comparisons = client.get(f"/projects/{project['id']}/comparisons").json()["items"]
     assert len(comparisons) == 1

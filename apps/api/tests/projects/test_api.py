@@ -4,6 +4,9 @@ from uuid import uuid4
 
 import pytest
 from sqlalchemy import text
+from sqlalchemy.orm import Session
+
+from shopping.projects.models import UserNote
 
 pytestmark = pytest.mark.db
 
@@ -96,6 +99,38 @@ def test_omission_null_and_failed_budget_update_preserve_state(project_api):
     assert cleared.status_code == 200
     assert cleared.json()["budget_maximum"] is None
     assert cleared.json()["budget_currency"] is None
+
+
+def test_legacy_project_note_is_visible_in_the_main_project_read(project_api):
+    client, owner, engine = project_api
+    project = _create_project(client).json()
+    with Session(engine) as session:
+        session.add(
+            UserNote(
+                owner_id=owner["id"],
+                project_id=project["id"],
+                project_product_id=None,
+                text="Keep existing Phase 5 rationale.",
+            )
+        )
+        session.commit()
+
+    current = client.get(f"/projects/{project['id']}")
+    assert current.status_code == 200
+    assert current.json()["notes"] == "Keep existing Phase 5 rationale."
+
+    updated = client.patch(
+        f"/projects/{project['id']}",
+        json={
+            "expected_version": 1,
+            "notes": "Keep existing Phase 5 rationale and confirm the door width.",
+        },
+    )
+    assert updated.status_code == 200
+    assert updated.json()["notes"] == "Keep existing Phase 5 rationale and confirm the door width."
+    note_read = client.get(f"/projects/{project['id']}/notes")
+    assert note_read.status_code == 200
+    assert note_read.json()["text"] == updated.json()["notes"]
 
 
 def test_revision_conflicts_prevent_project_and_requirement_partial_writes(project_api):

@@ -52,6 +52,8 @@ class DecisionEventRead(StrictModel):
     actor: Literal["owner", "assistant"]
     reason: str
     rejection_reason: RejectionReason | None
+    concerns: list[str] = Field(default_factory=list)
+    selected_offer_id: UUID | None = None
     project_version: int
     created_at: datetime
     replayed: bool = False

@@ -2,6 +2,8 @@ export interface PendingAttempt {
   text: string;
   requestKey: string;
   expectedVersion: number;
+  selectedProjectProductIds?: string[];
+  comparisonId?: string;
 }
 
 export function readPendingAttempt(projectId: string): PendingAttempt | null {

@@ -173,8 +173,8 @@ function ProductDetail({ product, variantId, projectId, projectProductId, setVar
       {projectId && projectProductId && projectQuery.data && (
         <section className="card product-project-state">
           <p className="eyebrow">This project’s decision</p>
-          <ProductDecisionActions project={projectQuery.data} projectProductId={projectProductId} />
-          <UserNoteEditor project={projectQuery.data} projectProductId={projectProductId} title="Product note" />
+          <ProductDecisionActions project={projectQuery.data} projectProductId={projectProductId} offers={offers} />
+          <UserNoteEditor key={`${projectId}:${projectProductId}`} project={projectQuery.data} projectProductId={projectProductId} title="Product note" />
         </section>
       )}
 

@@ -1,5 +1,5 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import {
@@ -14,6 +14,7 @@ import {
   projectsApi,
 } from "../../api/client";
 import { ProjectAssistant } from "../assistant/ProjectAssistant";
+import { EvidenceCitation } from "../assistant/EvidenceCitation";
 import { ProjectNavigation } from "../projects/ProjectNavigation";
 
 const DEFAULT_DIMENSION: ComparisonDimension = {
@@ -63,6 +64,18 @@ function statusLabel(status: string) {
   }
 }
 
+function sameStringArray(first: string[], second: string[]) {
+  return first.length === second.length && first.every((item, index) => item === second[index]);
+}
+
+function sameDimensions(first: ComparisonDimension[], second: ComparisonDimension[]) {
+  return first.length === second.length && first.every((item, index) => {
+    const other = second[index];
+    return item.key === other.key && item.label === other.label &&
+      (item.unit ?? null) === (other.unit ?? null) && item.dimension_type === other.dimension_type;
+  });
+}
+
 export function ComparisonPage() {
   const { projectId, comparisonId } = useParams();
   const navigate = useNavigate();
@@ -82,15 +95,19 @@ export function ComparisonPage() {
     enabled: Boolean(projectId),
     retry: false,
   });
-  const productsQuery = useQuery({
+  const productsQuery = useInfiniteQuery({
     queryKey: ["project-products", projectId],
-    queryFn: ({ signal }) => catalogApi.listProjectProducts(projectId!, 100, undefined, signal),
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ signal, pageParam }) => catalogApi.listProjectProducts(projectId!, 100, pageParam, signal),
+    getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
     enabled: Boolean(projectId && projectQuery.data),
     retry: false,
   });
-  const comparisonsQuery = useQuery({
+  const comparisonsQuery = useInfiniteQuery({
     queryKey: ["project-comparisons", projectId],
-    queryFn: ({ signal }) => comparisonsApi.list(projectId!, 50, undefined, signal),
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ signal, pageParam }) => comparisonsApi.list(projectId!, 50, pageParam, signal),
+    getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
     enabled: Boolean(projectId && projectQuery.data),
     retry: false,
   });
@@ -101,18 +118,40 @@ export function ComparisonPage() {
     retry: false,
   });
   const project = projectQuery.data;
-  const productPage = productsQuery.data as ProjectProductPage | undefined;
-  const products = productPage?.items ?? [];
+  const productPages = productsQuery.data?.pages as ProjectProductPage[] | undefined;
+  const products = useMemo(() => productPages?.flatMap((page) => page.items) ?? [], [productPages]);
   const currentComparison = comparisonQuery.data;
+  const loadedRoute = useRef<string | null>(null);
+  const comparisonChoices = useMemo(() => {
+    const byId = new Map<string, { id: string; canonical_name: string; brand: string | null; variant_name: string }>();
+    for (const item of products) byId.set(item.id, { id: item.id, canonical_name: item.canonical_name, brand: item.brand, variant_name: item.variant_name });
+    for (const item of currentComparison?.products ?? []) {
+      if (!byId.has(item.project_product_id)) byId.set(item.project_product_id, {
+        id: item.project_product_id,
+        canonical_name: item.canonical_name,
+        brand: item.brand,
+        variant_name: item.variant_name,
+      });
+    }
+    return [...byId.values()];
+  }, [currentComparison?.products, products]);
 
   useEffect(() => {
-    if (!currentComparison) return;
+    if (!comparisonId) {
+      if (loadedRoute.current !== null) {
+        setTitle("Product comparison");
+        setSelectedIds([]);
+        setDimensions([DEFAULT_DIMENSION]);
+      }
+      loadedRoute.current = null;
+      return;
+    }
+    if (!currentComparison || loadedRoute.current === `${projectId}:${comparisonId}`) return;
     setTitle(currentComparison.title);
     setSelectedIds(currentComparison.products.map((item) => item.project_product_id));
-    setDimensions((current) => currentComparison.dimensions.length > 0
-      ? currentComparison.dimensions.map(({ key, label, unit, dimension_type }) => ({ key, label, unit, dimension_type }))
-      : current);
-  }, [currentComparison]);
+    setDimensions(currentComparison.definition_dimensions.map(({ key, label, unit, dimension_type }) => ({ key, label, unit, dimension_type })));
+    loadedRoute.current = `${projectId}:${comparisonId}`;
+  }, [comparisonId, currentComparison, projectId]);
 
   const create = useMutation({
     mutationFn: () => {
@@ -214,6 +253,10 @@ export function ComparisonPage() {
     });
   }
 
+  function updateSavedDefinition() {
+    if (Object.keys(savedDefinitionPatch).length > 0) updateComparison(savedDefinitionPatch);
+  }
+
   if (!projectId) return null;
   if (projectQuery.isPending) return <main className="shell loading-page"><p role="status">Loading project…</p></main>;
   if (projectQuery.isError || !project) {
@@ -221,6 +264,18 @@ export function ComparisonPage() {
   }
 
   const selectedComparison = comparisonId ? currentComparison : undefined;
+  const savedComparisons = comparisonsQuery.data?.pages.flatMap((page) => page.items) ?? [];
+  const originalMemberIds = selectedComparison?.products.map((item) => item.project_product_id) ?? [];
+  const originalDimensions = selectedComparison?.definition_dimensions.map(
+    ({ key, label, unit, dimension_type }) => ({ key, label, unit, dimension_type }),
+  ) ?? [];
+  const savedDefinitionPatch = selectedComparison
+    ? {
+        ...(title.trim() !== selectedComparison.title ? { title: title.trim() } : {}),
+        ...(!sameStringArray(selectedIds, originalMemberIds) ? { project_product_ids: selectedIds } : {}),
+        ...(!sameDimensions(dimensions, originalDimensions) ? { dimensions } : {}),
+      }
+    : {};
   return (
     <main className="shell comparison-workspace-shell">
       <header className="app-header">
@@ -246,7 +301,7 @@ export function ComparisonPage() {
               <label className="field-label comparison-title-field">Comparison title<input value={title} maxLength={160} onChange={(event) => setTitle(event.target.value)} /></label>
               <fieldset className="comparison-product-picker">
                 <legend>Choose 2 to 6 exact variants</legend>
-                {products.map((item) => (
+                {comparisonChoices.map((item) => (
                   <label className="comparison-product-choice" key={item.id}>
                     <input
                       type="checkbox"
@@ -274,7 +329,8 @@ export function ComparisonPage() {
                 <label className="field-label">Unit (optional)<input value={dimensionUnit} maxLength={30} onChange={(event) => setDimensionUnit(event.target.value)} /></label>
                 <button className="button quiet-button" type="submit" disabled={!dimensionKey.trim() || !dimensionLabel.trim() || usedKeys.has(dimensionKey.trim()) || dimensions.length >= 20}>Add dimension</button>
               </form>
-              <button className="button primary-button" type="button" disabled={create.isPending || selectedIds.length < 2 || selectedIds.length > 6 || dimensions.length < 1} onClick={() => create.mutate()}>{create.isPending ? "Saving comparison…" : "Save comparison"}</button>
+                <button className="button primary-button" type="button" disabled={create.isPending || selectedIds.length < 2 || selectedIds.length > 6 || dimensions.length < 1} onClick={() => create.mutate()}>{create.isPending ? "Saving comparison…" : "Save comparison"}</button>
+                {productsQuery.hasNextPage && <button className="button quiet-button" type="button" disabled={productsQuery.isFetchingNextPage} onClick={() => void productsQuery.fetchNextPage()}>{productsQuery.isFetchingNextPage ? "Loading more variants…" : "Load more variants"}</button>}
             </>
           )}
           {error && <p className="field-error" role="alert">{error}</p>}
@@ -295,6 +351,42 @@ export function ComparisonPage() {
                   <button className="button quiet-button" type="button" disabled={remove.isPending} onClick={() => { if (window.confirm("Delete this saved comparison?")) remove.mutate(); }}>{remove.isPending ? "Deleting…" : "Delete comparison"}</button>
                 </div>
               </div>
+              <section className="comparison-builder comparison-definition-editor" aria-labelledby="comparison-definition-title">
+                <div className="section-heading"><div><p className="eyebrow">Saved definition</p><h3 id="comparison-definition-title">Edit variants and dimensions</h3></div></div>
+                <label className="field-label comparison-title-field">Comparison title<input value={title} maxLength={160} onChange={(event) => setTitle(event.target.value)} /></label>
+                <fieldset className="comparison-product-picker">
+                  <legend>Choose 2 to 6 exact variants</legend>
+                  {comparisonChoices.map((item) => (
+                    <label className="comparison-product-choice" key={item.id}>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(item.id)}
+                        disabled={!selectedIds.includes(item.id) && selectedIds.length >= 6}
+                        onChange={(event) => setSelectedIds((current) => event.target.checked
+                          ? [...current, item.id]
+                          : current.filter((id) => id !== item.id))}
+                      />
+                      <span><strong>{item.canonical_name}</strong><small>{[item.brand, item.variant_name].filter(Boolean).join(" · ")}</small></span>
+                    </label>
+                  ))}
+                </fieldset>
+                <ul className="dimension-chip-list" aria-label="Saved comparison dimensions">
+                  {dimensions.map((dimension) => <li key={dimension.key}><span>{dimension.label} · {dimension.dimension_type.replaceAll("_", " ")}</span><button type="button" aria-label={`Remove ${dimension.label} dimension`} onClick={() => setDimensions((current) => current.filter((item) => item.key !== dimension.key))}>×</button></li>)}
+                </ul>
+                <form className="comparison-dimension-form" onSubmit={addDimension}>
+                  <label className="field-label">Type<select value={dimensionType} onChange={(event) => setDimensionType(event.target.value as ComparisonDimension["dimension_type"])}><option value="fact">Catalog fact</option><option value="offer">Offer observation</option><option value="evidence">Evidence claim</option><option value="project_fit">Requirement fit</option><option value="user_note">User note</option></select></label>
+                  {dimensionType === "project_fit" ? (
+                    <label className="field-label">Requirement<select value={dimensionKey} onChange={(event) => { const req = project.requirements.find((item) => item.id === event.target.value); setDimensionKey(event.target.value); setDimensionLabel(req?.label ?? ""); }}><option value="">Choose a requirement</option>{project.requirements.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
+                  ) : (
+                    <label className="field-label">Attribute key<input value={dimensionKey} maxLength={100} placeholder={dimensionType === "evidence" ? "warranty" : "battery_runtime"} onChange={(event) => setDimensionKey(event.target.value)} /></label>
+                  )}
+                  <label className="field-label">Display label<input value={dimensionLabel} maxLength={100} placeholder="Warranty" onChange={(event) => setDimensionLabel(event.target.value)} /></label>
+                  <label className="field-label">Unit (optional)<input value={dimensionUnit} maxLength={30} onChange={(event) => setDimensionUnit(event.target.value)} /></label>
+                  <button className="button quiet-button" type="submit" disabled={!dimensionKey.trim() || !dimensionLabel.trim() || usedKeys.has(dimensionKey.trim()) || dimensions.length >= 20}>Add dimension</button>
+                </form>
+                <button className="button primary-button" type="button" disabled={update.isPending || selectedIds.length < 2 || selectedIds.length > 6 || dimensions.length < 1 || !title.trim() || Object.keys(savedDefinitionPatch).length === 0} onClick={updateSavedDefinition}>{update.isPending ? "Saving definition…" : "Save comparison definition"}</button>
+                {productsQuery.hasNextPage && <button className="button quiet-button" type="button" disabled={productsQuery.isFetchingNextPage} onClick={() => void productsQuery.fetchNextPage()}>{productsQuery.isFetchingNextPage ? "Loading more variants…" : "Load more variants"}</button>}
+              </section>
               {selectedComparison.stale && <div className="notice stale-comparison-notice"><strong>This comparison is stale.</strong><span>Project requirements, saved decisions, catalog offers, product facts, notes, or evidence changed after this snapshot. Regenerate to create a new saved version.</span></div>}
               {selectedComparison.display_mode === "differences" && (selectedComparison.hidden_equal_dimensions ?? 0) > 0 && <p className="quiet-state">{selectedComparison.hidden_equal_dimensions} dimension{selectedComparison.hidden_equal_dimensions === 1 ? "" : "s"} with equally known values hidden.</p>}
               {selectedComparison.dimensions.length === 0 ? (
@@ -316,9 +408,12 @@ export function ComparisonPage() {
                                   {(cell.value as Array<Record<string, unknown>>).map((claim) => (
                                     <li key={String(claim.claim_id)}>
                                       <p>{String(claim.assertion ?? "Claim text unavailable")}</p>
-                                      <small>{String(claim.source_title ?? "Source title unknown")} · {String(claim.freshness ?? "freshness unknown")}</small>
+                                      <small>{String(claim.evidence_category ?? "evidence type unknown").replaceAll("_", " ")} · {String(claim.source_title ?? "Source title unknown")} · {String(claim.freshness ?? "freshness unknown")}</small>
+                                      {typeof claim.evidence_excerpt === "string" && <blockquote>{claim.evidence_excerpt}</blockquote>}
+                                      {claim.qualifiers !== undefined && claim.qualifiers !== null && <details><summary>Recorded qualifiers</summary><pre>{JSON.stringify(claim.qualifiers, null, 2)}</pre></details>}
                                       {typeof claim.source_url === "string" && <a href={claim.source_url} target="_blank" rel="noopener noreferrer">Open source<span className="sr-only"> (opens in a new tab)</span></a>}
                                       <small>Claim {String(claim.claim_id).slice(0, 8)} · snapshot {String(claim.snapshot_id).slice(0, 8)}</small>
+                                      <EvidenceCitation projectId={project.id} claimId={String(claim.claim_id)} />
                                     </li>
                                   ))}
                                 </ul>
@@ -328,8 +423,14 @@ export function ComparisonPage() {
                               {dimension.dimension_type === "offer" && typeof cell.value === "object" && cell.value !== null && (
                                 <small className="comparison-offer-meta">{String((cell.value as Record<string, unknown>).retailer ?? "Retailer unknown")} · observed {new Date(String((cell.value as Record<string, unknown>).observed_at)).toLocaleString()}</small>
                               )}
+                              {dimension.dimension_type === "offer" && typeof cell.value === "object" && cell.value !== null && (
+                                <details><summary>Offer source</summary><p>Offer {String(cell.provenance?.offer_id ?? "unknown")} · observation {String(cell.provenance?.observation_id ?? "not recorded")}</p><p>{String((cell.value as Record<string, unknown>).condition ?? "condition unknown")} · {String((cell.value as Record<string, unknown>).availability ?? "availability unknown")}</p>{typeof (cell.value as Record<string, unknown>).url === "string" && <a href={String((cell.value as Record<string, unknown>).url)} target="_blank" rel="noopener noreferrer">Open retailer page<span className="sr-only"> (opens in a new tab)</span></a>}</details>
+                              )}
+                              {dimension.dimension_type === "fact" && cell.provenance && Object.keys(cell.provenance).length > 0 && (
+                                <details><summary>Fact source</summary><p>Origin: {String(cell.provenance.attribute_origin ?? "unknown")}</p><p>Product revision {String(cell.provenance.product_revision ?? "unknown")} · variant revision {String(cell.provenance.variant_revision ?? "unknown")}</p>{cell.provenance.observation_id !== undefined && cell.provenance.observation_id !== null && <p>Observation {String(cell.provenance.observation_id)}</p>}{cell.provenance.correction_event_id !== undefined && cell.provenance.correction_event_id !== null && <p>Correction {String(cell.provenance.correction_event_id)}</p>}</details>
+                              )}
                               {dimension.dimension_type === "project_fit" && typeof cell.value === "object" && cell.value !== null && <p>{String((cell.value as Record<string, unknown>).rationale ?? "Fit rationale is unknown.")}</p>}
-                              {dimension.dimension_type === "project_fit" && Array.isArray(cell.provenance?.claim_ids) && cell.provenance.claim_ids.length > 0 && <Link className="comparison-inspect-link" to={productHref(project.id, selectedComparison, cell.project_product_id) ?? "#"}>Inspect cited evidence ({cell.provenance.claim_ids.length})</Link>}
+                              {dimension.dimension_type === "project_fit" && typeof cell.provenance?.assessment_id === "string" && <details><summary>Inspect saved fit assessment</summary><p>Assessment {cell.provenance.assessment_id} · captured at project revision {String(cell.provenance.assessment_project_revision ?? "unknown")}</p><p>Product revision {String(cell.provenance.product_revision ?? "unknown")} · variant revision {String(cell.provenance.variant_revision ?? "unknown")}</p>{Array.isArray(cell.provenance.snapshot_ids) && <p>Source snapshots: {cell.provenance.snapshot_ids.map(String).join(" · ")}</p>}{Array.isArray(cell.provenance.claim_ids) && cell.provenance.claim_ids.map((claimId) => <EvidenceCitation key={String(claimId)} projectId={project.id} claimId={String(claimId)} />)}</details>}
                             </td>
                           ))}
                         </tr>
@@ -344,14 +445,15 @@ export function ComparisonPage() {
         </section>
       )}
 
-      {comparisonsQuery.data?.items.length ? (
+      {savedComparisons.length ? (
         <section className="card saved-comparison-list" aria-labelledby="saved-comparisons-heading">
           <div className="section-heading"><div><p className="eyebrow">Persisted project views</p><h2 id="saved-comparisons-heading">Saved comparisons</h2></div></div>
-          <ul>{comparisonsQuery.data.items.map((item) => <li key={item.id}><Link to={`/projects/${project.id}/compare/${item.id}`}>{item.title}</Link><span>{item.products.length} variants · {item.stale ? "stale" : "current"}</span></li>)}</ul>
+          <ul>{savedComparisons.map((item) => <li key={item.id}><Link to={`/projects/${project.id}/compare/${item.id}`}>{item.title}</Link><span>{item.products.length} variants · {item.stale ? "stale" : "current"}</span></li>)}</ul>
+          {comparisonsQuery.hasNextPage && <button className="button quiet-button" type="button" disabled={comparisonsQuery.isFetchingNextPage} onClick={() => void comparisonsQuery.fetchNextPage()}>{comparisonsQuery.isFetchingNextPage ? "Loading more…" : "Load more comparisons"}</button>}
         </section>
       ) : null}
       {comparisonsQuery.isError && <p className="field-error" role="alert">Saved comparisons could not load: {readableError(comparisonsQuery.error)}</p>}
-      <ProjectAssistant project={project} />
+      <ProjectAssistant project={project} selectedProjectProductIds={comparisonId ? undefined : selectedIds} comparisonId={comparisonId} />
     </main>
   );
 }

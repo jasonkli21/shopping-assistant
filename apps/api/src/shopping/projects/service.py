@@ -7,12 +7,13 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from shopping.projects import repository
 from shopping.projects.errors import ProjectError
-from shopping.projects.models import ProjectRequirement, ShoppingProject
+from shopping.projects.models import ProjectRequirement, ShoppingProject, UserNote
 from shopping.projects.schemas import (
     ProjectCreate,
     ProjectPage,
@@ -102,6 +103,18 @@ def patch_project(
     maximum = changes.get("budget_maximum", project.budget_maximum)
     currency = changes.get("budget_currency", project.budget_currency)
     _validate_budget_or_raise(target, maximum, currency)
+    if "notes" in changes:
+        legacy_note = session.scalar(
+            select(UserNote)
+            .where(
+                UserNote.owner_id == owner_id,
+                UserNote.project_id == project.id,
+                UserNote.project_product_id.is_(None),
+            )
+            .with_for_update()
+        )
+        if legacy_note is not None:
+            session.delete(legacy_note)
     for name, value in changes.items():
         setattr(project, name, value)
     _advance_revision(project)
@@ -425,8 +438,17 @@ def _commit(session: Session) -> None:
 
 
 def _project_read(session: Session, project: ShoppingProject) -> ProjectRead:
+    # `ShoppingProject.notes` is the project note shown in the main workspace.
+    # Merge a legacy Phase 6 project-level UserNote into that field so older
+    # saved text remains visible through the same editing surface.
+    from shopping.projects.notes import get_note
+
+    project_note = get_note(session, project.owner_id, project.id)
+    data = _summary_data(project)
+    if project_note is not None:
+        data["notes"] = project_note.text
     return ProjectRead(
-        **_summary_data(project),
+        **data,
         requirements=[
             _requirement_read(requirement)
             for requirement in repository.ordered_requirements(session, project.id)

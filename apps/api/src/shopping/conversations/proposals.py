@@ -122,7 +122,7 @@ def apply_proposal(
                 text = operation.get("text")
                 if not isinstance(text, str) or not 1 <= len(text.strip()) <= 10000:
                     raise ProjectError(409, "proposal_invalid", "A proposed note is invalid.")
-                note_service.put_note_locked(session, project, owner_id, target, text.strip())
+                note_service.append_note_locked(session, project, owner_id, target, text.strip())
             elif kind == "set_comparison_dimensions":
                 continue
             else:

@@ -32,6 +32,7 @@ export type CatalogCorrectionRead = components["schemas"]["CatalogCorrectionRead
 export type ProjectProductPage = components["schemas"]["ProjectProductPage"];
 export type ProductRead = components["schemas"]["ProductRead"];
 export type OfferPage = components["schemas"]["OfferPage"];
+export type OfferRead = components["schemas"]["OfferRead"];
 export type CatalogVariantChoicePage = components["schemas"]["CatalogVariantChoicePage"];
 export type ProjectProductResearchRead = components["schemas"]["ProjectProductResearchRead"];
 export type ClaimDetailRead = components["schemas"]["ClaimDetailRead"];
@@ -308,10 +309,16 @@ export const catalogApi = {
 };
 
 export const decisionsApi = {
-  listShortlist: (projectId: string, signal?: AbortSignal) =>
-    request<DecisionPage>(`/projects/${projectId}/shortlist`, { signal }),
-  listRejections: (projectId: string, signal?: AbortSignal) =>
-    request<DecisionPage>(`/projects/${projectId}/rejections`, { signal }),
+  listShortlist: (projectId: string, limit = 50, cursor?: string, signal?: AbortSignal) => {
+    const query = new URLSearchParams({ limit: String(limit) });
+    if (cursor) query.set("cursor", cursor);
+    return request<DecisionPage>(`/projects/${projectId}/shortlist?${query.toString()}`, { signal });
+  },
+  listRejections: (projectId: string, limit = 50, cursor?: string, signal?: AbortSignal) => {
+    const query = new URLSearchParams({ limit: String(limit) });
+    if (cursor) query.set("cursor", cursor);
+    return request<DecisionPage>(`/projects/${projectId}/rejections?${query.toString()}`, { signal });
+  },
   get: (projectId: string, projectProductId: string, signal?: AbortSignal) =>
     request<DecisionRead>(
       `/projects/${projectId}/products/${projectProductId}/decision`,

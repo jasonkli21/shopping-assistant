@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { ApiRequestError, Project, notesApi } from "../../api/client";
+import { invalidateProjectWorkspace } from "../assistant/workspace-cache";
 
 export function UserNoteEditor({
   project,
@@ -14,6 +15,8 @@ export function UserNoteEditor({
 }) {
   const queryClient = useQueryClient();
   const noteKey = ["user-note", project.id, projectProductId ?? "project"] as const;
+  const targetKey = `${project.id}:${projectProductId ?? "project"}`;
+  const activeTarget = useRef(targetKey);
   const noteQuery = useQuery({
     queryKey: noteKey,
     queryFn: ({ signal }) => notesApi.get(project.id, projectProductId, signal),
@@ -25,52 +28,62 @@ export function UserNoteEditor({
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
+    if (activeTarget.current === targetKey) return;
+    activeTarget.current = targetKey;
+    setDraft("");
+    setEdited(false);
+    setError("");
+    setSaved(false);
+  }, [targetKey]);
+
+  useEffect(() => {
     if (!edited && noteQuery.isSuccess) setDraft(noteQuery.data?.text ?? "");
   }, [edited, noteQuery.data, noteQuery.isSuccess]);
 
   const save = useMutation({
-    mutationFn: () => notesApi.put(project.id, {
-      expected_version: project.revision,
-      text: draft.trim(),
-    }, projectProductId),
-    onSuccess: async ({ note }) => {
-      queryClient.setQueryData(noteKey, note);
-      setDraft(note.text);
-      setEdited(false);
-      setSaved(true);
-      setError("");
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["project", project.id] }),
-        queryClient.invalidateQueries({ queryKey: ["project-comparisons", project.id] }),
-      ]);
+    mutationFn: (variables: { projectId: string; projectProductId?: string; expectedVersion: number; text: string; targetKey: string }) => notesApi.put(variables.projectId, {
+      expected_version: variables.expectedVersion,
+      text: variables.text,
+    }, variables.projectProductId),
+    onSuccess: async ({ note }, variables) => {
+      queryClient.setQueryData(["user-note", variables.projectId, variables.projectProductId ?? "project"], note);
+      if (activeTarget.current === variables.targetKey) {
+        setDraft(note.text);
+        setEdited(false);
+        setSaved(true);
+        setError("");
+      }
+      await invalidateProjectWorkspace(queryClient, variables.projectId);
     },
-    onError: (caught) => {
-      setSaved(false);
-      setError(caught instanceof Error ? caught.message : "Your note could not be saved.");
+    onError: (caught, variables) => {
+      if (activeTarget.current === variables.targetKey) {
+        setSaved(false);
+        setError(caught instanceof Error ? caught.message : "Your note could not be saved.");
+      }
       if (caught instanceof ApiRequestError && caught.status === 409) {
-        void queryClient.invalidateQueries({ queryKey: ["project", project.id] });
-        void noteQuery.refetch();
+        void invalidateProjectWorkspace(queryClient, variables.projectId);
       }
     },
   });
 
   const remove = useMutation({
-    mutationFn: () => notesApi.delete(project.id, project.revision, projectProductId),
-    onSuccess: async () => {
-      queryClient.setQueryData(noteKey, null);
-      setDraft("");
-      setEdited(false);
-      setSaved(false);
-      setError("");
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["project", project.id] }),
-        queryClient.invalidateQueries({ queryKey: ["project-comparisons", project.id] }),
-      ]);
+    mutationFn: (variables: { projectId: string; projectProductId?: string; expectedVersion: number; targetKey: string }) => notesApi.delete(variables.projectId, variables.expectedVersion, variables.projectProductId),
+    onSuccess: async (_result, variables) => {
+      queryClient.setQueryData(["user-note", variables.projectId, variables.projectProductId ?? "project"], null);
+      if (activeTarget.current === variables.targetKey) {
+        setDraft("");
+        setEdited(false);
+        setSaved(false);
+        setError("");
+      }
+      await invalidateProjectWorkspace(queryClient, variables.projectId);
     },
-    onError: (caught) => {
-      setError(caught instanceof Error ? caught.message : "Your note could not be deleted.");
+    onError: (caught, variables) => {
+      if (activeTarget.current === variables.targetKey) {
+        setError(caught instanceof Error ? caught.message : "Your note could not be deleted.");
+      }
       if (caught instanceof ApiRequestError && caught.status === 409) {
-        void queryClient.invalidateQueries({ queryKey: ["project", project.id] });
+        void invalidateProjectWorkspace(queryClient, variables.projectId);
       }
     },
   });
@@ -102,7 +115,7 @@ export function UserNoteEditor({
           className="button quiet-button small-button"
           type="button"
           disabled={busy || !draft.trim() || !edited}
-          onClick={() => save.mutate()}
+          onClick={() => save.mutate({ projectId: project.id, projectProductId, expectedVersion: project.revision, text: draft.trim(), targetKey })}
         >
           {save.isPending ? "Saving…" : "Save note"}
         </button>
@@ -111,7 +124,7 @@ export function UserNoteEditor({
             className="button quiet-button small-button"
             type="button"
             disabled={busy}
-            onClick={() => remove.mutate()}
+            onClick={() => remove.mutate({ projectId: project.id, projectProductId, expectedVersion: project.revision, targetKey })}
           >
             {remove.isPending ? "Removing…" : "Delete note"}
           </button>

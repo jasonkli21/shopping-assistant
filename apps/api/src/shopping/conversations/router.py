@@ -76,6 +76,8 @@ async def create_message(
                 text=command.text,
                 request_key=command.request_key,
                 expected_version=command.expected_version,
+                selected_project_product_ids=command.selected_project_product_ids,
+                comparison_id=command.comparison_id,
                 slot_reserver=reserve_slot,
             )
 

@@ -189,7 +189,9 @@ class ProjectProductDecision(Base):
     state: Mapped[str] = mapped_column(String(16), nullable=False, default="considering")
     reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
     rejection_reason: Mapped[str | None] = mapped_column(String(24))
-    concerns: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    concerns: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
     selected_offer_id: Mapped[UUID | None] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("retail_offers.id", ondelete="SET NULL")
     )
@@ -221,6 +223,9 @@ class DecisionEvent(Base):
         CheckConstraint(
             "char_length(request_key) BETWEEN 8 AND 100", name="ck_decision_event_request_key"
         ),
+        CheckConstraint(
+            "octet_length(concerns::text) <= 12000", name="ck_decision_event_concerns_size"
+        ),
         UniqueConstraint(
             "owner_id",
             "project_id",
@@ -247,6 +252,10 @@ class DecisionEvent(Base):
     actor: Mapped[str] = mapped_column(String(16), nullable=False)
     reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
     rejection_reason: Mapped[str | None] = mapped_column(String(24))
+    concerns: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    selected_offer_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("retail_offers.id", ondelete="SET NULL")
+    )
     project_version: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

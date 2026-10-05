@@ -1,12 +1,14 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   ApiRequestError,
   DecisionCommand,
+  OfferRead,
   Project,
   decisionsApi,
 } from "../../api/client";
+import { invalidateProjectWorkspace } from "../assistant/workspace-cache";
 
 const rejectionReasons = [
   ["too_expensive", "Too expensive"],
@@ -30,13 +32,20 @@ function errorMessage(error: unknown) {
 export function ProductDecisionActions({
   project,
   projectProductId,
+  offers,
 }: {
   project: Project;
   projectProductId: string;
+  offers?: OfferRead[];
 }) {
   const queryClient = useQueryClient();
   const [rejectionReason, setRejectionReason] = useState<DecisionCommand["rejection_reason"]>("other");
   const [reason, setReason] = useState("");
+  const [reasonEdited, setReasonEdited] = useState(false);
+  const [concernDraft, setConcernDraft] = useState("");
+  const [concernsEdited, setConcernsEdited] = useState(false);
+  const [offerDraft, setOfferDraft] = useState<string | null>(null);
+  const [offerEdited, setOfferEdited] = useState(false);
   const [error, setError] = useState("");
   const decisionKey = ["decision", project.id, projectProductId] as const;
   const decisionQuery = useQuery({
@@ -44,6 +53,15 @@ export function ProductDecisionActions({
     queryFn: ({ signal }) => decisionsApi.get(project.id, projectProductId, signal),
     retry: false,
   });
+  const decision = decisionQuery.data;
+
+  useEffect(() => {
+    if (!reasonEdited) setReason(decision?.reason ?? "");
+  }, [decision?.reason, reasonEdited]);
+
+  useEffect(() => {
+    if (!concernsEdited) setConcernDraft(decision?.concerns.join("\n") ?? "");
+  }, [decision?.concerns, concernsEdited]);
 
   const mutation = useMutation({
     mutationFn: ({ state, command }: { state: "shortlisted" | "rejected" | "considering" | "purchased" | "set_purchased"; command: DecisionCommand }) => {
@@ -60,13 +78,10 @@ export function ProductDecisionActions({
     },
     onSuccess: async () => {
       setError("");
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: decisionKey }),
-        queryClient.invalidateQueries({ queryKey: ["project", project.id] }),
-        queryClient.invalidateQueries({ queryKey: ["shortlist", project.id] }),
-        queryClient.invalidateQueries({ queryKey: ["rejections", project.id] }),
-        queryClient.invalidateQueries({ queryKey: ["project-comparisons", project.id] }),
-      ]);
+      setReasonEdited(false);
+      setConcernsEdited(false);
+      setOfferEdited(false);
+      await invalidateProjectWorkspace(queryClient, project.id);
     },
     onError: (caught) => {
       setError(errorMessage(caught));
@@ -81,9 +96,12 @@ export function ProductDecisionActions({
     const command: DecisionCommand = {
       expected_version: project.revision,
       request_key: requestKey(),
-      reason: reason.trim(),
+      reason: reasonEdited ? reason.trim() : decision?.reason ?? "",
       ...(state === "rejected" ? { rejection_reason: selectedReason ?? "other" } : {}),
-      concerns: [],
+      concerns: concernsEdited
+        ? concernDraft.split("\n").map((item) => item.trim()).filter(Boolean).slice(0, 20)
+        : decision?.concerns ?? [],
+      selected_offer_id: offerEdited ? offerDraft : decision?.selected_offer_id ?? null,
     };
     mutation.mutate({ state, command });
   }
@@ -93,7 +111,6 @@ export function ProductDecisionActions({
     send("rejected", rejectionReason);
   }
 
-  const decision = decisionQuery.data;
   const busy = mutation.isPending;
   return (
     <section className="decision-actions" aria-label="Product decision">
@@ -107,6 +124,37 @@ export function ProductDecisionActions({
             Decision: <strong>{decision?.state.replaceAll("_", " ") ?? "considering"}</strong>
             {decision?.rejection_reason && ` · ${rejectionReasons.find(([key]) => key === decision.rejection_reason)?.[1] ?? decision.rejection_reason}`}
           </p>
+          <label className="field-label">
+            Rationale
+            <textarea value={reason} maxLength={2000} onChange={(event) => { setReason(event.target.value); setReasonEdited(true); }} disabled={busy} />
+          </label>
+          <label className="field-label">
+            Concerns <span className="optional">One per line</span>
+            <textarea
+              value={concernDraft}
+              rows={2}
+              onChange={(event) => { setConcernDraft(event.target.value); setConcernsEdited(true); }}
+              disabled={busy}
+            />
+          </label>
+          {offers && offers.length > 0 && (
+            <label className="field-label">
+              Selected offer
+              <select
+                value={offerEdited ? offerDraft ?? "" : decision?.selected_offer_id ?? ""}
+                onChange={(event) => { setOfferDraft(event.target.value || null); setOfferEdited(true); }}
+                disabled={busy}
+              >
+                <option value="">No selected offer</option>
+                {decision?.selected_offer_id && !offers.some((offer) => offer.id === decision.selected_offer_id) && (
+                  <option value={decision.selected_offer_id}>
+                    Saved offer {decision.selected_offer_id.slice(0, 8)} (not in current list)
+                  </option>
+                )}
+                {offers.map((offer) => <option key={offer.id} value={offer.id}>{offer.retailer_name} · {offer.amount && offer.currency ? `${offer.currency} ${offer.amount}` : "Price unknown"}</option>)}
+              </select>
+            </label>
+          )}
           {decision?.state === "purchased" ? (
             <button className="button quiet-button small-button" type="button" disabled={busy} onClick={() => send("considering")}>
               {busy ? "Saving…" : "Undo purchased state"}
@@ -146,10 +194,6 @@ export function ProductDecisionActions({
                     {rejectionReasons.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                   </select>
                 </label>
-                <label className="field-label">
-                  Note (optional)
-                  <textarea value={reason} maxLength={2000} onChange={(event) => setReason(event.target.value)} disabled={busy} />
-                </label>
                 <button className="button quiet-button small-button" type="submit" disabled={busy}>
                   {busy ? "Saving…" : "Save rejection"}
                 </button>
@@ -165,6 +209,8 @@ export function ProductDecisionActions({
                     <span>{event.from_state} → {event.to_state}</span>
                     <small>{event.actor === "assistant" ? "Assistant suggestion applied" : "You"} · {new Date(event.created_at).toLocaleString()}</small>
                     {event.reason && <small>{event.reason}</small>}
+                    {event.concerns?.length ? <small>Concerns: {event.concerns.join(" · ")}</small> : null}
+                    {event.selected_offer_id && <small>Selected offer: {event.selected_offer_id}</small>}
                   </li>
                 ))}
               </ol>

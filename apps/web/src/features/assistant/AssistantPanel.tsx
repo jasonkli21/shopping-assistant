@@ -5,9 +5,12 @@ import { ApiRequestError, MessagePage, MessageRead, Project, ProposalRead, proje
 import { PendingAttempt, clearPendingAttempt, persistPendingAttempt, readPendingAttempt } from "./attempt-storage";
 import { handleStreamEvent, messageKey } from "./conversation-cache";
 import { ProposalCard } from "./ProposalCard";
+import { EvidenceCitation } from "./EvidenceCitation";
 
 interface AssistantPanelProps {
   project: Project;
+  selectedProjectProductIds?: string[];
+  comparisonId?: string;
   blocked?: boolean;
   onProjectUpdate: (project: Project, replayed: boolean) => void;
   onRevisionConflict: (error: unknown) => Promise<unknown>;
@@ -16,6 +19,8 @@ interface AssistantPanelProps {
 
 export function AssistantPanel({
   project,
+  selectedProjectProductIds,
+  comparisonId,
   blocked = false,
   onProjectUpdate,
   onRevisionConflict,
@@ -123,6 +128,8 @@ export function AssistantPanel({
       text: draft.trim(),
       requestKey: crypto.randomUUID(),
       expectedVersion: project.revision,
+      selectedProjectProductIds,
+      comparisonId,
     };
     setPendingAttempt(attempt);
     persistPendingAttempt(project.id, attempt);
@@ -138,6 +145,8 @@ export function AssistantPanel({
         text: attempt.text,
         request_key: attempt.requestKey,
         expected_version: attempt.expectedVersion,
+        selected_project_product_ids: attempt.selectedProjectProductIds ?? [],
+        comparison_id: attempt.comparisonId ?? null,
       });
       clearPendingAttempt(project.id);
       setPendingAttempt(null);
@@ -341,6 +350,11 @@ export function AssistantPanel({
               <article key={message.id} className={`assistant-message assistant-message-${message.role}`}>
                 <p className="assistant-message-label">{message.role === "user" ? "You" : "Assistant"}</p>
                 {message.text ? <p className="assistant-message-text">{message.text}</p> : null}
+                {message.role === "assistant" && message.citation_ids?.length ? (
+                  <div className="assistant-citations" aria-label="Cited evidence">
+                    {message.citation_ids.map((claimId) => <EvidenceCitation key={claimId} projectId={project.id} claimId={claimId} />)}
+                  </div>
+                ) : null}
                 {message.role === "assistant" && message.status === "generating" && (
                   <p className="assistant-pending" role="status">{streaming && activeMessageId === message.id ? "Preparing suggestions…" : "Response in progress"}</p>
                 )}

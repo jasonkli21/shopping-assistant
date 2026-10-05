@@ -145,6 +145,7 @@ AssistantOperation = Annotated[
 class InterpretationOutput(StrictModel):
     assistant_message: str = Field(min_length=1, max_length=6000)
     clarification_questions: list[str] = Field(default_factory=list, max_length=5)
+    citation_ids: list[UUID] = Field(default_factory=list, max_length=30)
     project_updates: IntentProjectUpdates = Field(default_factory=IntentProjectUpdates)
     requirement_operations: list[RequirementOperation] = Field(default_factory=list, max_length=20)
     operations: list[AssistantOperation] = Field(default_factory=list, max_length=20)
@@ -195,11 +196,15 @@ class MessageCreate(StrictModel):
     text: str = Field(min_length=1, max_length=8000)
     request_key: str = Field(min_length=8, max_length=100)
     expected_version: int = Field(ge=1)
+    selected_project_product_ids: list[UUID] = Field(default_factory=list, max_length=6)
+    comparison_id: UUID | None = None
 
     @model_validator(mode="after")
     def nonblank_text(self) -> MessageCreate:
         if not self.text:
             raise ValueError("text must contain non-whitespace characters")
+        if len(self.selected_project_product_ids) != len(set(self.selected_project_product_ids)):
+            raise ValueError("assistant scope products must be unique")
         return self
 
 
@@ -236,6 +241,7 @@ class MessageRead(StrictModel):
     sequence: int
     error_code: str | None
     clarification_questions: list[str] = Field(default_factory=list)
+    citation_ids: list[UUID] = Field(default_factory=list)
     created_at: datetime
     completed_at: datetime | None
     proposal: ProposalRead | None = None

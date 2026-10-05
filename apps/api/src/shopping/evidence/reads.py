@@ -49,6 +49,28 @@ def freshness(
     return "stale" if now - date > limit else "current"
 
 
+def assessment_context_stale(assessment, project, product, variant) -> bool:
+    """Check changes to the inputs used by a fit assessment, not the project write counter."""
+    requirements = [
+        {
+            "id": str(item.id),
+            "kind": item.kind,
+            "label": item.label,
+            "detail": item.detail,
+            "attribute_key": item.attribute_key,
+            "operator": item.operator,
+            "value": item.value,
+            "unit": item.unit,
+        }
+        for item in sorted(project.requirements, key=lambda item: (item.position, str(item.id)))
+    ]
+    return (
+        requirements != assessment.requirements_snapshot
+        or assessment.product_revision != product.revision
+        or assessment.variant_revision != variant.revision
+    )
+
+
 def _member(
     session: Session, owner_id: UUID, project_id: UUID, project_product_id: UUID
 ) -> tuple[ShoppingProject, ProjectProduct, ProductVariant, Product]:
@@ -161,11 +183,7 @@ def project_product_research(
             product_revision=item.product_revision,
             variant_revision=item.variant_revision,
             generated_at=item.generated_at,
-            context_stale=(
-                item.project_revision != project.revision
-                or item.product_revision != product.revision
-                or item.variant_revision != variant.revision
-            ),
+            context_stale=(assessment_context_stale(item, project, product, variant)),
             summary=item.summary,
             conclusions=item.conclusions,
             uncertainties=item.uncertainties,
@@ -332,17 +350,17 @@ def claim_detail(
     if row is None:
         raise _not_found("Claim not found in this project")
     claim, evidence, snapshot, source = row
+    # Reused owner evidence can be cited in a new project without another fetch.
+    # The exact variant must still belong to the live project, and the claim,
+    # source, and snapshot must all belong to this owner.
     authorized = session.scalar(
-        select(ResearchRunSource.id)
-        .join(ResearchRun, ResearchRun.id == ResearchRunSource.research_run_id)
-        .join(ProjectProduct, ProjectProduct.id == ResearchRunSource.project_product_id)
+        select(ProjectProduct.id)
+        .join(ProductVariant, ProductVariant.id == ProjectProduct.variant_id)
+        .join(Product, Product.id == ProductVariant.product_id)
         .where(
-            ResearchRun.owner_id == owner_id,
-            ResearchRun.project_id == project_id,
-            ResearchRunSource.owner_id == owner_id,
-            ResearchRunSource.snapshot_id == claim.snapshot_id,
             ProjectProduct.project_id == project_id,
             ProjectProduct.variant_id == claim.subject_variant_id,
+            Product.owner_id == owner_id,
         )
     )
     if authorized is None:

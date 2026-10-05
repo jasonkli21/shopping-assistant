@@ -71,6 +71,27 @@ class FakePersonalAIClient(PersonalAIClient):
         lowered = message.lower()
         current_state = current_state or {}
         products = current_state.get("products", [])
+        scope = current_state.get("scope", {})
+        scoped_ids = scope.get("project_product_ids", []) if isinstance(scope, dict) else []
+        scoped_products = [
+            product for product in products if product.get("project_product_id") in scoped_ids
+        ]
+        if any(
+            token in lowered
+            for token in ("shortlist", "short list", "reject", "add a note", "note that")
+        ):
+            if len(scoped_products) != 1:
+                return {
+                    "assistant_message": (
+                        "I need the exact variant before I can prepare that change."
+                    ),
+                    "clarification_questions": [
+                        "Which exact project variant should I update? Select one variant, "
+                        "then ask again."
+                    ],
+                    "project_updates": {},
+                    "requirement_operations": [],
+                }
         if self.scenario == "malformed":
             return {
                 "assistant_message": "Here is an incomplete proposal",
@@ -122,19 +143,19 @@ class FakePersonalAIClient(PersonalAIClient):
                 "requirement_operations": [],
             }
 
-        if products and ("shortlist" in lowered or "short list" in lowered):
+        if scoped_products and ("shortlist" in lowered or "short list" in lowered):
             return {
                 "assistant_message": "I prepared a shortlist suggestion for your review.",
                 "operations": [
                     {
                         "operation": "shortlist",
-                        "project_product_id": products[0]["project_product_id"],
+                        "project_product_id": scoped_products[0]["project_product_id"],
                         "reason": "Selected for further consideration.",
                     }
                 ],
             }
 
-        if products and "reject" in lowered:
+        if scoped_products and "reject" in lowered:
             rejection_reason = next(
                 (
                     reason
@@ -157,7 +178,7 @@ class FakePersonalAIClient(PersonalAIClient):
                 "operations": [
                     {
                         "operation": "reject",
-                        "project_product_id": products[0]["project_product_id"],
+                        "project_product_id": scoped_products[0]["project_product_id"],
                         "rejection_reason": rejection_reason,
                         "reason": message[:500],
                     }
@@ -165,7 +186,19 @@ class FakePersonalAIClient(PersonalAIClient):
             }
 
         if products and ("compare" in lowered or "differences" in lowered):
-            selected = products[: min(3, len(products))]
+            if len(scoped_products) < 2:
+                return {
+                    "assistant_message": (
+                        "I need the exact variants before I can prepare a comparison."
+                    ),
+                    "clarification_questions": [
+                        "Select at least two project variants, or tell me which variants "
+                        "to compare."
+                    ],
+                    "project_updates": {},
+                    "requirement_operations": [],
+                }
+            selected = scoped_products
             dimensions = []
             if "warranty" in lowered:
                 dimensions.append(
@@ -195,17 +228,34 @@ class FakePersonalAIClient(PersonalAIClient):
                         "display_mode": "differences"
                         if "difference" in lowered or "meaningful" in lowered
                         else "all",
+                        **(
+                            {
+                                "comparison_id": scope["comparison_id"],
+                                "expected_comparison_version": next(
+                                    item["comparison_revision"]
+                                    for item in current_state.get("comparisons", [])
+                                    if item["id"] == scope["comparison_id"]
+                                ),
+                                "title": next(
+                                    item["title"]
+                                    for item in current_state.get("comparisons", [])
+                                    if item["id"] == scope["comparison_id"]
+                                ),
+                            }
+                            if scope.get("comparison_id")
+                            else {}
+                        ),
                     }
                 ],
             }
 
-        if products and ("add a note" in lowered or "note that" in lowered):
+        if scoped_products and ("add a note" in lowered or "note that" in lowered):
             return {
                 "assistant_message": "I prepared a product note for your review.",
                 "operations": [
                     {
                         "operation": "add_note",
-                        "project_product_id": products[0]["project_product_id"],
+                        "project_product_id": scoped_products[0]["project_product_id"],
                         "text": message[:1000],
                     }
                 ],

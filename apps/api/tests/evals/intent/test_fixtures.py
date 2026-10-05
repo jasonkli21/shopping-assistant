@@ -130,6 +130,37 @@ def test_output_schema_rejects_foreign_existing_requirement_id():
         )
 
 
+def test_citations_allow_supplied_assessment_claims_and_reject_unknown_ids():
+    cited_claim = "11111111-1111-4111-8111-111111111111"
+    context = {
+        "project": {},
+        "requirements": [],
+        "current_state": {"products": [{"assessment": {"claim_ids": [cited_claim]}, "claims": []}]},
+    }
+
+    output = validate_output(
+        {
+            "assistant_message": "The assessment cites this claim.",
+            "citation_ids": [cited_claim],
+            "project_updates": {},
+            "requirement_operations": [],
+        },
+        context,
+    )
+    assert str(output.citation_ids[0]) == cited_claim
+
+    with pytest.raises(ValueError, match="cited evidence that was not supplied"):
+        validate_output(
+            {
+                "assistant_message": "A fabricated source supports this.",
+                "citation_ids": ["22222222-2222-4222-8222-222222222222"],
+                "project_updates": {},
+                "requirement_operations": [],
+            },
+            context,
+        )
+
+
 def test_output_preserves_omitted_null_and_criterion_clear_semantics():
     first_id = "11111111-1111-4111-8111-111111111111"
     second_id = "22222222-2222-4222-8222-222222222222"

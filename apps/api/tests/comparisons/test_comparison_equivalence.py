@@ -24,3 +24,37 @@ def test_unknown_values_are_never_considered_equal():
     ]
 
     assert _demonstrably_equal(cells) is False
+
+
+def test_distinct_unparsed_evidence_assertions_remain_visible():
+    cells = [
+        {
+            "status": "known",
+            "comparison_value": {
+                "value": None,
+                "assertion": "lasts about a year",
+                "evidence_category": "manufacturer_claim",
+                "qualifiers": {"condition": "normal use"},
+            },
+        },
+        {
+            "status": "known",
+            "comparison_value": {
+                "value": None,
+                "assertion": "customers report early wear",
+                "evidence_category": "individual_anecdote",
+                "qualifiers": {"condition": "normal use"},
+            },
+        },
+    ]
+
+    assert _demonstrably_equal(cells) is False
+
+
+def test_mixed_assessments_are_not_hidden_as_equal_known_values():
+    cells = [
+        {"status": "conflict", "comparison_value": None},
+        {"status": "conflict", "comparison_value": None},
+    ]
+
+    assert _demonstrably_equal(cells) is False

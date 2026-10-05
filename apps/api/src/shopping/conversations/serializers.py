@@ -29,6 +29,7 @@ def _message_read(
         sequence=message.sequence,
         error_code=message.error_code,
         clarification_questions=metadata.get("clarification_questions", []),
+        citation_ids=metadata.get("citation_ids", []),
         created_at=message.created_at,
         completed_at=message.completed_at,
         proposal=_proposal_read(proposal) if proposal else None,

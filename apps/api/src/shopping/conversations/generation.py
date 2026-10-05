@@ -38,6 +38,7 @@ def complete_generation(
     metadata = dict(message.task_metadata or {})
     metadata["provider_request_id"] = _bounded_request_id(provider_request_id)
     metadata["clarification_questions"] = output.clarification_questions
+    metadata["citation_ids"] = [str(item) for item in output.citation_ids]
     message.task_metadata = metadata
     mutation_payload = output.mutation_payload()
     if mutation_payload is not None:

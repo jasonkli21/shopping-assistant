@@ -117,6 +117,7 @@ class ComparisonRead(StrictModel):
     stale: bool
     products: list[ComparisonProductRead]
     dimensions: list[ComparisonDimensionRead]
+    definition_dimensions: list[ComparisonDimensionRead]
     hidden_equal_dimensions: int = 0
 
 

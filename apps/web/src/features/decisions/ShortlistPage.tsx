@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 
 import { ApiRequestError, decisionsApi, projectsApi } from "../../api/client";
@@ -19,15 +19,19 @@ export function ShortlistPage() {
     enabled: Boolean(projectId),
     retry: false,
   });
-  const shortlistQuery = useQuery({
+  const shortlistQuery = useInfiniteQuery({
     queryKey: ["shortlist", projectId],
-    queryFn: ({ signal }) => decisionsApi.listShortlist(projectId!, signal),
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ signal, pageParam }) => decisionsApi.listShortlist(projectId!, 50, pageParam, signal),
+    getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
     enabled: Boolean(projectId && projectQuery.data),
     retry: false,
   });
-  const rejectionsQuery = useQuery({
+  const rejectionsQuery = useInfiniteQuery({
     queryKey: ["rejections", projectId],
-    queryFn: ({ signal }) => decisionsApi.listRejections(projectId!, signal),
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ signal, pageParam }) => decisionsApi.listRejections(projectId!, 50, pageParam, signal),
+    getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
     enabled: Boolean(projectId && projectQuery.data),
     retry: false,
   });
@@ -39,8 +43,8 @@ export function ShortlistPage() {
     return <main className="shell state-page"><h1>{missing ? "This project can’t be opened." : "Shortlist could not load."}</h1><p role="alert">{errorText(projectQuery.error)}</p><Link to="/">Return to projects</Link></main>;
   }
 
-  const shortlisted = shortlistQuery.data?.items ?? [];
-  const rejected = rejectionsQuery.data?.items ?? [];
+  const shortlisted = shortlistQuery.data?.pages.flatMap((page) => page.items) ?? [];
+  const rejected = rejectionsQuery.data?.pages.flatMap((page) => page.items) ?? [];
   return (
     <main className="shell decision-workspace-shell">
       <header className="app-header">
@@ -55,7 +59,7 @@ export function ShortlistPage() {
       </section>
 
       <section className="card shortlist-section" aria-labelledby="shortlist-title">
-        <div className="section-heading"><div><p className="eyebrow">Decision set</p><h2 id="shortlist-title">Shortlisted products</h2></div><span className="count-pill">{shortlisted.length}</span></div>
+        <div className="section-heading"><div><p className="eyebrow">Decision set</p><h2 id="shortlist-title">Shortlisted products</h2></div><span className="count-pill">{shortlisted.length}{shortlistQuery.hasNextPage ? "+" : ""}</span></div>
         {shortlistQuery.isPending && <p role="status">Loading shortlist…</p>}
         {shortlistQuery.isError && <div className="notice error-notice"><p role="alert">{errorText(shortlistQuery.error)}</p><button className="button quiet-button" type="button" onClick={() => void shortlistQuery.refetch()}>Retry shortlist</button></div>}
         {!shortlistQuery.isPending && !shortlistQuery.isError && shortlisted.length === 0 && (
@@ -74,15 +78,16 @@ export function ShortlistPage() {
               </div>
               {decision.reason && <p className="decision-rationale"><strong>Why it’s here:</strong> {decision.reason}</p>}
               {decision.concerns.length > 0 && <p className="decision-rationale"><strong>Concerns:</strong> {decision.concerns.join(" · ")}</p>}
-              <ProductDecisionActions project={project} projectProductId={product.id} />
+              <ProductDecisionActions project={project} projectProductId={product.id} offers={product.offers} />
               <UserNoteEditor project={project} projectProductId={product.id} title="Shortlist note" />
             </li>
           ))}
         </ul>
+        {shortlistQuery.hasNextPage && <button className="button quiet-button" type="button" disabled={shortlistQuery.isFetchingNextPage} onClick={() => void shortlistQuery.fetchNextPage()}>{shortlistQuery.isFetchingNextPage ? "Loading more…" : "Load more shortlisted products"}</button>}
       </section>
 
       <section className="card shortlist-section" aria-labelledby="rejections-title">
-        <div className="section-heading"><div><p className="eyebrow">Kept in project history</p><h2 id="rejections-title">Rejected products</h2></div><span className="count-pill">{rejected.length}</span></div>
+        <div className="section-heading"><div><p className="eyebrow">Kept in project history</p><h2 id="rejections-title">Rejected products</h2></div><span className="count-pill">{rejected.length}{rejectionsQuery.hasNextPage ? "+" : ""}</span></div>
         <p className="quiet-state">Rejection reasons stay project-specific and can be undone later.</p>
         {rejectionsQuery.isPending && <p role="status">Loading rejected products…</p>}
         {rejectionsQuery.isError && <p className="field-error" role="alert">{errorText(rejectionsQuery.error)}</p>}
@@ -92,10 +97,11 @@ export function ShortlistPage() {
               <Link to={`/products/${product.product_id}?${new URLSearchParams({ variant: product.variant_id, project: project.id, project_product: product.id }).toString()}`}>{product.canonical_name} · {product.variant_name}</Link>
               <span>{decision.rejection_reason?.replaceAll("_", " ") ?? "Reason unknown"}</span>
               {decision.reason && <small>{decision.reason}</small>}
-              <ProductDecisionActions project={project} projectProductId={product.id} />
+              <ProductDecisionActions project={project} projectProductId={product.id} offers={product.offers} />
             </li>
           ))}
         </ul>
+        {rejectionsQuery.hasNextPage && <button className="button quiet-button" type="button" disabled={rejectionsQuery.isFetchingNextPage} onClick={() => void rejectionsQuery.fetchNextPage()}>{rejectionsQuery.isFetchingNextPage ? "Loading more…" : "Load more rejected products"}</button>}
       </section>
       <ProjectAssistant project={project} />
     </main>

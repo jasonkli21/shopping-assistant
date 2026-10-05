@@ -54,6 +54,7 @@ def test_phase6_model_constraints_encode_mutually_exclusive_and_bounded_state():
         "ck_decision_event_to_state",
         "ck_decision_event_actor",
         "ck_decision_event_request_key",
+        "ck_decision_event_concerns_size",
     } <= checks(DecisionEvent)
     assert "ck_comparison_snapshot_size" in checks(ComparisonSnapshot)
     assert "ck_comparison_item_position" in checks(ComparisonItem)

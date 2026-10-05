@@ -188,16 +188,31 @@ def apply_decision_locked(
             raise _not_found("Selected offer does not belong to this product variant")
 
     next_version = (decision.version + 1) if decision else 1
+    next_reason = (
+        command.reason
+        if "reason" in command.model_fields_set or decision is None
+        else decision.reason
+    )
+    next_concerns = (
+        command.concerns
+        if "concerns" in command.model_fields_set or decision is None
+        else decision.concerns
+    )
+    next_selected_offer_id = (
+        command.selected_offer_id
+        if "selected_offer_id" in command.model_fields_set or decision is None
+        else decision.selected_offer_id
+    )
     if decision is None:
         decision = ProjectProductDecision(
             owner_id=owner_id,
             project_id=project.id,
             project_product_id=project_product.id,
             state=state,
-            reason=command.reason,
+            reason=next_reason,
             rejection_reason=command.rejection_reason,
-            concerns=command.concerns,
-            selected_offer_id=command.selected_offer_id,
+            concerns=next_concerns,
+            selected_offer_id=next_selected_offer_id,
             actor=actor,
             origin=origin,
             version=next_version,
@@ -205,10 +220,10 @@ def apply_decision_locked(
         session.add(decision)
     else:
         decision.state = state
-        decision.reason = command.reason
+        decision.reason = next_reason
         decision.rejection_reason = command.rejection_reason
-        decision.concerns = command.concerns
-        decision.selected_offer_id = command.selected_offer_id
+        decision.concerns = next_concerns
+        decision.selected_offer_id = next_selected_offer_id
         decision.actor = actor
         decision.origin = origin
         decision.version = next_version
@@ -223,8 +238,10 @@ def apply_decision_locked(
         from_state=previous_state,
         to_state=state,
         actor=actor,
-        reason=command.reason,
+        reason=command.reason if "reason" in command.model_fields_set else "",
         rejection_reason=command.rejection_reason,
+        concerns=next_concerns,
+        selected_offer_id=next_selected_offer_id,
         project_version=project.revision + 1,
     )
     session.add(event)
@@ -304,6 +321,8 @@ def _event_read(event: DecisionEvent, replayed: bool = False):
         actor=event.actor,
         reason=event.reason,
         rejection_reason=event.rejection_reason,
+        concerns=event.concerns,
+        selected_offer_id=event.selected_offer_id,
         project_version=event.project_version,
         created_at=event.created_at,
         replayed=replayed,

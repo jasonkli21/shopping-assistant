@@ -241,6 +241,7 @@ export interface components {
       "stale": boolean;
       "products": Array<components["schemas"]["ComparisonProductRead"]>;
       "dimensions": Array<components["schemas"]["ComparisonDimensionRead"]>;
+      "definition_dimensions": Array<components["schemas"]["ComparisonDimensionRead"]>;
       "hidden_equal_dimensions"?: number;
     };
     ComparisonRegenerate: {
@@ -274,6 +275,8 @@ export interface components {
       "actor": "owner" | "assistant";
       "reason": string;
       "rejection_reason": "too_expensive" | "missing_feature" | "too_large" | "appearance" | "weak_evidence" | "wrong_category" | "already_owned" | "other" | null;
+      "concerns"?: Array<string>;
+      "selected_offer_id"?: null | string;
       "project_version": number;
       "created_at": string;
       "replayed"?: boolean;
@@ -311,6 +314,8 @@ export interface components {
       "text": string;
       "request_key": string;
       "expected_version": number;
+      "selected_project_product_ids"?: Array<string>;
+      "comparison_id"?: null | string;
     };
     MessageCreated: {
       "user_message_id": string;
@@ -336,6 +341,7 @@ export interface components {
       "sequence": number;
       "error_code": null | string;
       "clarification_questions"?: Array<string>;
+      "citation_ids"?: Array<string>;
       "created_at": string;
       "completed_at": null | string;
       "proposal"?: components["schemas"]["ProposalRead"] | null;

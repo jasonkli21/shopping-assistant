@@ -43,7 +43,7 @@ from shopping.evidence.models import (
     Source,
     SourceSnapshot,
 )
-from shopping.evidence.reads import freshness
+from shopping.evidence.reads import assessment_context_stale, freshness
 from shopping.projects import repository
 from shopping.projects import service as project_service
 from shopping.projects.errors import ProjectError
@@ -147,11 +147,21 @@ def update_comparison(
     if comparison is None:
         raise _not_found("Comparison not found")
     _check_comparison_version(comparison, command.expected_comparison_version)
-    changes = command.model_dump(
-        exclude_unset=True, exclude={"expected_version", "expected_comparison_version"}
+    changed_fields = command.model_fields_set - {
+        "expected_version",
+        "expected_comparison_version",
+    }
+    changes = {name: getattr(command, name) for name in changed_fields}
+    item_ids = (
+        changes["project_product_ids"]
+        if "project_product_ids" in changes
+        else _item_ids(session, comparison.id)
     )
-    item_ids = changes.get("project_product_ids") or _item_ids(session, comparison.id)
-    dimensions = changes.get("dimensions") or _dimension_inputs(session, comparison.id)
+    dimensions = (
+        changes["dimensions"]
+        if "dimensions" in changes
+        else _dimension_inputs(session, comparison.id)
+    )
     members = _members(session, owner_id, project_id, item_ids)
     _validate_dimensions(session, project_id, dimensions)
     if "title" in changes:
@@ -166,10 +176,20 @@ def update_comparison(
         _replace_dimensions(session, comparison.id, dimensions)
     comparison.comparison_revision += 1
     comparison.updated_at = datetime.now(UTC)
-    project_service._advance_revision(project)
+    if {"project_product_ids", "dimensions"} & changed_fields:
+        project_service._advance_revision(project)
     session.flush()
     view = _build_view(session, owner_id, project, members, dimensions)
-    snapshot = _save_snapshot(session, owner_id, project, comparison, view)
+    if {"project_product_ids", "dimensions"} & changed_fields:
+        # Membership and dimension edits change what the saved view captures.
+        # Title and display-mode edits retain the prior immutable data snapshot.
+        snapshot = _save_snapshot(session, owner_id, project, comparison, view)
+    else:
+        snapshot = _latest_snapshot(session, owner_id, comparison.id)
+        if snapshot is None:
+            raise ProjectError(
+                409, "comparison_snapshot_missing", "This saved comparison has no generated view."
+            )
     _commit(session)
     return _comparison_read(session, project, comparison, snapshot, current_view=view)
 
@@ -319,6 +339,9 @@ def _cell(session, owner_id, project, membership, variant, product, dimension):
         )
         origin = attribute.get("origin") if isinstance(attribute, dict) else None
         observation_id = attribute.get("observation_id") if isinstance(attribute, dict) else None
+        correction_event_id = (
+            attribute.get("correction_event_id") if isinstance(attribute, dict) else None
+        )
         return _cell_value(
             membership.id,
             "known" if comparable else "incomparable",
@@ -334,6 +357,7 @@ def _cell(session, owner_id, project, membership, variant, product, dimension):
                 "variant_revision": variant.revision,
                 "attribute_origin": origin,
                 "observation_id": str(observation_id) if observation_id else None,
+                "correction_event_id": str(correction_event_id) if correction_event_id else None,
             },
         )
 
@@ -409,6 +433,12 @@ def _cell(session, owner_id, project, membership, variant, product, dimension):
         for claim in claims:
             snapshot = session.get(SourceSnapshot, claim.snapshot_id)
             source = session.get(Source, snapshot.source_id) if snapshot else None
+            evidence = session.scalar(
+                select(ClaimEvidence)
+                .where(ClaimEvidence.claim_id == claim.id)
+                .order_by(ClaimEvidence.id)
+                .limit(1)
+            )
             claim_freshness = (
                 freshness(
                     claim.evidence_category,
@@ -428,6 +458,8 @@ def _cell(session, owner_id, project, membership, variant, product, dimension):
                     "normalized_value": claim.normalized_value,
                     "qualifiers": claim.qualifiers,
                     "evidence_category": claim.evidence_category,
+                    "evidence_excerpt": evidence.excerpt if evidence else None,
+                    "locator": evidence.locator if evidence else {},
                     "source_title": (snapshot.title if snapshot else None)
                     or (source.title if source else None),
                     "source_url": source.normalized_url if source else None,
@@ -436,7 +468,12 @@ def _cell(session, owner_id, project, membership, variant, product, dimension):
                 }
             )
             comparison_values.append(
-                {"value": claim.normalized_value, "qualifiers": claim.qualifiers}
+                {
+                    "value": claim.normalized_value,
+                    "assertion": " ".join(claim.assertion_text.casefold().split()),
+                    "evidence_category": claim.evidence_category,
+                    "qualifiers": claim.qualifiers,
+                }
             )
         status = "conflict" if conflict else "stale" if stale else "known"
         return _cell_value(
@@ -471,11 +508,7 @@ def _cell(session, owner_id, project, membership, variant, product, dimension):
         )
         if assessment is None:
             return _cell_value(membership.id, "unknown")
-        stale = (
-            assessment.project_revision != project.revision
-            or assessment.product_revision != product.revision
-            or assessment.variant_revision != variant.revision
-        )
+        stale = assessment_context_stale(assessment, project, product, variant)
         conclusion = next(
             (
                 item
@@ -488,10 +521,23 @@ def _cell(session, owner_id, project, membership, variant, product, dimension):
             return _cell_value(
                 membership.id,
                 "stale" if stale else "unknown",
-                provenance={"assessment_id": str(assessment.id)},
+                provenance={
+                    "assessment_id": str(assessment.id),
+                    "assessment_project_revision": assessment.project_revision,
+                    "product_revision": assessment.product_revision,
+                    "variant_revision": assessment.variant_revision,
+                    "snapshot_ids": assessment.snapshot_ids,
+                },
             )
+        conclusion_status = conclusion.get("status")
         status = (
-            "stale" if stale else "unknown" if conclusion.get("status") == "unknown" else "known"
+            "stale"
+            if stale
+            else "unknown"
+            if conclusion_status == "unknown"
+            else "conflict"
+            if conclusion_status == "mixed"
+            else "known"
         )
         return _cell_value(
             membership.id,
@@ -501,9 +547,14 @@ def _cell(session, owner_id, project, membership, variant, product, dimension):
                 "rationale": conclusion.get("rationale"),
                 "claim_ids": conclusion.get("claim_ids", []),
             },
-            comparison_value=conclusion.get("status"),
+            comparison_value=(
+                conclusion_status if conclusion_status not in {"mixed", "unknown"} else None
+            ),
             provenance={
                 "assessment_id": str(assessment.id),
+                "assessment_project_revision": assessment.project_revision,
+                "product_revision": assessment.product_revision,
+                "variant_revision": assessment.variant_revision,
                 "claim_ids": conclusion.get("claim_ids", []),
                 "snapshot_ids": assessment.snapshot_ids,
             },
@@ -631,20 +682,13 @@ def _comparison_read(session, project, comparison, snapshot, *, current_view):
         stale=stale,
         products=[ComparisonProductRead.model_validate(item) for item in snapshot.view["products"]],
         dimensions=dimensions,
+        definition_dimensions=all_dimensions,
         hidden_equal_dimensions=hidden,
     )
 
 
 def _read_latest(session, owner_id, project, comparison):
-    snapshot = session.scalar(
-        select(ComparisonSnapshot)
-        .where(
-            ComparisonSnapshot.owner_id == owner_id,
-            ComparisonSnapshot.comparison_id == comparison.id,
-        )
-        .order_by(ComparisonSnapshot.comparison_revision.desc())
-        .limit(1)
-    )
+    snapshot = _latest_snapshot(session, owner_id, comparison.id)
     if snapshot is None:
         raise ProjectError(
             409, "comparison_snapshot_missing", "This saved comparison has no generated view."
@@ -654,6 +698,18 @@ def _read_latest(session, owner_id, project, comparison):
         session, owner_id, project, members, _dimension_inputs(session, comparison.id)
     )
     return _comparison_read(session, project, comparison, snapshot, current_view=current_view)
+
+
+def _latest_snapshot(session, owner_id, comparison_id):
+    return session.scalar(
+        select(ComparisonSnapshot)
+        .where(
+            ComparisonSnapshot.owner_id == owner_id,
+            ComparisonSnapshot.comparison_id == comparison_id,
+        )
+        .order_by(ComparisonSnapshot.comparison_revision.desc())
+        .limit(1)
+    )
 
 
 def _save_snapshot(session, owner_id, project, comparison, view):

@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 
 import { ApiRequestError, catalogApi, projectsApi } from "../../api/client";
@@ -18,9 +18,11 @@ export function ResearchPage() {
     enabled: Boolean(projectId),
     retry: false,
   });
-  const productsQuery = useQuery({
+  const productsQuery = useInfiniteQuery({
     queryKey: ["project-products", projectId],
-    queryFn: ({ signal }) => catalogApi.listProjectProducts(projectId!, 100, undefined, signal),
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ signal, pageParam }) => catalogApi.listProjectProducts(projectId!, 100, pageParam, signal),
+    getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
     enabled: Boolean(projectId && projectQuery.data),
     retry: false,
   });
@@ -32,7 +34,7 @@ export function ResearchPage() {
     return <main className="shell state-page"><h1>{missing ? "This project can’t be opened." : "Research could not load."}</h1><p role="alert">{errorText(projectQuery.error)}</p><Link to="/">Return to projects</Link></main>;
   }
 
-  const products = productsQuery.data?.items ?? [];
+  const products = productsQuery.data?.pages.flatMap((page) => page.items) ?? [];
   return (
     <main className="shell research-workspace-shell">
       <header className="app-header">
@@ -61,6 +63,7 @@ export function ResearchPage() {
           </article>
         ))}
       </section>
+      {productsQuery.hasNextPage && <button className="button quiet-button" type="button" disabled={productsQuery.isFetchingNextPage} onClick={() => void productsQuery.fetchNextPage()}>{productsQuery.isFetchingNextPage ? "Loading more variants…" : "Load more variants"}</button>}
       <ProjectAssistant project={project} />
     </main>
   );

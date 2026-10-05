@@ -104,7 +104,8 @@ def test_decisions_notes_favorites_and_idempotent_replay_are_separate(project_ap
         == "rejected"
     )
 
-    undo = client.delete(
+    undo = client.request(
+        "DELETE",
         f"/projects/{project['id']}/rejections/{project_product_id}",
         json=_decision_body(3, "decision-undo-reject-0001"),
     )
@@ -141,8 +142,8 @@ def test_decisions_notes_favorites_and_idempotent_replay_are_separate(project_ap
     project_revision = client.get(f"/projects/{project['id']}").json()["revision"]
     assert project_revision == 7
     assert client.get("/saved-products").json()["items"][0]["variant_id"] == str(variant_id)
-    unfavorite = client.delete(
-        f"/saved-products/{variant_id}/favorite", json={"expected_version": 1}
+    unfavorite = client.request(
+        "DELETE", f"/saved-products/{variant_id}/favorite", json={"expected_version": 1}
     )
     assert unfavorite.status_code == 200, unfavorite.text
     assert unfavorite.json()["favorite"] is False
@@ -200,6 +201,59 @@ def test_decision_rejects_an_offer_from_a_different_variant(project_api):
     assert state["state"] == "considering"
 
 
+def test_state_only_decision_transitions_preserve_and_record_metadata(project_api):
+    client, owner, engine = project_api
+    project = _project(client)
+    (_product_id, variant_id, project_product_id), _ = _add_variants(
+        engine, owner["id"], project["id"]
+    )
+    offer_id = uuid4()
+    with Session(engine) as session:
+        session.add(
+            RetailOffer(
+                id=offer_id,
+                owner_id=owner["id"],
+                variant_id=variant_id,
+                idempotency_key="decision-preservation-offer",
+                retailer_name="Example retailer",
+                url="https://shop.example/vacuum",
+                amount=Decimal("129.00"),
+                currency="USD",
+                availability="in_stock",
+                condition="new",
+                observed_at=datetime.now(UTC),
+            )
+        )
+        session.commit()
+
+    decision_path = f"/projects/{project['id']}/shortlist/{project_product_id}"
+    shortlisted = client.post(
+        decision_path,
+        json={
+            "expected_version": 1,
+            "request_key": "decision-preserve-shortlist-01",
+            "reason": "Quiet motor and compact storage.",
+            "concerns": ["Confirm replacement filter cost."],
+            "selected_offer_id": str(offer_id),
+        },
+    )
+    assert shortlisted.status_code == 200, shortlisted.text
+    purchased = client.post(
+        f"/projects/{project['id']}/products/{project_product_id}/purchased",
+        json={"expected_version": 2, "request_key": "decision-preserve-purchase-01"},
+    )
+    assert purchased.status_code == 200, purchased.text
+    current = client.get(f"/projects/{project['id']}/products/{project_product_id}/decision").json()
+    assert current["state"] == "purchased"
+    assert current["reason"] == "Quiet motor and compact storage."
+    assert current["concerns"] == ["Confirm replacement filter cost."]
+    assert current["selected_offer_id"] == str(offer_id)
+    assert current["events"][0]["concerns"] == ["Confirm replacement filter cost."]
+    assert current["events"][0]["selected_offer_id"] == str(offer_id)
+    assert current["events"][1]["concerns"] == ["Confirm replacement filter cost."]
+    assert current["events"][1]["selected_offer_id"] == str(offer_id)
+
+
 def test_comparison_snapshots_normalize_units_and_keep_unknown_differences(project_api):
     client, owner, engine = project_api
     project = _project(client)
@@ -231,7 +285,8 @@ def test_comparison_snapshots_normalize_units_and_keep_unknown_differences(proje
     tank_capacity = first_snapshot["dimensions"][1]
     assert tank_capacity["equal"] is False
     assert all(cell["status"] == "known" for cell in tank_capacity["cells"])
-    assert all(cell["status"] == "unknown" for cell in first_snapshot["dimensions"][2]["cells"])
+    warranty = next(item for item in first_snapshot["dimensions"] if item["key"] == "warranty")
+    assert all(cell["status"] == "unknown" for cell in warranty["cells"])
 
     comparison_id = first_snapshot["id"]
     differences = client.patch(
@@ -244,15 +299,16 @@ def test_comparison_snapshots_normalize_units_and_keep_unknown_differences(proje
     )
     assert differences.status_code == 200, differences.text
     difference_view = differences.json()
-    assert difference_view["snapshot_id"] != first_snapshot["snapshot_id"]
+    assert difference_view["snapshot_id"] == first_snapshot["snapshot_id"]
+    assert client.get(f"/projects/{project['id']}").json()["revision"] == 2
     assert difference_view["hidden_equal_dimensions"] == 1
     assert [item["key"] for item in difference_view["dimensions"]] == [
         "tank_capacity",
         "warranty",
     ]
     assert [cell["status"] for cell in difference_view["dimensions"][0]["cells"]] == [
-        "unknown",
-        "unknown",
+        "known",
+        "known",
     ]
 
     with Session(engine) as session:
@@ -266,9 +322,65 @@ def test_comparison_snapshots_normalize_units_and_keep_unknown_differences(proje
 
     regenerated = client.post(
         f"{base_path}/{comparison_id}/regenerate",
-        json={"expected_version": 3, "expected_comparison_version": 2},
+        json={"expected_version": 2, "expected_comparison_version": 2},
     )
     assert regenerated.status_code == 200, regenerated.text
     assert regenerated.json()["snapshot_id"] != difference_view["snapshot_id"]
     assert regenerated.json()["comparison_revision"] == 3
     assert regenerated.json()["stale"] is False
+
+
+def test_comparison_patch_preserves_typed_dimensions_and_definition_order(project_api):
+    client, owner, _engine = project_api
+    project = _project(client)
+    (_one_product, _one_variant, one), (_two_product, _two_variant, two) = _add_variants(
+        _engine, owner["id"], project["id"]
+    )
+    base_path = f"/projects/{project['id']}/comparisons"
+    created = client.post(
+        base_path,
+        json={
+            "expected_version": 1,
+            "project_product_ids": [str(one), str(two)],
+            "dimensions": [{"key": "clearance", "label": "Clearance", "dimension_type": "fact"}],
+        },
+    )
+    assert created.status_code == 201, created.text
+    comparison_id = created.json()["id"]
+    dimensions = client.patch(
+        f"{base_path}/{comparison_id}",
+        json={
+            "expected_version": 2,
+            "expected_comparison_version": 1,
+            "dimensions": [
+                {"key": "warranty", "label": "Warranty", "dimension_type": "evidence"},
+                {"key": "clearance", "label": "Clearance", "dimension_type": "fact"},
+            ],
+        },
+    )
+    assert dimensions.status_code == 200, dimensions.text
+    assert [item["key"] for item in dimensions.json()["definition_dimensions"]] == [
+        "warranty",
+        "clearance",
+    ]
+
+    combined = client.patch(
+        f"{base_path}/{comparison_id}",
+        json={
+            "expected_version": 3,
+            "expected_comparison_version": 2,
+            "title": "Kitchen dimensions",
+            "project_product_ids": [str(two), str(one)],
+            "display_mode": "differences",
+        },
+    )
+    assert combined.status_code == 200, combined.text
+    assert combined.json()["title"] == "Kitchen dimensions"
+    assert [item["project_product_id"] for item in combined.json()["products"]] == [
+        str(two),
+        str(one),
+    ]
+    assert [item["key"] for item in combined.json()["definition_dimensions"]] == [
+        "warranty",
+        "clearance",
+    ]
