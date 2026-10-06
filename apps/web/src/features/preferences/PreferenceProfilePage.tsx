@@ -1,4 +1,4 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 
@@ -189,14 +189,15 @@ function CandidateCard({
         <span className="scope-pill">{candidate.category_scopes.includes("*") ? "All categories" : candidate.category_scopes.join(", ")}</span>
       </div>
       <p className="profile-value">{candidate.key}{candidate.operator ? ` ${candidate.operator}` : ""}: {formatValue(candidate.value)}{candidate.unit ? ` ${candidate.unit}` : ""}</p>
+      {candidate.monetary && <p className="field-help">Monetary preference · category-specific</p>}
       <p className="field-help">
         Origin: {candidate.source_kind === "decision" ? "rejected product judgment" : "project preference"} · {candidate.source_available ? <Link to={`/projects/${candidate.source_project_id}`}>{candidate.source_project_title}</Link> : "source unavailable"}
         {candidate.source_available ? ` · project revision ${candidate.source_project_revision}` : ""}
       </p>
       {candidate.rationale && <p>{candidate.rationale}</p>}
-      {candidate.status === "pending" && !stale && profile.revision > 0 && (
+      {candidate.status === "pending" && profile.revision > 0 && (
         <div className="profile-actions">
-          <button className="button small-button primary-button" type="button" disabled={busy} onClick={onAccept}>Accept into profile</button>
+          {!stale && <button className="button small-button primary-button" type="button" disabled={busy} onClick={onAccept}>Accept into profile</button>}
           <button className="button small-button quiet-button" type="button" disabled={busy} onClick={onDismiss}>Dismiss</button>
         </div>
       )}
@@ -221,19 +222,51 @@ function PreferenceCard({
   busy: boolean;
 }) {
   const queryClient = useQueryClient();
+  const [basePreference, setBasePreference] = useState(preference);
+  const [baseProfileRevision, setBaseProfileRevision] = useState(profile.revision);
   const [label, setLabel] = useState(preference.label);
   const [key, setKey] = useState(preference.key);
   const [operator, setOperator] = useState<NonNullable<PreferenceRead["operator"]> | "">(preference.operator ?? "");
   const [value, setValue] = useState(JSON.stringify(preference.value, null, 2));
   const [unit, setUnit] = useState(preference.unit);
+  const [monetary, setMonetary] = useState(preference.monetary);
   const [scopes, setScopes] = useState(preference.category_scopes.join(", "));
+  const draftIsDirty = label !== basePreference.label || key !== basePreference.key ||
+    operator !== (basePreference.operator ?? "") || value !== JSON.stringify(basePreference.value, null, 2) ||
+    unit !== basePreference.unit || monetary !== basePreference.monetary ||
+    scopes !== basePreference.category_scopes.join(", ");
+
+  const loadPreferenceDraft = useCallback((nextPreference: PreferenceRead, nextProfileRevision: number) => {
+    setLabel(nextPreference.label);
+    setKey(nextPreference.key);
+    setOperator(nextPreference.operator ?? "");
+    setValue(JSON.stringify(nextPreference.value, null, 2));
+    setUnit(nextPreference.unit);
+    setMonetary(nextPreference.monetary);
+    setScopes(nextPreference.category_scopes.join(", "));
+    setBasePreference(nextPreference);
+    setBaseProfileRevision(nextProfileRevision);
+  }, []);
+
+  useEffect(() => {
+    if (!draftIsDirty) loadPreferenceDraft(preference, profile.revision);
+  }, [preference, profile.revision, draftIsDirty, loadPreferenceDraft]);
+
+  const staleDraft = preference.revision !== basePreference.revision || profile.revision !== baseProfileRevision;
   const edit = useMutation({
     mutationFn: (command: PreferencePatch) => preferencesApi.patchPreference(preference.id, command),
     onSuccess: async (updated) => {
       onSaved(updated);
+      const saved = updated.preferences.find((item) => item.id === preference.id);
+      if (saved) loadPreferenceDraft(saved, updated.revision);
       await queryClient.invalidateQueries({ queryKey: ["shopping-profile"] });
     },
-    onError: (error) => onProblem(errorText(error)),
+    onError: async (error) => {
+      onProblem(errorText(error));
+      if (error instanceof ApiRequestError && error.status === 409) {
+        await queryClient.invalidateQueries({ queryKey: ["shopping-profile"] });
+      }
+    },
   });
 
   function save(event: FormEvent<HTMLFormElement>) {
@@ -242,12 +275,13 @@ function PreferenceCard({
     try { parsed = JSON.parse(value); } catch { onProblem("Enter a valid JSON value for this preference."); return; }
     const command: PreferencePatch = {
       expected_profile_version: profile.revision,
-      expected_preference_revision: preference.revision,
+      expected_preference_revision: basePreference.revision,
       label: label.trim(),
       key: key.trim(),
       operator: operator || null,
       value: parsed,
       unit: unit.trim(),
+      monetary,
       category_scopes: scopes.split(",").map((item) => item.trim()).filter(Boolean),
     };
     edit.mutate(command);
@@ -256,7 +290,7 @@ function PreferenceCard({
   function reactivate() {
     edit.mutate({
       expected_profile_version: profile.revision,
-      expected_preference_revision: preference.revision,
+      expected_preference_revision: basePreference.revision,
       status: "active",
     });
   }
@@ -272,8 +306,11 @@ function PreferenceCard({
         Origin: {preference.source_kind === "decision" ? "rejected product judgment" : "project preference"} · {preference.source_available ? <Link to={`/projects/${preference.source_project_id}`}>{preference.source_project_title}</Link> : "source unavailable"}
         {` · preference revision ${preference.revision}`}
       </p>
+      {preference.monetary && <p className="field-help">Monetary preference · category-specific</p>}
       <details className="preference-edit">
         <summary>Edit preference</summary>
+        {staleDraft && <p className="notice error-notice" role="alert">This profile changed after this draft began. Review the current value before saving.</p>}
+        {staleDraft && <button className="button small-button quiet-button" type="button" onClick={() => loadPreferenceDraft(preference, profile.revision)}>Reload current preference</button>}
         <form onSubmit={save}>
           <label className="field-label" htmlFor={`edit-pref-label-${preference.id}`}>Label</label>
           <input id={`edit-pref-label-${preference.id}`} value={label} maxLength={300} required onChange={(event) => setLabel(event.target.value)} />
@@ -290,11 +327,12 @@ function PreferenceCard({
           <textarea id={`edit-pref-value-${preference.id}`} value={value} rows={2} required onChange={(event) => setValue(event.target.value)} />
           <label className="field-label" htmlFor={`edit-pref-unit-${preference.id}`}>Unit or currency</label>
           <input id={`edit-pref-unit-${preference.id}`} value={unit} maxLength={50} onChange={(event) => setUnit(event.target.value)} />
+          <label className="check-row"><input type="checkbox" checked={monetary} onChange={(event) => setMonetary(event.target.checked)} /><span>This preference expresses an amount in a currency</span></label>
           <label className="field-label" htmlFor={`edit-pref-scopes-${preference.id}`}>Categories (comma separated; use * for all)</label>
           <input id={`edit-pref-scopes-${preference.id}`} value={scopes} required onChange={(event) => setScopes(event.target.value)} />
           <div className="profile-actions">
-            <button className="button small-button secondary-button" type="submit" disabled={edit.isPending}>{edit.isPending ? "Saving…" : "Save edits"}</button>
-            {preference.status === "active" ? <button className="button small-button text-danger-button" type="button" disabled={busy} onClick={onRevoke}>Revoke</button> : <button className="button small-button quiet-button" type="button" disabled={edit.isPending} onClick={reactivate}>Reactivate</button>}
+            <button className="button small-button secondary-button" type="submit" disabled={edit.isPending || staleDraft}>{edit.isPending ? "Saving…" : "Save edits"}</button>
+            {preference.status === "active" ? <button className="button small-button text-danger-button" type="button" disabled={busy || staleDraft} onClick={onRevoke}>Revoke</button> : <button className="button small-button quiet-button" type="button" disabled={edit.isPending || staleDraft} onClick={reactivate}>Reactivate</button>}
           </div>
         </form>
       </details>

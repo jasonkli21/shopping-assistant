@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from decimal import Decimal, InvalidOperation
 from itertools import combinations
 from uuid import UUID
 
@@ -53,39 +54,47 @@ def _relation(left: Claim, right: Claim) -> tuple[str, str]:
 def _meets_requirement(claim: Claim, requirement: dict) -> bool | None:
     value = claim.normalized_value
     threshold = requirement.get("value")
-    if not isinstance(value, (int, float)) or isinstance(value, bool):
-        return None
-    if not isinstance(threshold, (int, float)) or isinstance(threshold, bool):
+    if isinstance(value, bool) or not isinstance(value, (int, float, Decimal)):
         return None
     unit = (claim.qualifiers or {}).get("unit")
+    requirement_unit = requirement.get("unit")
     if (
         not isinstance(unit, str)
-        or not isinstance(requirement.get("unit"), str)
-        or unit != requirement["unit"]
+        or not isinstance(requirement_unit, str)
+        or unit != requirement_unit
     ):
+        return None
+    if isinstance(threshold, bool) or not isinstance(threshold, (int, float, Decimal, str)):
+        return None
+    try:
+        numeric_value = Decimal(str(value))
+        numeric_threshold = Decimal(str(threshold))
+    except InvalidOperation:
+        return None
+    if not numeric_value.is_finite() or not numeric_threshold.is_finite():
         return None
     operator = requirement.get("operator")
     bound = (claim.qualifiers or {}).get("limit")
     if bound == "up_to":
         if operator == "gte":
-            return False if value < threshold else None
+            return False if numeric_value < numeric_threshold else None
         if operator == "lte":
-            return True if value <= threshold else None
+            return True if numeric_value <= numeric_threshold else None
         # A bound is not an exact observed value, even when its endpoint happens
         # to equal a project threshold.
         return None
     elif bound == "at_least":
         if operator == "gte":
-            return True if value >= threshold else None
+            return True if numeric_value >= numeric_threshold else None
         if operator == "lte":
-            return False if value > threshold else None
+            return False if numeric_value > numeric_threshold else None
         return None
     if operator == "gte":
-        return value >= threshold
+        return numeric_value >= numeric_threshold
     if operator == "lte":
-        return value <= threshold
+        return numeric_value <= numeric_threshold
     if operator == "eq":
-        return value == threshold
+        return numeric_value == numeric_threshold
     return None
 
 

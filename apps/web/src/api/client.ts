@@ -218,9 +218,19 @@ export const preferencesApi = {
     ),
   suggestions: (projectId: string) =>
     request<PreferenceSuggestionsRead>(`/projects/${projectId}/preference-suggestions`),
-  applyToProject: (projectId: string, preferenceId: string, expectedProjectVersion: number) =>
+  applyToProject: (
+    projectId: string,
+    preferenceId: string,
+    expectedProjectVersion: number,
+    expectedPreferenceRevision: number,
+    expectedProfileVersion: number,
+  ) =>
     request<Project>(
-      `/projects/${projectId}/preferences/${preferenceId}/apply?${new URLSearchParams({ expected_project_version: String(expectedProjectVersion) })}`,
+      `/projects/${projectId}/preferences/${preferenceId}/apply?${new URLSearchParams({
+        expected_project_version: String(expectedProjectVersion),
+        expected_preference_revision: String(expectedPreferenceRevision),
+        expected_profile_version: String(expectedProfileVersion),
+      })}`,
       jsonRequest("POST"),
     ),
 };

@@ -133,7 +133,15 @@ def apply_preference(
     session: SessionDependency,
     owner_id: OwnerDependency,
     expected_project_version: Annotated[int, Query(ge=1)],
+    expected_preference_revision: Annotated[int, Query(ge=1)],
+    expected_profile_version: Annotated[int, Query(ge=1)],
 ) -> ProjectRead:
     return service.apply_preference(
-        session, owner_id, project_id, preference_id, expected_project_version
+        session,
+        owner_id,
+        project_id,
+        preference_id,
+        expected_project_version,
+        expected_preference_revision,
+        expected_profile_version,
     )

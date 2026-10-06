@@ -40,10 +40,17 @@ class RequirementFields(StrictModel):
             raise ValueError("label must contain non-whitespace text")
         return value
 
-    @field_validator("detail", "unit")
+    @field_validator("detail")
     @classmethod
     def normalize_optional_text(cls, value: str | None) -> str | None:
         return value or None
+
+    @field_validator("unit")
+    @classmethod
+    def normalize_currency_unit(cls, value: str | None) -> str | None:
+        if not value:
+            return None
+        return value.upper() if value.upper() in SUPPORTED_CURRENCIES else value
 
     @field_validator("attribute_key")
     @classmethod
@@ -92,10 +99,17 @@ class RequirementPatch(StrictModel):
             raise ValueError("label must contain non-whitespace text")
         return value
 
-    @field_validator("detail", "unit")
+    @field_validator("detail")
     @classmethod
     def normalize_optional_text(cls, value: str | None) -> str | None:
         return value or None
+
+    @field_validator("unit")
+    @classmethod
+    def normalize_currency_unit(cls, value: str | None) -> str | None:
+        if not value:
+            return None
+        return value.upper() if value.upper() in SUPPORTED_CURRENCIES else value
 
     @field_validator("attribute_key")
     @classmethod
@@ -330,6 +344,11 @@ def _validate_requirement_criterion(
         return
     if not all(typed):
         raise ValueError("attribute_key, operator, and value must be supplied together")
+    if unit is not None and unit.upper() in SUPPORTED_CURRENCIES:
+        if operator not in {"eq", "gte", "lte"}:
+            raise ValueError("currency criteria require eq, gte, or lte")
+        _validate_money_string(value)
+        return
     if operator in {"gte", "lte"}:
         if isinstance(value, bool) or not isinstance(value, (int, float, Decimal)):
             raise ValueError(f"{operator} requires a numeric value")

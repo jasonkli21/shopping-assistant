@@ -1,7 +1,7 @@
 import { FormEvent, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { Project, Requirement, preferencesApi } from "../../api/client";
+import { ApiRequestError, Project, Requirement, preferencesApi } from "../../api/client";
 
 type PreferencePromotionActionProps =
   | {
@@ -31,7 +31,9 @@ export function PreferencePromotionAction({
 }: PreferencePromotionActionProps) {
   const sourceId = requirement?.id ?? sourceProjectProductId!;
   const sourceLabel = requirement?.label ?? initialLabel!;
+  const sourceVersion = JSON.stringify([project.revision, requirement ?? [initialLabel, initialValue, initialRationale]]);
   const queryClient = useQueryClient();
+  const [baseSourceVersion, setBaseSourceVersion] = useState(sourceVersion);
   const [label, setLabel] = useState(sourceLabel);
   const [key, setKey] = useState(requirement?.attribute_key ?? "statement");
   const [operator, setOperator] = useState<NonNullable<Requirement["operator"]> | "">(requirement?.operator ?? "");
@@ -41,10 +43,26 @@ export function PreferencePromotionAction({
       : JSON.stringify(initialValue),
   );
   const [unit, setUnit] = useState(requirement?.unit ?? "");
+  const [monetary, setMonetary] = useState(false);
   const [scopes, setScopes] = useState(project.category ?? "");
   const [allCategories, setAllCategories] = useState(false);
   const [message, setMessage] = useState("");
   const [problem, setProblem] = useState("");
+
+  function reloadDraft() {
+    setLabel(sourceLabel);
+    setKey(requirement?.attribute_key ?? "statement");
+    setOperator(requirement?.operator ?? "");
+    setValue(requirement
+      ? requirement.value == null ? JSON.stringify(requirement.label) : JSON.stringify(requirement.value, null, 2)
+      : JSON.stringify(initialValue));
+    setUnit(requirement?.unit ?? "");
+    setScopes(project.category ?? "");
+    setAllCategories(false);
+    setBaseSourceVersion(sourceVersion);
+  }
+
+  const staleSource = sourceVersion !== baseSourceVersion;
 
   const profile = useQuery({
     queryKey: ["shopping-profile"],
@@ -71,6 +89,7 @@ export function PreferencePromotionAction({
         operator: operator || null,
         value: parsedValue,
         unit: unit.trim(),
+        monetary,
         category_scopes: allCategories ? ["*"] : scopes.split(",").map((item) => item.trim()).filter(Boolean),
         rationale: initialRationale ?? "You selected this project preference for possible cross-project reuse.",
       });
@@ -80,9 +99,15 @@ export function PreferencePromotionAction({
       setMessage(result.candidate.status === "pending" ? "Candidate saved for review in your profile." : "This candidate is already on your profile.");
       await queryClient.invalidateQueries({ queryKey: ["shopping-profile"] });
     },
-    onError: (error) => {
+    onError: async (error) => {
       setMessage("");
       setProblem(error instanceof Error ? error.message : "The candidate could not be saved.");
+      if (error instanceof ApiRequestError && error.status === 409) {
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ["project", project.id] }),
+          queryClient.invalidateQueries({ queryKey: ["shopping-profile"] }),
+        ]);
+      }
     },
   });
 
@@ -93,11 +118,11 @@ export function PreferencePromotionAction({
     create.mutate();
   }
 
-  const moneyLike = /budget|price|cost|spend|currency|amount/i.test(`${key} ${label}`);
-
   return (
     <details className="preference-promotion" key={sourceId}>
       <summary>Propose as a shopping preference</summary>
+      {staleSource && <p className="field-error" role="alert">The project changed while this form was open. Review the current source before proposing it.</p>}
+      {staleSource && <button className="button small-button quiet-button" type="button" onClick={reloadDraft}>Reload current source</button>}
       <p className="field-help">
         {requirement
           ? "This project preference stays local unless you review and accept it in your profile."
@@ -139,16 +164,23 @@ export function PreferencePromotionAction({
           <input
             type="checkbox"
             checked={allCategories}
-            disabled={moneyLike && !allCategories}
+            disabled={monetary && !allCategories}
             onChange={(event) => setAllCategories(event.target.checked)}
           />
           <span>Apply across all categories</span>
         </label>
-        {moneyLike && <p className="field-help">Budget and price preferences stay category-specific. Put the currency in Unit or currency.</p>}
+        <label className="check-row">
+          <input type="checkbox" checked={monetary} onChange={(event) => {
+            setMonetary(event.target.checked);
+            if (event.target.checked) setAllCategories(false);
+          }} />
+          <span>This preference expresses an amount in a currency</span>
+        </label>
+        {monetary && <p className="field-help">Monetary preferences require a supported currency in Unit and a specific category.</p>}
         {profile.isError && <p className="field-error" role="alert">Shopping profile could not load. Close and reopen this form to retry.</p>}
         {problem && <p className="field-error" role="alert">{problem}</p>}
         {message && <p className="save-message" role="status">{message}</p>}
-        <button className="button small-button secondary-button" type="submit" disabled={create.isPending || profile.isPending || profile.isError || (moneyLike && allCategories)}>
+        <button className="button small-button secondary-button" type="submit" disabled={create.isPending || profile.isPending || profile.isError || staleSource || (monetary && allCategories)}>
           {create.isPending ? "Saving candidate…" : "Save candidate for review"}
         </button>
       </form>

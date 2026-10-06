@@ -145,8 +145,10 @@ function ProjectOverviewContent({ projectId }: { projectId?: string }) {
 
   function acceptContextProjectUpdate(updated: Project) {
     acceptProjectUpdate(updated);
-    setDraft(fromProject(updated));
-    setErrors({});
+    if (!isDirty) {
+      setDraft(fromProject(updated));
+      setErrors({});
+    }
   }
 
   function acceptAssistantProjectUpdate(updated: Project, replayed: boolean) {
@@ -342,6 +344,7 @@ function ProjectOverviewContent({ projectId }: { projectId?: string }) {
         project={project}
         blocked={Boolean(conflict) || isDirty || saveProject.isPending || deleteProject.isPending || proposalActionPending}
         onProjectUpdate={acceptContextProjectUpdate}
+        onPendingChange={setProposalActionPending}
       />
 
       {conflict && (

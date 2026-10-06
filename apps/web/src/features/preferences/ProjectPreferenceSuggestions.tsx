@@ -6,12 +6,22 @@ export function ProjectPreferenceSuggestions({
   project,
   blocked,
   onProjectUpdate,
+  onPendingChange,
 }: {
   project: Project;
   blocked: boolean;
   onProjectUpdate: (project: Project) => void;
+  onPendingChange: (pending: boolean) => void;
 }) {
   const queryClient = useQueryClient();
+  const refreshAfterConflict = async (error: unknown) => {
+    if (error instanceof ApiRequestError && error.status === 409) {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["project", project.id] }),
+        queryClient.invalidateQueries({ queryKey: ["preference-suggestions", project.id] }),
+      ]);
+    }
+  };
   const suggestions = useQuery({
     queryKey: ["preference-suggestions", project.id, project.revision],
     queryFn: () => preferencesApi.suggestions(project.id),
@@ -23,17 +33,24 @@ export function ProjectPreferenceSuggestions({
       expected_version: project.revision,
       reuse_preferences: enabled,
     }),
+    onMutate: () => onPendingChange(true),
     onSuccess: async (updated) => {
       onProjectUpdate(updated);
       await queryClient.invalidateQueries({ queryKey: ["preference-suggestions", project.id] });
     },
+    onSettled: () => onPendingChange(false),
+    onError: refreshAfterConflict,
   });
   const apply = useMutation({
-    mutationFn: (preferenceId: string) => preferencesApi.applyToProject(project.id, preferenceId, project.revision),
+    mutationFn: ({ preferenceId, revision, profileRevision }: { preferenceId: string; revision: number; profileRevision: number }) =>
+      preferencesApi.applyToProject(project.id, preferenceId, project.revision, revision, profileRevision),
+    onMutate: () => onPendingChange(true),
     onSuccess: async (updated) => {
       onProjectUpdate(updated);
       await queryClient.invalidateQueries({ queryKey: ["preference-suggestions", project.id] });
     },
+    onSettled: () => onPendingChange(false),
+    onError: refreshAfterConflict,
   });
   const error = toggle.error ?? apply.error ?? suggestions.error;
 
@@ -76,8 +93,8 @@ export function ProjectPreferenceSuggestions({
                 className="button small-button secondary-button"
                 type="button"
                 disabled={blocked || apply.isPending || toggle.isPending}
-                onClick={() => apply.mutate(preference.id)}
-              >{apply.isPending && apply.variables === preference.id ? "Adding…" : "Add to requirements"}</button>
+                onClick={() => apply.mutate({ preferenceId: preference.id, revision: preference.revision, profileRevision: suggestions.data.profile_revision })}
+              >{apply.isPending && apply.variables?.preferenceId === preference.id ? "Adding…" : "Add to requirements"}</button>
             </li>
           ))}
         </ul>

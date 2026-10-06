@@ -23,18 +23,26 @@ user applies it as an editable requirement in a project.
    that project's requirements only after the user selects **Add to
    requirements**. The requirement stores the preference ID, revision and scope
    so research and assistant snapshots can explain where it came from.
-5. Assistant and research prompts keep must-haves and constraints as hard
-   boundaries. Profile-origin preferences stay soft; they do not relax an
-   existing project requirement. Turning off project suggestions leaves
-   requirements already copied into that project unchanged.
+5. The current project requirement kind determines authority: a profile-origin
+   copy stays soft while its kind is `preference`, and becomes hard only if the
+   user changes it to `must_have` or `constraint`. Turning off project
+   suggestions leaves requirements already copied into that project unchanged.
 
 Preferences are owner-scoped and category-scoped. The profile and each project
 have independent reuse switches. At most 20 applicable preferences are returned
-to one project at a time; profiles are bounded to 100 preferences and candidate
-records in profile reads are bounded to the newest 100. Money-like preferences
-require a three-letter currency unit and cannot use the all-categories scope.
+to one project at a time; profiles allow at most 100 active preferences and 100
+pending candidates. Profile reads prioritize pending candidates before resolved
+history so history cannot hide unresolved work. Revocation frees an active slot
+while retaining preference rows and provenance references. Monetary intent is
+explicit in the preference contract; monetary preferences require a three-letter
+currency unit and cannot use the all-categories scope.
 Structured monetary values must be decimal strings with a supported ISO currency;
 qualitative money preferences still retain a supported currency and category scope.
+
+Revocation and reuse-off stop new profile suggestions and application. An already
+applied project copy remains independent local context for that project until the
+user edits or removes it; profile changes do not rewrite that copy or historical
+run snapshots.
 
 No automatic extraction or acceptance runs. Personal AI memory retrieval,
 proposal and retraction controls are unavailable because the checked upstream

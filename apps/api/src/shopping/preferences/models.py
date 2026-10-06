@@ -4,6 +4,7 @@ from datetime import datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -93,6 +94,9 @@ class ShoppingPreference(Base):
     unit: Mapped[str] = mapped_column(String(50), nullable=False, default="", server_default="")
     category_scopes: Mapped[list] = mapped_column(JSONB, nullable=False)
     label: Mapped[str] = mapped_column(String(300), nullable=False)
+    monetary: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     strength: Mapped[str] = mapped_column(
         String(8), nullable=False, default="soft", server_default="soft"
     )
@@ -185,6 +189,9 @@ class PreferenceCandidate(Base):
     unit: Mapped[str] = mapped_column(String(50), nullable=False, default="", server_default="")
     category_scopes: Mapped[list] = mapped_column(JSONB, nullable=False)
     label: Mapped[str] = mapped_column(String(300), nullable=False)
+    monetary: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     rationale: Mapped[str] = mapped_column(
         String(500), nullable=False, default="", server_default=""
     )

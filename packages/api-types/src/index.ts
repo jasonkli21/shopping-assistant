@@ -44,6 +44,7 @@ export interface components {
       "operator"?: "eq" | "gte" | "lte" | "contains" | "one_of" | null;
       "value": unknown;
       "unit"?: string;
+      "monetary"?: boolean;
       "category_scopes": Array<string>;
       "rationale"?: string;
     };
@@ -440,6 +441,7 @@ export interface components {
       "operator": "eq" | "gte" | "lte" | "contains" | "one_of" | null;
       "value": unknown;
       "unit": string;
+      "monetary": boolean;
       "category_scopes": Array<string>;
       "rationale": string;
       "status": "pending" | "accepted" | "dismissed" | "stale";
@@ -454,6 +456,7 @@ export interface components {
       "operator"?: "eq" | "gte" | "lte" | "contains" | "one_of" | null;
       "value"?: unknown;
       "unit"?: null | string;
+      "monetary"?: boolean | null;
       "category_scopes"?: Array<string> | null;
       "status"?: "active" | "revoked" | null;
     };
@@ -471,6 +474,7 @@ export interface components {
       "operator": "eq" | "gte" | "lte" | "contains" | "one_of" | null;
       "value": unknown;
       "unit": string;
+      "monetary": boolean;
       "category_scopes": Array<string>;
       "label": string;
       "strength": string;
@@ -482,6 +486,7 @@ export interface components {
     PreferenceSuggestionsRead: {
       "reuse_enabled": boolean;
       "profile_reuse_enabled": boolean;
+      "profile_revision": number;
       "items": Array<components["schemas"]["PreferenceRead"]>;
     };
     ProductIdentifierRead: {
@@ -1075,6 +1080,8 @@ export interface operations {
         "project_id": string;
       };
       query: {
+        "expected_preference_revision": number;
+        "expected_profile_version": number;
         "expected_project_version": number;
       };
     };

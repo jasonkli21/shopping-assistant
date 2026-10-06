@@ -260,7 +260,7 @@ export function RequirementEditor({
         </div>
         {requirement.source_preference_id && (
           <p className="requirement-preference-origin">
-            Profile preference revision {requirement.source_preference_revision}; scope {requirement.source_preference_scope?.includes("*") ? "all categories" : requirement.source_preference_scope?.join(", ") || "unavailable"}. This project copy stays independent from future profile edits.
+            Profile preference revision {requirement.source_preference_revision}; scope {requirement.source_preference_scope?.includes("*") ? "all categories" : requirement.source_preference_scope?.join(", ") || "unavailable"}. This project copy stays independent from future profile edits. Its current requirement type controls whether it is soft or hard.
           </p>
         )}
         <label className="sr-only" htmlFor={`label-${requirement.id}`}>Requirement</label>

@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import json
-import re
 from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from shopping.projects.schemas import SUPPORTED_CURRENCIES, _validate_money_string
+from shopping.projects.schemas import (
+    SUPPORTED_CURRENCIES,
+    _validate_money_string,
+    validate_criterion_fields,
+)
 
 PreferenceStatus = Literal["active", "revoked"]
 CandidateStatus = Literal["pending", "accepted", "dismissed", "stale"]
@@ -90,6 +93,7 @@ class CandidateCreate(StrictModel):
     operator: RequirementOperator | None = None
     value: Any
     unit: str = Field(default="", max_length=50)
+    monetary: bool = False
     category_scopes: list[str] = Field(min_length=1, max_length=20)
     rationale: str = Field(default="", max_length=500)
 
@@ -122,9 +126,9 @@ class CandidateCreate(StrictModel):
         if (self.source_requirement_id is None) == (self.source_project_product_id is None):
             raise ValueError("choose exactly one project requirement or rejected product judgment")
         self.unit = _validate_money_preference(
-            self.key, self.label, self.value, self.unit, self.category_scopes
+            self.monetary, self.key, self.value, self.unit, self.category_scopes
         )
-        _validate_preference_criterion(self.key, self.operator)
+        _validate_preference_criterion(self.key, self.operator, self.value, self.unit)
         return self
 
 
@@ -148,6 +152,7 @@ class PreferenceCandidateRead(StrictModel):
     operator: RequirementOperator | None
     value: Any
     unit: str
+    monetary: bool
     category_scopes: list[str]
     rationale: str
     status: CandidateStatus
@@ -163,6 +168,7 @@ class PreferencePatch(StrictModel):
     operator: RequirementOperator | None = None
     value: Any = None
     unit: str | None = Field(default=None, max_length=50)
+    monetary: bool | None = None
     category_scopes: list[str] | None = Field(default=None, min_length=1, max_length=20)
     status: PreferenceStatus | None = None
 
@@ -190,6 +196,9 @@ class PreferencePatch(StrictModel):
 
     @model_validator(mode="after")
     def require_mutation(self) -> PreferencePatch:
+        non_nullable = {"label", "key", "value", "unit", "category_scopes", "status", "monetary"}
+        if any(getattr(self, name) is None for name in self.model_fields_set & non_nullable):
+            raise ValueError("preference fields cannot be null")
         if not (
             self.model_fields_set - {"expected_profile_version", "expected_preference_revision"}
         ):
@@ -197,14 +206,12 @@ class PreferencePatch(StrictModel):
         return self
 
 
-def _is_money_preference(key: str, label: str) -> bool:
-    return bool(re.search(r"budget|price|cost|spend|currency|amount", f"{key} {label}", re.I))
-
-
 def _validate_money_preference(
-    key: str, label: str, value: Any, unit: str, category_scopes: list[str]
+    monetary: bool, key: str, value: Any, unit: str, category_scopes: list[str]
 ) -> str:
-    if not _is_money_preference(key, label):
+    if not monetary:
+        if unit.upper() in SUPPORTED_CURRENCIES:
+            raise ValueError("mark currency-denominated preferences as monetary")
         return unit
     if "*" in category_scopes:
         raise ValueError("money preferences must stay category-specific")
@@ -221,11 +228,17 @@ def _validate_money_preference(
     return currency
 
 
-def _validate_preference_criterion(key: str, operator: str | None) -> None:
+def _validate_preference_criterion(
+    key: str, operator: str | None, value: Any = None, unit: str | None = None
+) -> None:
     if key.casefold() == "statement" and operator is not None:
         raise ValueError("statement preferences cannot have a structured operator")
+    if key.casefold() == "statement" and (not isinstance(value, str) or len(value) > 2000):
+        raise ValueError("statement preferences require text of at most 2000 characters")
     if key.casefold() != "statement" and operator is None:
         raise ValueError("structured preferences require an operator")
+    if key.casefold() != "statement":
+        validate_criterion_fields(key, operator, value, unit)
 
 
 class PreferenceRead(StrictModel):
@@ -242,6 +255,7 @@ class PreferenceRead(StrictModel):
     operator: RequirementOperator | None
     value: Any
     unit: str
+    monetary: bool
     category_scopes: list[str]
     label: str
     strength: Literal["soft"]
@@ -269,4 +283,5 @@ class CandidateMutation(StrictModel):
 class PreferenceSuggestionsRead(StrictModel):
     reuse_enabled: bool
     profile_reuse_enabled: bool
+    profile_revision: int
     items: list[PreferenceRead]

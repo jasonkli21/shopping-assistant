@@ -27,7 +27,7 @@ from shopping.projects.schemas import (
 )
 
 TASK_NAME = "interpret_shopping_intent.v2"
-PROMPT_VERSION = "shopping-intent-2"
+PROMPT_VERSION = "shopping-intent-3"
 SCHEMA_VERSION = 2
 MAX_CONTEXT_CHARS = 60_000
 MAX_OUTPUT_CHARS = 256_000
@@ -44,9 +44,12 @@ SYSTEM_INSTRUCTIONS = "\n\n".join(
         "in assistant_message. Ask a concise clarification when category, currency, "
         "hard-versus-soft "
         "intent, contradictory constraints, or ambiguous words materially affect the request. "
-        "Project must-haves and constraints are hard boundaries. A shopping-profile preference "
-        "shown in requirements is still soft; never weaken a must-have or constraint to satisfy "
-        "it. Explain conflicts and ask which project context the user wants to change. "
+        "The current explicit project requirement kind determines authority: requirements with "
+        "kind preference are soft, while must_have and constraint are hard, including a "
+        "profile-origin "
+        "copy the user explicitly hardened. Provenance never overrides that current kind. Never "
+        "weaken a hard requirement to satisfy a soft preference. Explain conflicts and ask which "
+        "project context the user wants to change. "
         "Preserve user wording. Infer a hard requirement only when the user clearly states it; "
         "otherwise use preference or ask. Never invent a currency, amount, dimensions, "
         "product fact, "

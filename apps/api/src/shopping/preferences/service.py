@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -33,12 +34,13 @@ from shopping.projects.models import (
     ProjectRequirement,
     ShoppingProject,
 )
-from shopping.projects.schemas import ProjectRead
+from shopping.projects.schemas import ProjectRead, validate_criterion_fields
 from shopping.projects.service import _project_read
 
 
 def get_profile(session: Session, owner_id: UUID) -> ProfileRead:
     profile = _get_or_create_profile(session, owner_id)
+    _commit(session)
     return _profile_read(session, profile)
 
 
@@ -124,6 +126,7 @@ def create_candidate(
         "operator": command.operator,
         "value": command.value,
         "unit": command.unit,
+        "monetary": command.monetary,
         "category_scopes": scopes,
     }
     proposition_hash = hashlib.sha256(_canonical(proposition).encode()).hexdigest()
@@ -149,6 +152,15 @@ def create_candidate(
 
     _check_profile_version(profile, command.expected_profile_version)
 
+    pending_count = session.scalar(
+        select(func.count(PreferenceCandidate.id)).where(
+            PreferenceCandidate.owner_id == owner_id,
+            PreferenceCandidate.status == "pending",
+        )
+    )
+    if pending_count is not None and pending_count >= 100:
+        raise _invalid("A profile can have at most 100 pending candidates; resolve one first")
+
     candidate = PreferenceCandidate(
         owner_id=owner_id,
         source_project_id=project.id,
@@ -162,6 +174,7 @@ def create_candidate(
         operator=command.operator,
         value=command.value,
         unit=command.unit,
+        monetary=command.monetary,
         category_scopes=scopes,
         label=command.label,
         rationale=command.rationale,
@@ -262,10 +275,11 @@ def accept_candidate(
         select(func.count(ShoppingPreference.id)).where(
             ShoppingPreference.owner_id == owner_id,
             ShoppingPreference.profile_id == profile.id,
+            ShoppingPreference.status == "active",
         )
     )
     if preference_count is not None and preference_count >= 100:
-        raise _invalid("A shopping profile can contain at most 100 preferences")
+        raise _invalid("A shopping profile can contain at most 100 active preferences")
 
     now = datetime.now(UTC)
     preference = ShoppingPreference(
@@ -281,6 +295,7 @@ def accept_candidate(
         operator=candidate.operator,
         value=candidate.value,
         unit=candidate.unit,
+        monetary=candidate.monetary,
         category_scopes=candidate.category_scopes,
         label=candidate.label,
         strength="soft",
@@ -364,6 +379,16 @@ def patch_preference(
         raise _invalid("Preference value cannot be cleared")
     if "operator" in changes and changes["operator"] is None:
         changes["operator"] = None
+    if changes.get("status") == "active" and preference.status != "active":
+        active_count = session.scalar(
+            select(func.count(ShoppingPreference.id)).where(
+                ShoppingPreference.owner_id == owner_id,
+                ShoppingPreference.profile_id == profile.id,
+                ShoppingPreference.status == "active",
+            )
+        )
+        if active_count is not None and active_count >= 100:
+            raise _invalid("A shopping profile can contain at most 100 active preferences")
     for field, value in changes.items():
         if field == "category_scopes":
             value = sorted(value)
@@ -371,10 +396,12 @@ def patch_preference(
             raise _invalid("Preference status is invalid")
         setattr(preference, field, value)
     try:
-        _validate_preference_criterion(preference.key, preference.operator)
+        _validate_preference_criterion(
+            preference.key, preference.operator, preference.value, preference.unit
+        )
         preference.unit = _validate_money_preference(
+            preference.monetary,
             preference.key,
-            preference.label,
             preference.value,
             preference.unit,
             preference.category_scopes,
@@ -432,6 +459,7 @@ def preference_suggestions(
     if project is None:
         raise _not_found("Project not found")
     profile = _get_or_create_profile(session, owner_id)
+    _commit(session)
     eligible = []
     if project.reuse_preferences and profile.reuse_enabled and project.category:
         preferences = session.scalars(
@@ -467,6 +495,7 @@ def preference_suggestions(
     return PreferenceSuggestionsRead(
         reuse_enabled=project.reuse_preferences,
         profile_reuse_enabled=profile.reuse_enabled,
+        profile_revision=profile.revision,
         items=eligible,
     )
 
@@ -477,7 +506,12 @@ def apply_preference(
     project_id: UUID,
     preference_id: UUID,
     expected_project_version: int,
+    expected_preference_revision: int,
+    expected_profile_version: int,
 ) -> ProjectRead:
+    # Profile writers and application share profile -> project -> preference lock order.
+    profile = _get_or_create_profile(session, owner_id, lock=True)
+    _check_profile_version(profile, expected_profile_version)
     project = session.scalar(
         select(ShoppingProject)
         .where(
@@ -495,19 +529,26 @@ def apply_preference(
             "The project changed before this preference was applied",
             {"current_version": project.revision},
         )
-    profile = _get_or_create_profile(session, owner_id)
     if not project.reuse_preferences or not profile.reuse_enabled:
         raise _conflict("preference_reuse_disabled", "Preference reuse is disabled")
     preference = session.scalar(
-        select(ShoppingPreference).where(
+        select(ShoppingPreference)
+        .where(
             ShoppingPreference.id == preference_id,
             ShoppingPreference.owner_id == owner_id,
             ShoppingPreference.profile_id == profile.id,
             ShoppingPreference.status == "active",
         )
+        .with_for_update()
     )
     if preference is None:
         raise _not_found("Active preference not found")
+    if preference.revision != expected_preference_revision:
+        raise _conflict(
+            "preference_revision_conflict",
+            "This preference changed since suggestions were loaded",
+            {"current_preference_revision": preference.revision},
+        )
     if not preference_applies_to_category(preference.category_scopes, project.category):
         raise _conflict(
             "preference_scope_mismatch", "This preference does not apply to this category"
@@ -531,15 +572,34 @@ def apply_preference(
         raise _invalid("A project can have at most 100 requirements")
     now = datetime.now(UTC)
     is_typed = preference.key != "statement"
+    if is_typed:
+        try:
+            validate_criterion_fields(
+                preference.key, preference.operator, preference.value, preference.unit or None
+            )
+        except ValueError as error:
+            raise _invalid(str(error)) from error
+    statement_value = preference.value if not is_typed else None
+    statement_detail = (
+        statement_value
+        if isinstance(statement_value, str)
+        else json.dumps(statement_value, ensure_ascii=False, separators=(",", ":"))
+        if statement_value is not None
+        else ""
+    )
     requirement = ProjectRequirement(
         project_id=project.id,
         kind="preference",
         label=preference.label,
-        detail="Suggested from your shopping profile; edit this project requirement at any time.",
+        detail=(
+            statement_detail
+            if not is_typed
+            else "Suggested from your shopping profile; edit this project requirement at any time."
+        ),
         attribute_key=preference.key if is_typed else None,
         operator=preference.operator if is_typed else None,
         value=preference.value if is_typed else None,
-        unit=preference.unit if is_typed else None,
+        unit=preference.unit or None,
         position=len(requirements),
         origin="user",
         source_preference_id=preference.id,
@@ -563,19 +623,18 @@ def _get_or_create_profile(
     if lock:
         statement = statement.with_for_update()
     profile = session.scalar(statement)
-    if profile is not None:
-        return profile
-    profile = ShoppingProfile(owner_id=owner_id, reuse_enabled=True, revision=1)
-    session.add(profile)
-    try:
-        session.commit()
-    except IntegrityError:
-        session.rollback()
-        profile = session.scalar(
-            select(ShoppingProfile).where(ShoppingProfile.owner_id == owner_id)
+    if profile is None:
+        session.execute(
+            pg_insert(ShoppingProfile)
+            .values(owner_id=owner_id, reuse_enabled=True, revision=1)
+            .on_conflict_do_nothing(index_elements=[ShoppingProfile.owner_id])
         )
-        if profile is None:
-            raise
+        statement = select(ShoppingProfile).where(ShoppingProfile.owner_id == owner_id)
+        if lock:
+            statement = statement.with_for_update()
+        profile = session.scalar(statement)
+    if profile is None:
+        raise RuntimeError("Shopping profile creation did not produce a profile")
     return profile
 
 
@@ -586,13 +645,21 @@ def _profile_read(session: Session, profile: ShoppingProfile) -> ProfileRead:
             ShoppingPreference.profile_id == profile.id,
             ShoppingPreference.owner_id == profile.owner_id,
         )
-        .order_by(ShoppingPreference.accepted_at.desc(), ShoppingPreference.id)
+        .order_by(
+            (ShoppingPreference.status == "active").desc(),
+            ShoppingPreference.accepted_at.desc(),
+            ShoppingPreference.id,
+        )
         .limit(100)
     ).all()
     candidates = session.scalars(
         select(PreferenceCandidate)
         .where(PreferenceCandidate.owner_id == profile.owner_id)
-        .order_by(PreferenceCandidate.created_at.desc(), PreferenceCandidate.id)
+        .order_by(
+            (PreferenceCandidate.status == "pending").desc(),
+            PreferenceCandidate.created_at.desc(),
+            PreferenceCandidate.id,
+        )
         .limit(100)
     ).all()
     return ProfileRead(
@@ -646,6 +713,7 @@ def _preference_read(session: Session, preference: ShoppingPreference) -> Prefer
         operator=preference.operator,
         value=preference.value,
         unit=preference.unit,
+        monetary=preference.monetary,
         category_scopes=preference.category_scopes,
         label=preference.label,
         strength=preference.strength,
@@ -705,6 +773,7 @@ def _candidate_read(session: Session, candidate: PreferenceCandidate) -> Prefere
         operator=candidate.operator,
         value=candidate.value,
         unit=candidate.unit,
+        monetary=candidate.monetary,
         category_scopes=candidate.category_scopes,
         rationale=candidate.rationale,
         status=candidate.status,
