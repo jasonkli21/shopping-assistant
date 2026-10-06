@@ -1,41 +1,173 @@
 # Shopping Assistant
 
-A personal shopping research and decision-support application focused on **search, discovery, evidence, comparison, and shortlisting** rather than checkout.
+A personal shopping research and decision-support application for going from a vague need to an evidence-backed shortlist.
+
+The application focuses on the hard part of shopping—understanding requirements, discovering products, researching evidence, comparing tradeoffs, and deciding what is worth considering—rather than checkout or order management.
+
+## What it does
+
+The central artifact is a durable **Shopping Project**.
+
+A project can contain:
+
+- a shopping goal and intent;
+- editable requirements and budget;
+- project-aware conversation history;
+- bounded discovery and research runs;
+- source/search lineage;
+- normalized products, variants, and offers;
+- product evidence and source-backed claims;
+- project-relative assessments;
+- side-by-side comparisons;
+- explicit decisions, shortlist, and rejection state;
+- user notes and corrections.
 
 The core user journey is:
 
-> Need → Requirements → Discovery → Research → Comparison → Shortlist
+```text
+Need -> Requirements -> Discovery -> Research -> Comparison -> Shortlist
+```
 
-This repository is intentionally scaffolded as a **modular monolith** with a React/TypeScript SPA, a Python/FastAPI API, PostgreSQL as the application datastore, and a clean integration boundary to the separate `personal-ai-system`.
+Examples:
 
-## Status
+- “I need a chair for my apartment.”
+- “Find a cordless vacuum under $400.”
+- “What is like this product, but cheaper?”
+- “Compare these three monitors.”
+- “Teach me what matters when buying an air purifier.”
 
-**Phases 1–4 are complete on the deterministic local path:** projects, requirements, conversations, confirmed intent proposals, bounded discovery runs, search lineage, provisional candidates, catalog normalization, reversible corrections, timestamped offers, and product details are implemented. AI suggestions remain reviewable until explicitly applied. Discovery uses a task-aware fake planner by default; explicit user queries work without Personal AI. Catalog extraction uses guarded HTTP retrieval and conservative structured data; live retailer coverage and credentials remain unverified. Tavily's API contract has an adapter and mocked HTTP coverage, but live credentials and query quality remain unverified. See the [Phase 4 evidence](docs/planning/phase-4-implementation-plan.md), [search provider contract](docs/architecture/search-provider-contract.md), [API contract](docs/api/api-contract.md), and [validation record](VALIDATION.md).
+## Product principles
 
-## Quick start
+- **Start from intent, not just keywords.**
+- **AI inference does not silently become durable truth.**
+- **Explain tradeoffs instead of producing opaque universal scores.**
+- **Separate source facts, observations, AI assessments, and user judgment.**
+- **Preserve evidence and provenance.**
+- **Research should refine a durable project rather than reset on every query.**
+- **The product stops at shortlist rather than checkout.**
+- **Persistent preferences should be promoted deliberately.**
+
+## Architecture
+
+```text
+                     personal-ai-system
+                 generic AI / memory layer
+                           |
+                           | typed HTTP
+                           v
+ +------------------------------------------------------+
+ |                  Shopping Assistant                  |
+ |                                                      |
+ | projects       catalog        research               |
+ | search         extraction     evidence               |
+ | comparisons    preferences    conversations          |
+ | integrations                                         |
+ +---------------------+----------------------+----------+
+                       |                      |
+                       v                      v
+                 PostgreSQL             search / web
+```
+
+The application is a modular monolith: one frontend, one backend deployment, one authoritative PostgreSQL datastore, and explicit internal module boundaries.
+
+## Ownership boundaries
+
+**Shopping Assistant owns:**
+
+- shopping projects and requirements;
+- products, variants, and offers;
+- research runs;
+- shopping evidence/claims;
+- comparison state;
+- shortlists/rejections;
+- shopping-specific preferences;
+- shopping UI and API behavior.
+
+**`personal-ai-system` owns reusable intelligence:**
+
+- model/provider access;
+- generic generation;
+- user-wide memory;
+- generic research/orchestration primitives.
+
+The shopping app integrates over explicit contracts rather than importing AI-system internals.
+
+## Repository layout
+
+```text
+.
+├── apps/
+│   ├── api/                # FastAPI backend
+│   └── web/                # React + Vite frontend
+├── packages/               # shared/generated contracts where needed
+├── docs/
+│   ├── product/            # product vision and UX
+│   ├── architecture/       # architecture, data model, AI/search contracts
+│   ├── api/                # API contract
+│   └── planning/           # detailed engineering plans/history
+├── infra/
+│   ├── local/
+│   └── cloud/              # cloud deployment placeholder
+├── scripts/
+├── docker-compose.yml
+└── Makefile
+```
+
+## Tech stack
+
+### Web
+
+- React 19
+- TypeScript
+- Vite
+- React Router
+- TanStack Query
+- pnpm 10.34.6
+
+### API
+
+- Python 3.12+
+- FastAPI
+- SQLAlchemy 2
+- Alembic
+- PostgreSQL / psycopg
+- HTTPX
+
+### Providers
+
+- deterministic/fake local assistant and search modes by default;
+- optional Tavily search adapter;
+- explicit `personal-ai-system` integration boundary.
+
+## Local setup
 
 ### Prerequisites
 
 - Python 3.12+
 - `uv`
 - Node.js 20+
-- `pnpm` 10 (version pinned in `apps/web/package.json`)
+- pnpm 10.34.6
 - Docker / Docker Compose
 
-### 1. Configure local settings
+### 1. Clone and configure
 
 ```bash
+git clone https://github.com/jasonkli21/shopping-assistant.git
+cd shopping-assistant
+
 cp .env.example .env
 cp apps/web/.env.example apps/web/.env.local
 ```
 
-The API and Alembic load repository-root `.env`; process environment variables override it. Frontend public configuration lives in `apps/web/.env.local`. Keep credentials out of `VITE_` variables.
+The local defaults are intentionally deterministic:
 
-`LOCAL_OWNER_ID` optionally selects the stable local owner; it defaults to a fixed development UUID and is never accepted from request data. This unauthenticated local mode is intended for localhost development only.
+```env
+ENVIRONMENT=local
+PERSONAL_AI_MODE=fake
+SEARCH_PROVIDER=fake
+```
 
-Assistant generation defaults to `PERSONAL_AI_MODE=fake` for deterministic local work. `PERSONAL_AI_MODE=external` stays unavailable until the separate Personal AI service publishes a verified structured shopping-task contract; see the [contract check](apps/api/src/shopping/integrations/personal_ai/CONTRACT.md).
-
-Search defaults to `SEARCH_PROVIDER=fake`. Tavily is opt-in with `SEARCH_PROVIDER=tavily` and a server-side `TAVILY_API_KEY`; there is no silent fallback to fake results. The [provider contract note](docs/architecture/search-provider-contract.md) documents the guarded live smoke.
+No external model/search credentials are required for the default local workflow.
 
 ### 2. Start PostgreSQL
 
@@ -47,66 +179,168 @@ docker compose up -d postgres
 
 ```bash
 cd apps/api
+
 uv sync --locked --extra dev
 uv run alembic upgrade head
-uv run uvicorn shopping.main:app --reload --host 127.0.0.1 --port 8000
+uv run uvicorn shopping.main:app \
+  --reload \
+  --host 127.0.0.1 \
+  --port 8000
 ```
 
-API health endpoint:
+Health endpoint:
 
 ```text
 GET http://localhost:8000/health
 ```
 
-The Home page at `/` creates projects; `/projects/{project_id}` opens their Overview; `/projects/{project_id}/discover` starts bounded discovery and displays provisional search observations. Project, discovery, and requirement routes are listed in the [API contract](docs/api/api-contract.md). Apply database migrations before starting the API.
-
 ### 4. Start the web app
 
-In a separate terminal from the repository root:
+In another terminal:
 
 ```bash
 cd apps/web
+
+corepack enable
+corepack prepare pnpm@10.34.6 --activate
 pnpm install --frozen-lockfile
 pnpm dev
 ```
 
-The default frontend dev server uses strict port 5173 and talks to `http://localhost:8000`. `/health` is liveness, not database readiness.
+The Vite development server uses port `5173` and talks to the API at `http://localhost:8000`.
 
-Run `make validate` for lint/format, deterministic offline tests, generated API type checking, typechecking and build. PostgreSQL integration tests are explicit: set `TEST_DATABASE_URL` to a disposable database whose name starts with `test_` or ends with `_test`/`_tests`, then run `make test-db TEST_DATABASE_URL=...`. The test fixture creates and drops isolated schemas and refuses the configured application database. CI has a separate PostgreSQL 16 job. See [validation results and remaining checks](VALIDATION.md).
-
-## Repository map
+Open:
 
 ```text
-apps/api/        FastAPI backend
-apps/web/        React + TypeScript frontend
-packages/        Shared/generated contracts when needed
-docs/            Product, architecture, API, and implementation plan
-infra/           Deployment scaffolding; intentionally minimal for now
-scripts/         Developer scripts
+http://localhost:5173
 ```
 
-## Architectural rules
+## Optional provider configuration
 
-1. **Shopping domain state lives here.** Shopping projects, products, variants, offers, evidence, comparisons, and shortlists are shopping-app concerns.
-2. **Generic intelligence lives in `personal-ai-system`.** This app integrates through an explicit client boundary rather than importing its internals.
-3. **PostgreSQL is authoritative for shopping-domain data.** Do not move the domain model to Firestore merely to mirror another project.
-4. **Use a modular monolith.** Keep strong internal boundaries, but do not create microservices prematurely.
-5. **Evidence and provenance are first-class.** Separate source facts, observations, AI assessments, and user judgments.
-6. **Do not add infrastructure without a demonstrated need.** No Redis, Celery, Kafka, Pub/Sub, Kubernetes, Elasticsearch, or vector database in the initial phases.
-7. **Tests and source code remain in separate directories.**
+### Tavily search
 
-## Start here for Codex
+Local search defaults to the fake provider.
 
-Read [`CODEX_HANDOFF.md`](./CODEX_HANDOFF.md), then the docs in this order:
+To opt into Tavily:
 
-1. `docs/product/product-vision.md`
-2. `docs/product/ux-design.md`
-3. `docs/architecture/architecture.md`
-4. `docs/architecture/data-model.md`
-5. `docs/architecture/ai-search.md`
-6. `docs/architecture/personal-ai-integration.md`
-7. [Implementation plans index](docs/planning/implementation-plans-index.md) and selected phase plan
-8. `docs/api/api-contract.md`
-9. Remaining `docs/architecture/*.md`, `docs/adr/*.md`, and `docs/product/roadmap.md`
+```env
+SEARCH_PROVIDER=tavily
+TAVILY_API_KEY=...
+```
 
-The Phase 0 review/corrections are complete; external verification gaps are recorded in `VALIDATION.md`. Execute only the explicitly selected phase and stop. Phase 6 requires a comprehensive repo-wide review before Phase 7.
+There is no silent fallback to fake data when a live provider is selected.
+
+### `personal-ai-system`
+
+Local assistant generation defaults to:
+
+```env
+PERSONAL_AI_MODE=fake
+```
+
+External integration uses:
+
+```env
+PERSONAL_AI_MODE=external
+PERSONAL_AI_URL=http://localhost:8080
+```
+
+Only enable this when the upstream structured shopping contract and identity/data-handling boundary are configured.
+
+## Research bounds
+
+The search/research pipeline is deliberately bounded.
+
+Example controls include:
+
+```env
+RESEARCH_MAX_QUERIES=8
+RESEARCH_MAX_CANDIDATES=20
+RESEARCH_MAX_RESULTS=60
+RESEARCH_DEADLINE_SECONDS=60
+RESEARCH_PROVIDER_TIMEOUT_SECONDS=15
+RESEARCH_MAX_CONCURRENT_SEARCHES=1
+RESEARCH_MAX_CONCURRENT_RUNS=2
+```
+
+These controls keep provider usage and request execution predictable.
+
+## Development checks
+
+Run the repository validation suite:
+
+```bash
+make validate
+```
+
+It covers linting/formatting, deterministic offline tests, generated API type checks, TypeScript checks, and the production web build.
+
+PostgreSQL integration tests are opt-in and require a disposable database:
+
+```bash
+make test-db TEST_DATABASE_URL=postgresql+psycopg://...
+```
+
+The test harness rejects the configured application database and requires an explicitly test-named database.
+
+## Cloud deployment
+
+The intended cloud direction is:
+
+```text
+Browser
+   |
+   v
+Web frontend
+   |
+   v
+Cloud Run: Shopping API
+   |
+   +-------> Neon Postgres
+   |
+   +-------> external search/providers
+   |
+   +-------> personal-ai-system
+```
+
+The repository currently keeps `infra/cloud/` intentionally minimal. A turnkey Cloud Run/Firebase/Secret Manager/Neon deployment stack is **not yet provided**.
+
+For now, treat cloud deployment as an architecture target rather than a one-command supported installation.
+
+A future cloud deployment should preserve these constraints:
+
+- PostgreSQL remains authoritative for shopping-domain data;
+- server/provider credentials stay out of browser-visible variables;
+- production identity is verified at the API boundary;
+- provider calls remain bounded and auditable;
+- migrations are explicit rather than run independently by every replica;
+- shopping data and AI-platform data remain separate ownership domains.
+
+## Security and data-handling notes
+
+- local owner identity is for localhost development only;
+- browser-visible `VITE_` variables must not contain credentials;
+- external provider calls are explicit and opt-in;
+- source facts and AI assessments remain distinguishable;
+- evidence and provenance are stored as first-class data;
+- catalog corrections remain reversible;
+- live providers should not silently fall back to synthetic results;
+- no checkout, payment, or automated purchasing functionality is part of the application.
+
+## Documentation
+
+Useful starting points include:
+
+```text
+docs/product/product-vision.md
+docs/product/ux-design.md
+docs/architecture/architecture.md
+docs/architecture/data-model.md
+docs/architecture/ai-search.md
+docs/architecture/personal-ai-integration.md
+docs/api/api-contract.md
+```
+
+## License
+
+No license is currently specified. Add an explicit `LICENSE` file before treating the repository as generally reusable open-source software.
