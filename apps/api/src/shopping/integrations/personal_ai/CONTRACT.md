@@ -24,3 +24,22 @@ The fake returns one final structured envelope after generation. It does not
 represent buffered text as provider token streaming. The local SSE endpoint
 persists the final response and supports attachment/reconnection independently
 of provider streaming support.
+
+## Phase 8 memory capability check — 2026-10-05
+
+The upstream `docs/api-contract.md` and `backend/src/personal_ai/api/routes.py`
+were checked again for Phase 8. The public
+`GET /v1/conversations/{conversation_id}/context` route accepts up to 20
+explicit memory IDs only for gated, read-only planning inspection. Its result
+contains planning metadata and omits memory text and vectors; it is not a
+retrieval contract for a shopping request. The normal chat path can retrieve
+memories and schedule memory extraction after completion, which does not provide
+the separate, user-approved compact preference proposal and retraction
+operations this app requires.
+
+The checked public API has no memory list/create/edit/delete/propose/retract
+routes or idempotency contract for those operations. `/tasks/memory` is a
+private authenticated worker route for Pub/Sub job processing, not a user
+memory API. No Personal AI memory adapter or external write has been added.
+Shopping preferences remain local, owner-scoped and usable without that
+integration. Recheck the upstream contract before adding an adapter.

@@ -1,6 +1,6 @@
 # Phase 8 — Personalization and explicit memory boundaries
 
-Status: planned. Requires Phase 7 stable research/context snapshots and the Phase 6 review gate. Read the [index](implementation-plans-index.md), product learning principle, Personal AI integration, preferences placeholder and ADR 0003.
+Status: implementation complete locally, not accepted. Phase 6 and Phase 7 review gates remain open; this code slice proceeded at the user's explicit direction without passing either gate. Read the [index](implementation-plans-index.md), product learning principle, Personal AI integration contract, preferences module notes and ADR 0003.
 
 ## Outcome, slice and boundary
 
@@ -62,3 +62,22 @@ Run `make validate`, PostgreSQL preference/promotion/snapshot tests, prior migra
 Review: Are all three scopes distinguishable? Does revocation prevent future context use? Can an unrelated project bias research? Are external consent and local preference acceptance separate? Does snapshot history avoid silent retroactive changes while supporting privacy purge? Is the feature usable without external memory?
 
 Handoff: owner-scoped profile/preference schemas, explicit promotion and reuse service, context precedence/snapshot provenance, consent/operation audit if implemented and real Personal AI contract note. Phase 9 must secure every new profile/memory endpoint, minimize logging and implement export/purge. Remaining external gap: Personal AI memory API/auth/idempotency/retraction capabilities; no cross-application integration beyond this verified boundary.
+
+## Local implementation record — 2026-10-05
+
+The local slice supports manual promotion from either a saved project preference or a rejected-product judgment. It deliberately does not run automatic extraction or acceptance. A selected rejection becomes only a pending candidate; profile acceptance and application to another project remain separate user actions. The Phase 6 gate and Phase 7 acceptance remain open.
+
+Implementation commits: `98b415b` (API, persistence and boundary evaluations) and `e08e485` (profile and project UX). This record and the cross-phase handoff are in a separate documentation commit.
+
+| Acceptance area | Implementation evidence | Status |
+|---|---|---|
+| Owner-scoped profile, candidate and soft-preference lifecycle | Migration `0019_explicit_shopping_preferences`; `preferences/models.py`, `schemas.py`, `service.py`, `router.py`; generated OpenAPI types | Implemented locally; PostgreSQL application not run |
+| Bounded and typed monetary preferences | Candidate/edit validators require category scope, supported ISO currency, and decimal-string amounts for structured money values | Implemented locally; schema regressions pass |
+| Explicit requirement or rejected-judgment promotion, dedupe, stale source, edit/revoke | Preference API and service; `tests/preferences/test_preferences_api.py`; schema tests | Code and deterministic non-DB tests present; API lifecycle tests require PostgreSQL and remain unrun |
+| Category-limited cross-project suggestions, explicit application and source snapshots | Project Overview, Shopping Profile, `ProjectPreferenceSuggestions`, `AssistantPanel`; requirement, chat and research snapshots retain preference ID/revision/scope | Implemented locally; browser journey and PostgreSQL snapshot checks remain unrun |
+| Hard project boundaries and local-only one-time context | Conversation/research prompt precedence; `tests/evals/preferences/` scenarios for compact furniture, desk height, budgets, one-time gifts, owned rejections, revocation and conflicts | Offline evaluation cases pass; no live model quality claim |
+| External Personal AI memory boundary | `integrations/personal_ai/CONTRACT.md` Phase 8 check and profile status UI | No verified user-scoped memory API exists; no adapter or external writes added |
+
+Verification on this host: the deterministic API suite passed 164 tests; frontend Vitest passed 64 tests, TypeScript and ESLint passed, Ruff check/format passed, generated API types were current, Vite production build passed, and Alembic generated offline SQL through migration 0019. The build reports a warning for the main JavaScript chunk (510.65 kB minified).
+
+PostgreSQL preference lifecycle, migration up/down plus model-drift checks, and browser/manual E2E were not run. `TEST_DATABASE_URL` is unset; local `initdb` could not allocate shared memory (`shmget`, no space left on device). The repository-pinned pnpm wrapper also attempted to fetch pnpm 10.34.6 from the unavailable registry, so installed Node tooling was used directly. These limits leave Phase 8 unaccepted and do not change Phase 6 or Phase 7 status. Hosted CI, live provider/model quality, live retailer coverage, and cloud checks remain unrun.

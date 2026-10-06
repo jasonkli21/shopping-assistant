@@ -1,6 +1,6 @@
 # Shopping Assistant implementation plans
 
-Updated 2026-10-05 after Phase 7 implementation at the user's explicit direction. Phases 0–5 are accepted; Phase 6 code is implemented locally, with its mandatory review gate still open because PostgreSQL and browser journey verification could not be completed. Phase 7 code is implemented locally but not accepted; its database, browser and quality-evaluation checks remain unrun. This does not waive Phase 6's gate. Read [validation](../../VALIDATION.md), the [Phase 6 review](phase-6-review.md), and [handoff](../../CODEX_HANDOFF.md) before continuing. The original [roadmap outline](implementation-plan.md) remains a summary.
+Updated 2026-10-05 after Phase 8 implementation at the user's explicit direction. Phases 0–5 are accepted; Phase 6 code is implemented locally, with its mandatory review gate still open because PostgreSQL and browser journey verification could not be completed. Phase 7 code is implemented locally but not accepted; its database, browser and quality-evaluation checks remain open. Phase 8 code is implemented locally but not accepted; its PostgreSQL and browser journey checks remain open. This work does not waive or pass either predecessor gate. Read [validation](../../VALIDATION.md), the [Phase 6 review](phase-6-review.md), and [handoff](../../CODEX_HANDOFF.md) before continuing. The original [roadmap outline](implementation-plan.md) remains a summary.
 
 ## Sequence and gates
 
@@ -14,7 +14,7 @@ Updated 2026-10-05 after Phase 7 implementation at the user's explicit direction
 | 5 | Multi-source claims, evidence and assessments; uses 4 | [Evidence](phase-5-implementation-plan.md) | Accepted after main-session review and local verification; live/provider/browser/hosted checks unverified |
 | 6 | Complete decision journey; uses 1–5 | [MVP](phase-6-implementation-plan.md) | Implemented locally; gate open pending PostgreSQL integration/migration checks and browser E2E/manual review |
 | 7 | Durable job reliability and deeper research; requires signed-off 6 gate | [Orchestration](phase-7-implementation-plan.md) | Implemented locally at explicit user direction; not accepted; Phase 6 gate and Phase 7 PostgreSQL/browser/quality verification remain open; remote execution conditional |
-| 8 | Explicit persistent preferences and optional external memory; uses 7 | [Memory](phase-8-implementation-plan.md) | Planned |
+| 8 | Explicit persistent preferences and optional external memory; uses 7 | [Memory](phase-8-implementation-plan.md) | Implemented locally at explicit user direction; not accepted; Phase 6 gate remains open, and Phase 8 PostgreSQL/browser verification remains unrun; external memory unavailable |
 | 9 | Authorized and verified cloud deployment; uses 1–8 | [Production](phase-9-implementation-plan.md) | Planned |
 
 Complete one phase and stop. Read successor handoff requirements before implementing the selected phase, but do not implement its successor. A predecessor's failed acceptance criterion remains a blocker or an explicitly documented limitation; a plan is never evidence that code exists. Phase 6 requires a comprehensive product, architecture, data, code, privacy, and testing review plus resolution of blocking findings before Phase 7.

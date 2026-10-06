@@ -1,5 +1,26 @@
 # Validation record
 
+## Phase 8 local implementation checks — 2026-10-05
+
+Phase 8 implements an owner-scoped local shopping profile, explicitly reviewed candidates from a saved project preference or rejected-product judgment, bounded category-scoped suggestions, opt-in per-project reuse, and source provenance on applied project requirements and snapshots. It proceeded at the user's explicit direction while the Phase 6 gate and Phase 7 acceptance remain open; this record does not close either predecessor gate.
+
+Implementation commits: `98b415b` (API/persistence/evaluations) and `e08e485` (frontend). Documentation is recorded separately.
+
+| Check | Result |
+|---|---|
+| `cd apps/api && UV_CACHE_DIR=/private/tmp/shopping-uv-cache uv run --extra dev pytest -m 'not db and not live'` | Passed: 164 tests, including preference boundary evaluations for compact furniture, desk-height locality, category budgets, one-time must-haves, rejected judgments, revocation and hard/soft conflicts. |
+| `cd apps/api && UV_CACHE_DIR=/private/tmp/shopping-uv-cache uv run --extra dev ruff check src tests migrations` and `ruff format --check src tests migrations` | Passed; all 154 API source/test/migration files are lint-clean and formatted. |
+| `cd apps/api && UV_CACHE_DIR=/private/tmp/shopping-uv-cache uv run --extra dev python ../../scripts/generate_api_types.py --check` | Passed; FastAPI contracts and `packages/api-types/src/index.ts` match. |
+| `cd apps/api && UV_CACHE_DIR=/private/tmp/shopping-uv-cache uv run --extra dev alembic upgrade head --sql` | Passed; generated offline SQL through migration `0019_explicit_shopping_preferences`. This does not execute the migration against PostgreSQL. |
+| `cd apps/api && UV_CACHE_DIR=/private/tmp/shopping-uv-cache uv run --extra dev pytest -m db --collect-only` | Passed collection: 104 database tests, including the Phase 8 schema and preference lifecycle cases. The tests were not executed. |
+| `cd apps/web && <bundled-node> node node_modules/vitest/vitest.mjs run` | Passed: 64 tests across 7 files, including Shopping Profile revoke behavior and explicit rejected-judgment candidate creation. |
+| `cd apps/web && <bundled-node> node node_modules/eslint/bin/eslint.js src tests`, `node_modules/typescript/bin/tsc -b`, and `node_modules/vite/bin/vite.js build` | Passed: ESLint, TypeScript and production build. Vite reports the main JavaScript chunk at 510.65 kB minified, above its 500 kB advisory threshold. `<bundled-node>` is `/Users/jasonkli/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node`. |
+| PostgreSQL migration/lifecycle/model-drift tests | Not run. `TEST_DATABASE_URL` is unset; local PostgreSQL cluster initialization fails to allocate shared memory (`shmget`, “No space left on device”). |
+| Browser journey/manual responsive and keyboard review | Not run. Automated UI tests use deterministic fetch fakes and are not browser E2E evidence. |
+| Personal AI memory, live model/provider, retailer/source, hosted CI and cloud checks | No user-scoped Personal AI memory CRUD/proposal/retraction contract was found, so no adapter or external writes exist. Live/provider, hosted CI and cloud checks were not run. |
+
+The repository-pinned pnpm bootstrap attempted to fetch pnpm 10.34.6 from the unavailable registry. Installed dependencies were checked directly with the bundled Node runtime. The feature is implemented locally but not accepted; the Phase 6 gate and Phase 7 acceptance remain open.
+
 ## Phase 7 implementation checks — 2026-10-05
 
 Phase 7 is implemented locally at the user's explicit direction while the Phase 6 repository gate remains open. This records static/schema checks only; no tests were run for this implementation, and Phase 7 is not accepted.

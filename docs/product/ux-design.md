@@ -152,6 +152,10 @@ Provide explicit reasons such as:
 
 Rejections immediately influence the project. Persistent profile learning is a separate step.
 
+## Shopping Profile
+
+The profile shows pending candidates separately from accepted preferences. A user can propose a saved project preference or explicitly select a rejected-product judgment, then review and accept the candidate before it becomes reusable. Scope and source stay visible; project requirements already applied from the profile remain editable and independent of later profile changes. Projects must opt in before new suggestions appear, and must-haves and constraints keep priority over soft preferences. External Personal AI memory is labeled unavailable until a user-scoped contract is verified.
+
 ## Mobile
 
 Use focused screens/tabs for `Overview`, `Discover`, `Compare`, and `Shortlist`, plus a floating assistant action. Do not force a desktop three-pane layout onto mobile.
