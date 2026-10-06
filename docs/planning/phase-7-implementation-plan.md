@@ -1,6 +1,6 @@
 # Phase 7 — Research quality and durable orchestration
 
-Status: planned; blocked until Phase 6's repository-wide gate passes. Read the [index](implementation-plans-index.md), Phase 6 review/measurements, research evidence/execution/deployment docs and ADRs. Improve measured quality/reliability; do not add infrastructure by default.
+Status: implemented locally at the user's explicit direction while Phase 6's repository-wide gate remains open. This does not pass or waive that gate. Read the [index](implementation-plans-index.md), [Phase 6 review](phase-6-review.md), [validation record](../../VALIDATION.md), and [executor decision](../architecture/research-execution-decision.md). Quality measurements and PostgreSQL/browser verification remain incomplete.
 
 ## Outcome, slice and boundary
 
@@ -53,3 +53,19 @@ Run `make validate`, PostgreSQL job/concurrency/recovery/migration tests, existi
 Suggested commits: audit/modes; jobs/runner/executor evolution; refresh semantics; UX/evals; conditional remote adapter/decision; evidence docs. Review: Are retryable and permanent failures distinct? Can expired workers commit? Is billing uncertainty honest? Are freshness classes separate? Does deeper research improve evidence instead of just call count? Is remote execution concretely justified?
 
 Handoff: serializable execution IDs, durable job/lease/attempt semantics, refresh/version rules, mode budgets, runner command, quality measurements and executor decision. Phase 8 reads shopping context without taking over orchestration; Phase 9 deploys the selected execution branch and resolves multi-instance conversation lifecycle. Remaining external gaps: actual provider retry semantics and any selected Cloud Run Jobs dispatch/runtime verification.
+
+## Local implementation record — 2026-10-05
+
+The code slice is implemented, but Phase 7 is **not marked accepted**: the Phase 6 gate is still open, and the plan's database/concurrency, browser, provider and labeled-quality checks were not run in this turn.
+
+Implementation commits: `0f6b708` (API, persistence, execution and refresh behavior) and `22c4e3b` (frontend and generated API types). The current documentation update is committed separately.
+
+| Work package / acceptance area | Implementation | Evidence in this turn | Remaining gap |
+|---|---|---|---|
+| 7A bounded modes, source targeting and freshness | `research/commands.py`, `research/schemas.py`, `research/product_task.py`, `research/product_execution.py`; quick/deep caps and snapshotted source/domain/freshness targets | API schema generation/check passed; static lint and type checks recorded in `VALIDATION.md` | No Phase 6 measurement baseline or labeled quality/call-count comparison; budgets are bounded defaults, not measurement-derived quality claims |
+| 7B persisted jobs, ID executor, lease fencing, cancellation and restart recovery | `research/models.py`, `research/jobs.py`, `research/executor.py`, `research/supervisor.py`, `research/runner.py`, `research/execution.py`; migrations `0016`–`0017` and active-run backfill in `0016` | `alembic upgrade head --sql` generated through `0018`; Ruff check/format and TypeScript checks passed | SQL was generated, not applied. Claim contention, crash/restart, expired worker, uncertain external completion and late-write behavior remain unverified against PostgreSQL |
+| 7C targeted refresh and preserved observations | `research/product_execution.py`, `research/product_persistence.py`, catalog/evidence models and reads; migration `0018`; refresh lineage and safe existing-variant matching | API types generated and `--check` passed | Offer/claim refresh, manual-correction preservation and prior-history behavior have not been exercised against PostgreSQL or browser flows |
+| 7D progress and actions | `DiscoverPage.tsx`, `ProductResearch.tsx`, API client/types and styles expose modes, job/query attempts, retry timing, cancellation, retry and offer status/history | TypeScript project build check passed | Interaction, mobile, hidden-tab polling and browser E2E checks not run |
+| 7E execution decision | [Research execution decision](../architecture/research-execution-decision.md) selects the shared local ID-based runner and records why remote execution lacks evidence | No duration or deployment-lifecycle measurements exist to justify a remote adapter | The local branch's real duration/reliability suitability is unmeasured; Cloud Run Jobs remains conditional |
+
+The request explicitly selected Phase 7 despite the documented Phase 6 prerequisite. Implementation proceeded without changing Phase 6's status. Do not treat generated SQL, deterministic fakes, static checks, or this implementation record as a passed Phase 6 or Phase 7 integration gate.

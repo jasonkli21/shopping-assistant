@@ -1,10 +1,10 @@
 # Implementation coordinator state
 
-Updated: 2026-10-05. Phase 6 implementation is delivered locally; its repository gate remains open.
+Updated: 2026-10-05. Phase 7 code is implemented locally at the user's explicit direction. Phase 6's repository gate remains open, and Phase 7 is not accepted.
 
 ## Scope and operating contract
 
-Latest user instruction: implement Phase 6 using its plan/docs and make a few coherent commits. Phase 6 is the only authorized phase; do not begin Phase 7 unless the mandatory review gate is passed. Work and review stay in the main session. No agents are active. PostgreSQL integration checks and the browser E2E/manual journey review remain outstanding; see `phase-6-review.md` and `VALIDATION.md`.
+Latest user instruction: implement Phase 7 using its plan/docs and make logical, well-scoped commits. The request explicitly authorizes implementation while Phase 6's required repository gate remains open; do not mark that gate passed or begin Phase 8. Phase 7 database/concurrency, browser and labeled quality checks remain outstanding. No tests were run for this implementation. See `phase-7-implementation-plan.md`, `research-execution-decision.md` and `VALIDATION.md`.
 
 ## Accepted phases
 
@@ -15,10 +15,11 @@ Latest user instruction: implement Phase 6 using its plan/docs and make a few co
 - Phase 4 accepted at cc7fdf4 after catalog implementation and fixes 0d7c7ae, 6787e1b, a270343, 3a7d279 and 15dfb23; root verified 96 offline API/eval, 80 PG and 46 frontend tests plus types. Includes a small revert acknowledgement replay fix.
 - Phase 5 implemented in 2196671, 438980e, 77ec2e3, b3ae74b and 9cec784. Independent review found grounding, classification, late-write/budget, cache/replay, history/polling and output-bound gaps. Final fixes 4323296, 47669e3 and 7e5a948 resolve these with regressions and focused execution/persistence modules. Main lightly reviewed those fixes and independently verified 130 offline API/evaluation tests (including 33 evidence evals), 90 PostgreSQL tests including migrations, 53 frontend tests and current generated API types. Agent also passed Ruff/format, ESLint, TypeScript and Vite build. Local Phase 5 signoff is complete.
 - Phase 6 adds owner-scoped decisions/events, notes, favorites, provenance-backed comparison snapshots, workspace screens and explicit v2 assistant proposal operations. Offline/API type/frontend checks pass. New database tests are authored but unrun, and no browser E2E suite/manual browser review has been completed; the phase gate is therefore open, not passed.
+- Phase 7 is implemented locally: bounded quick/deep budgets, source/freshness targeting, persisted leased jobs and attempts, ID-based local/manual runner, fencing and expired-lease recovery, bounded transient search retry, explicit retry/cancel, refresh lineage, append-only offer observations and progress/refresh UI. It is not accepted. PostgreSQL migration/claim/recovery behavior, browser journeys, provider retry semantics and quality/call-count comparison were not run. The executor decision selects the local branch provisionally because no measurements justify remote dispatch; it does not claim measured reliability suitability.
 
 ## Handoff and remaining limits
 
-See CODEX_HANDOFF.md, VALIDATION.md and the Phase 6 review for contracts/evidence. Phase 5 evidence snapshots/claims/assessments and the Phase 6 decision/comparison implementation are present. The external Personal AI structured-shopping endpoint remains unavailable; deterministic fakes do not establish live compatibility or quality. PostgreSQL 16 initialization currently fails with a shared-memory `shmget` limit even under the escalated test attempt. Phase 6 database/migration verification, E2E/manual browser review and a live provider/source audit remain unverified. No cloud deployment occurred. Phase 7 is not authorized until the gate passes.
+See CODEX_HANDOFF.md, VALIDATION.md, the Phase 6 review and Phase 7 plan for contracts/evidence. Phase 5 evidence snapshots/claims/assessments and Phase 6 decision/comparison implementation are present. The external Personal AI structured-shopping endpoint remains unavailable; deterministic fakes do not establish live compatibility or quality. PostgreSQL 16 initialization previously failed with a shared-memory `shmget` limit. Phase 6 database/migration verification and browser journey review remain unverified; Phase 7 migration/concurrency/recovery, browser and quality checks were not run. No cloud deployment occurred. The explicit Phase 7 request did not change Phase 6 gate status.
 
 ## Local environment
 
@@ -26,4 +27,4 @@ Checkout /Users/jasonkli/projects/shopping-assistant. UV_CACHE_DIR=/private/tmp/
 
 ## Restart history
 
-Initial rules mistakenly used PDT wall hours as UTC: October 3 22:35 was past at creation, and October 4 03:50 fired early. October 3 automation was paused; corrected October 4 03:50 PDT / 10:50 UTC wake delivered at 03:54 PDT. A later one-shot October 4 15:05 PDT / 22:05 UTC restart delivered at 15:05:02 PDT. Its broad continuation prompt is superseded by the latest stop-after-Phase-5 instruction. Automation IDs: resume-shopping-implementation-october-3 and resume-shopping-implementation-october-4. Do not infer authorization for additional phases from old heartbeat prompts.
+Initial rules mistakenly used PDT wall hours as UTC: October 3 22:35 was past at creation, and October 4 03:50 fired early. October 3 automation was paused; corrected October 4 03:50 PDT / 10:50 UTC wake delivered at 03:54 PDT. A later one-shot October 4 15:05 PDT / 22:05 UTC restart delivered at 15:05:02 PDT. Old automation prompts do not supersede the current explicit Phase 7 request. Automation IDs: resume-shopping-implementation-october-3 and resume-shopping-implementation-october-4.

@@ -1,5 +1,23 @@
 # Validation record
 
+## Phase 7 implementation checks — 2026-10-05
+
+Phase 7 is implemented locally at the user's explicit direction while the Phase 6 repository gate remains open. This records static/schema checks only; no tests were run for this implementation, and Phase 7 is not accepted.
+
+Implementation commits: `0f6b708` (API, persistence, execution and refresh behavior) and `22c4e3b` (frontend and generated API types). Documentation is committed separately.
+
+| Check | Result |
+|---|---|
+| API lint and formatting | `UV_CACHE_DIR=/private/tmp/shopping-assistant-uv-cache uv run ruff check src migrations` and `UV_CACHE_DIR=/private/tmp/shopping-assistant-uv-cache uv run ruff format --check src migrations`: passed; 114 files formatted. |
+| API schema/types | `cd apps/api && UV_CACHE_DIR=/private/tmp/shopping-assistant-uv-cache uv run python ../../scripts/generate_api_types.py --check`: passed; generated types are current. |
+| Frontend TypeScript | `/Users/jasonkli/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node node_modules/typescript/bin/tsc -b --pretty false` from `apps/web`: passed. |
+| Migration SQL generation | `cd apps/api && UV_CACHE_DIR=/private/tmp/shopping-assistant-uv-cache uv run alembic upgrade head --sql`: passed and generated through `0018_research_offer_observations`. This does not execute migrations against PostgreSQL. |
+| Whitespace/diff check | `git diff --check`: passed. |
+| API, frontend, database and browser tests | Not run for this implementation. In particular, no Phase 7 PostgreSQL lease/concurrency/recovery tests or retry/refresh browser journey were run. |
+| Live provider and quality measurements | Not run. No provider duration/cost sample or labeled Phase 5/6 quality and call-count comparison is available. |
+
+PostgreSQL execution of migrations `0015`–`0018`, claim contention, restart and late-worker fencing remain unverified. The local executor decision is provisional because no measured execution-window or deployment-lifecycle evidence justifies remote execution. See the [Phase 7 implementation record](docs/planning/phase-7-implementation-plan.md) and [executor decision](docs/architecture/research-execution-decision.md). These checks do not close the Phase 6 gate.
+
 ## Phase 6 implementation and verification — 2026-10-05
 
 Decisions and audit events, owner-scoped project/product notes, independent favorites, saved comparison dimensions/snapshots, workspace UI and explicit v2 assistant proposal actions are implemented locally. The repository-wide gate is **open, not passed**. Findings and dispositions are in [the Phase 6 review](docs/planning/phase-6-review.md).
@@ -17,7 +35,7 @@ Decisions and audit events, owner-scoped project/product notes, independent favo
 | Browser E2E/manual journey | Not completed. No Playwright package or browser executable is installed, and the Phase 6 `pnpm test:e2e` suite has not been added. Desktop/mobile journey, keyboard-only use, citations and provider failure/recovery remain unreviewed in a browser. |
 | Live provider/source audit | Not run; deterministic fakes establish local task behavior only. Hosted CI, cloud deployment and multi-instance checks were also not run. |
 
-The offline review caught and fixed a comparison equality bug where unsupported numeric units were omitted from the equality key; units now participate in equality unless a deterministic conversion is defined, and decimal values use stable canonical formatting. Phase 6 acceptance remains open until the PostgreSQL and browser journey checks above are completed. Do not begin Phase 7.
+The offline review caught and fixed a comparison equality bug where unsupported numeric units were omitted from the equality key; units now participate in equality unless a deterministic conversion is defined, and decimal values use stable canonical formatting. Phase 6 acceptance remains open until the PostgreSQL and browser journey checks above are completed. Phase 7 was subsequently implemented at the user's explicit direction; that work does not pass or waive this gate.
 
 ## Phase 5 local implementation — 2026-10-04
 
