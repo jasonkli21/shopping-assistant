@@ -5,6 +5,18 @@ import { ApiRequestError, ResearchCreate, projectsApi, researchApi } from "../..
 
 type EvidenceSelection = { kind: "claim" | "source"; id: string };
 type SavedProductCommand = { command: ResearchCreate; requestKey: string };
+const SOURCE_CLASSES = [
+  ["manufacturer_specification", "Manufacturer specifications"],
+  ["independent_measurement", "Independent measurements"],
+  ["editorial_assessment", "Professional reviews"],
+  ["retailer_listing", "Retailer listings"],
+  ["community_observation", "Owner discussions"],
+] as const;
+type SourceClass = (typeof SOURCE_CLASSES)[number][0];
+
+function parseDomains(value: string) {
+  return [...new Set(value.split(/[\s,]+/).map((item) => item.trim()).filter(Boolean))];
+}
 
 function commandStorageKey(projectId: string, projectProductId: string) {
   return `shopping-assistant:product-research-command:${projectId}:${projectProductId}`;
@@ -70,7 +82,15 @@ export function ProductResearch({ projectId, projectProductId }: {
   const [sourceOffset, setSourceOffset] = useState(0);
   const [selectedRunId, setSelectedRunId] = useState<string | undefined>();
   const [isVisible, setIsVisible] = useState(document.visibilityState === "visible");
+  const [researchMode, setResearchMode] = useState<"quick" | "deep">("quick");
+  const [refreshTargets, setRefreshTargets] = useState<Array<"offers" | "claims">>([]);
+  const [sourceClasses, setSourceClasses] = useState<SourceClass[]>(
+    SOURCE_CLASSES.map(([value]) => value),
+  );
+  const [includeDomains, setIncludeDomains] = useState("");
+  const [excludeDomains, setExcludeDomains] = useState("");
   const pollStartedAt = useRef(Date.now());
+  const retryRequestKey = useRef<string | null>(null);
   const opener = useRef<HTMLElement | null>(null);
   const closeButton = useRef<HTMLButtonElement | null>(null);
   const dialogRef = useRef<HTMLElement | null>(null);
@@ -121,10 +141,20 @@ export function ProductResearch({ projectId, projectProductId }: {
         const fresh = await projectsApi.get(projectId);
         const command: ResearchCreate = {
           type: "product_research",
+          mode: researchMode,
           objective: `Research the selected product variant for ${fresh.goal}`.slice(0, 2000),
           request_key: `product-${crypto.randomUUID()}`,
           expected_version: fresh.revision,
           selected_project_product_ids: [projectProductId],
+          source_targets: {
+            source_classes: sourceClasses,
+            include_domains: parseDomains(includeDomains),
+            exclude_domains: parseDomains(excludeDomains),
+          },
+          ...(refreshTargets.length > 0 && latestRunId ? {
+            refresh_of_run_id: latestRunId,
+            refresh_targets: refreshTargets,
+          } : {}),
           budgets: {},
           manual_queries: null,
         };
@@ -149,6 +179,31 @@ export function ProductResearch({ projectId, projectProductId }: {
         void queryClient.invalidateQueries({ queryKey: ["product-research", projectId, projectProductId] });
         void queryClient.invalidateQueries({ queryKey: ["research-runs", projectId] });
       }
+    },
+  });
+  const cancel = useMutation({
+    mutationFn: () => researchApi.cancel(projectId, latestRunId!),
+    onSuccess: async ({ run }) => {
+      queryClient.setQueryData(["research-run-detail", projectId, run.id], run);
+      await queryClient.invalidateQueries({ queryKey: ["product-research", projectId, projectProductId] });
+    },
+  });
+  const retry = useMutation({
+    mutationFn: async () => {
+      if (!project.data || !latestRunId) throw new Error("The saved project or research run is unavailable.");
+      return researchApi.retry(projectId, latestRunId, {
+        request_key: retryRequestKey.current ??= `product-retry-${crypto.randomUUID()}`,
+        expected_version: project.data.revision,
+      });
+    },
+    onSuccess: async () => {
+      retryRequestKey.current = null;
+      pollStartedAt.current = Date.now();
+      await queryClient.invalidateQueries({ queryKey: ["product-research", projectId, projectProductId] });
+      await queryClient.invalidateQueries({ queryKey: ["research-runs", projectId] });
+    },
+    onError: () => {
+      void queryClient.invalidateQueries({ queryKey: ["project", projectId] });
     },
   });
   const claim = useQuery({
@@ -203,6 +258,7 @@ export function ProductResearch({ projectId, projectProductId }: {
     setSelectedAssessment(0);
     setSelectedRunId(undefined);
     setSavedCommand(readCommand(storageKey));
+    setRefreshTargets([]);
     const updateVisibility = () => setIsVisible(document.visibilityState === "visible");
     document.addEventListener("visibilitychange", updateVisibility);
     return () => document.removeEventListener("visibilitychange", updateVisibility);
@@ -218,10 +274,61 @@ export function ProductResearch({ projectId, projectProductId }: {
   return <section className="card product-research-card" aria-labelledby="product-research-title">
     <p className="eyebrow">Project-relative evidence</p>
     <h2 id="product-research-title">Research and fit</h2>
+    <fieldset className="research-mode-options" disabled={Boolean(savedCommand) || Boolean(activeRun) || create.isPending}>
+      <legend className="field-label">Research depth</legend>
+      <label><input type="radio" name={`research-mode-${projectProductId}`} checked={researchMode === "quick"} onChange={() => setResearchMode("quick")} /><span><strong>Quick</strong> · up to 2 sources and 4 pages</span></label>
+      <label><input type="radio" name={`research-mode-${projectProductId}`} checked={researchMode === "deep"} onChange={() => setResearchMode("deep")} /><span><strong>Deep</strong> · search for missing dimensions across source classes</span></label>
+    </fieldset>
+    <fieldset className="research-target-controls" disabled={Boolean(savedCommand) || Boolean(activeRun) || create.isPending || !latestRunId}>
+      <legend className="field-label">Refresh existing evidence</legend>
+      <label><input type="checkbox" checked={refreshTargets.includes("offers")} onChange={() => setRefreshTargets((current) => current.includes("offers") ? current.filter((item) => item !== "offers") : [...current, "offers"])} /><span>Current retailer offers</span></label>
+      <label><input type="checkbox" checked={refreshTargets.includes("claims")} onChange={() => setRefreshTargets((current) => current.includes("claims") ? current.filter((item) => item !== "claims") : [...current, "claims"])} /><span>Specifications and product claims</span></label>
+      {!latestRunId && <p className="field-help">Run research once before requesting a targeted refresh.</p>}
+    </fieldset>
+    <details className="research-target-controls">
+      <summary>Choose source targets</summary>
+      <fieldset disabled={Boolean(savedCommand) || Boolean(activeRun) || create.isPending}>
+        <legend className="sr-only">Allowed source classes</legend>
+        {SOURCE_CLASSES.map(([value, label]) => <label key={value}>
+          <input
+            type="checkbox"
+            checked={sourceClasses.includes(value)}
+            onChange={() => setSourceClasses((current) => current.includes(value)
+              ? current.length > 1 ? current.filter((item) => item !== value) : current
+              : [...current, value])}
+          />
+          <span>{label}</span>
+        </label>)}
+      </fieldset>
+      <label>Include domains <span className="optional">Optional, comma or space separated</span>
+        <input value={includeDomains} onChange={(event) => setIncludeDomains(event.target.value)} disabled={Boolean(savedCommand) || Boolean(activeRun) || create.isPending} placeholder="example.com" />
+      </label>
+      <label>Exclude domains <span className="optional">Syndication and unwanted sites</span>
+        <input value={excludeDomains} onChange={(event) => setExcludeDomains(event.target.value)} disabled={Boolean(savedCommand) || Boolean(activeRun) || create.isPending} placeholder="news.example.com" />
+      </label>
+      <p className="field-help">Domain filters apply before page retrieval. Product identity and retriever safety checks still apply.</p>
+    </details>
     {project.isError && <p role="alert">{readableError(project.error)}</p>}
     {evidence.isPending && <p role="status">Loading research…</p>}
     {evidence.isError && <p role="alert">{readableError(evidence.error)} <button type="button" onClick={() => void evidence.refetch()}>Retry</button></p>}
     {activeRun && <p role="status">Research {evidence.data?.latest_run_status}: {runDetail.data?.targets?.find((target) => target.project_product_id === projectProductId)?.sources_retrieved ?? 0} sources retrieved, {runDetail.data?.targets?.find((target) => target.project_product_id === projectProductId)?.claims_created ?? 0} claims saved.</p>}
+    {(runDetail.data?.jobs ?? []).map((job) => <p className="quiet-state" role="status" key={job.id}>
+      {job.stage_type.replaceAll("_", " ")}: {job.status} · attempt {job.attempt_count}/{job.max_attempts}
+      {job.error_code ? ` · ${job.error_code}` : ""}
+      {(job.attempts ?? []).map((attempt) => attempt.error_code ? ` · attempt ${attempt.number}: ${attempt.error_code}` : "")}
+    </p>)}
+    {(runDetail.data?.queries ?? []).map((query) => <p className="quiet-state" key={query.id}>
+      {query.text}: {query.state}{query.retry_not_before ? ` · retry ${new Date(query.retry_not_before).toLocaleTimeString()}` : ""}
+      {(query.attempts ?? []).map((attempt) => ` · attempt ${attempt.attempt_number}: ${attempt.status}${attempt.error_code ? ` (${attempt.error_code})` : ""}`)}
+    </p>)}
+    {activeRun && <button type="button" disabled={cancel.isPending} onClick={() => cancel.mutate()}>
+      {cancel.isPending ? "Canceling…" : "Cancel research"}
+    </button>}
+    {cancel.isError && <p role="alert">{readableError(cancel.error)}</p>}
+    {runDetail.data && ["failed", "partial", "interrupted", "canceled"].includes(runDetail.data.status) && <button type="button" disabled={retry.isPending || project.isPending} onClick={() => retry.mutate()}>
+      {retry.isPending ? "Retrying…" : "Retry incomplete research"}
+    </button>}
+    {retry.isError && <p role="alert">{readableError(retry.error)}</p>}
     {activeRun && Date.now() - pollStartedAt.current >= 360_000 && <p role="status">Automatic updates paused. <button type="button" onClick={() => { pollStartedAt.current = Date.now(); void evidence.refetch(); void runDetail.refetch(); }}>Refresh progress</button></p>}
     {(runDetail.data?.stages ?? []).filter((stage) => !stage.target_project_product_id || stage.target_project_product_id === projectProductId).map((stage, index) => <p className="quiet-state" key={`${stage.stage}-${stage.source_snapshot_id ?? "plan"}-${index}`}>{stage.stage}: {stage.status}{stage.error_code ? ` (${stage.error_code})` : ""}{stage.validation_warnings.length ? ` · ${stage.validation_warnings.length} validation warnings` : ""}</p>)}
     {!activeRun && evidence.data?.latest_run_status === "succeeded" && <p className="quiet-state">Latest research completed: {runDetail.data?.summary ?? "Source review finished."}</p>}
@@ -265,6 +372,7 @@ export function ProductResearch({ projectId, projectProductId }: {
         <span>{item.title ?? item.publisher ?? "Source"} · {item.classification.replaceAll("_", " ")} · {item.status}</span>
         {item.classification_basis && <small>Classification basis: {item.classification_basis}</small>}
         {item.reason && <small>Reason: {item.reason}</small>}
+        {item.offer_status && <small>Offer refresh: {item.offer_status.replaceAll("_", " ")}{item.offer_error_code ? ` · ${item.offer_error_code.replaceAll("_", " ")}` : ""}{item.offer_observation?.amount ? ` · ${item.offer_observation.amount} ${item.offer_observation.currency ?? ""}` : ""}{item.offer_observation?.retailer_name ? ` · ${item.offer_observation.retailer_name}` : ""}</small>}
         {item.snapshot_id && <button className="evidence-link" type="button" onClick={() => inspect("source", item.snapshot_id!)}>Inspect source excerpt</button>}
         {safeUrl(item.final_url) && <a href={safeUrl(item.final_url)} target="_blank" rel="noopener noreferrer">Open source<span className="sr-only"> (opens in a new tab)</span></a>}
       </li>)}</ul>
@@ -274,7 +382,7 @@ export function ProductResearch({ projectId, projectProductId }: {
       </nav>}
     </>}
     <button className="button" type="button" disabled={Boolean(activeRun) || create.isPending || project.isPending || project.isError} onClick={() => create.mutate()}>
-      {create.isPending ? "Starting research…" : savedCommand ? "Retry research request" : evidence.data?.assessments.length ? "Run fresh research" : "Research this variant"}
+      {create.isPending ? "Starting research…" : savedCommand ? "Retry research request" : refreshTargets.length ? "Refresh selected evidence" : evidence.data?.assessments.length ? "Run fresh research" : "Research this variant"}
     </button>
     {create.isError && <p role="alert">{create.error instanceof ApiRequestError && create.error.status === 409 ? "The project changed or another run is active. Refresh and try again." : readableError(create.error)}</p>}
     {selection && <div className="evidence-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}>

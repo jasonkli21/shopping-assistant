@@ -392,6 +392,7 @@ export interface components {
       "id": string;
       "variant_id": string;
       "observation_id": null | string;
+      "research_source_attempt_id"?: null | string;
       "retailer_name": string;
       "retailer_domain": null | string;
       "url": string;
@@ -602,9 +603,13 @@ export interface components {
     ResearchCreate: {
       "objective": string;
       "type"?: "discovery" | "product_research";
+      "mode"?: "quick" | "deep";
       "request_key": string;
       "expected_version": number;
       "budgets"?: components["schemas"]["ResearchBudgets"];
+      "source_targets"?: components["schemas"]["ResearchSourceTargets"] | null;
+      "refresh_of_run_id"?: null | string;
+      "refresh_targets"?: Array<"offers" | "claims"> | null;
       "manual_queries"?: Array<string> | null;
       "selected_project_product_ids"?: Array<string> | null;
     };
@@ -612,6 +617,30 @@ export interface components {
       "run_id": string;
       "status": string;
       "replayed": boolean;
+    };
+    ResearchJobAttemptRead: {
+      "number": number;
+      "status": "running" | "succeeded" | "failed" | "canceled" | "uncertain";
+      "error_code": null | string;
+      "provider_request_id": null | string;
+      "budget_consumed": Record<string, number>;
+      "started_at": string;
+      "finished_at": null | string;
+    };
+    ResearchJobRead: {
+      "id": string;
+      "stage_type": "plan" | "search" | "retrieve" | "extract" | "assess" | "refresh_offer";
+      "status": "queued" | "running" | "succeeded" | "failed" | "canceled";
+      "attempt_count": number;
+      "max_attempts": number;
+      "not_before": string;
+      "heartbeat_at": null | string;
+      "error_code": null | string;
+      "attempts"?: Array<components["schemas"]["ResearchJobAttemptRead"]>;
+    };
+    ResearchRetry: {
+      "request_key": string;
+      "expected_version": number;
     };
     ResearchRunPage: {
       "items": Array<components["schemas"]["ResearchRunRead"]>;
@@ -622,6 +651,8 @@ export interface components {
       "project_id": string;
       "objective": string;
       "type": "discovery" | "product_research";
+      "mode"?: "quick" | "deep";
+      "refresh_of_run_id"?: null | string;
       "status": "queued" | "running" | "succeeded" | "partial" | "failed" | "canceled" | "interrupted";
       "snapshot_revision": number;
       "effective_budgets": Record<string, number>;
@@ -641,6 +672,12 @@ export interface components {
       "queries"?: Array<components["schemas"]["SearchQueryRead"]>;
       "targets"?: Array<components["schemas"]["ResearchTargetProgressRead"]>;
       "stages"?: Array<components["schemas"]["ResearchStageProgressRead"]>;
+      "jobs"?: Array<components["schemas"]["ResearchJobRead"]>;
+    };
+    ResearchSourceTargets: {
+      "source_classes"?: Array<"manufacturer_specification" | "independent_measurement" | "editorial_assessment" | "retailer_listing" | "community_observation"> | null;
+      "include_domains"?: Array<string>;
+      "exclude_domains"?: Array<string>;
     };
     ResearchStageProgressRead: {
       "stage": "planning" | "extraction" | "relations" | "assessment";
@@ -682,7 +719,7 @@ export interface components {
       "id": string;
       "attempt_number": number;
       "provider": string;
-      "status": "running" | "succeeded" | "failed" | "canceled";
+      "status": "running" | "succeeded" | "failed" | "canceled" | "uncertain";
       "error_code"?: null | string;
       "provider_request_id"?: null | string;
       "results_count": number;
@@ -698,6 +735,7 @@ export interface components {
       "purpose": string;
       "max_results": number;
       "state": "queued" | "running" | "succeeded" | "failed" | "skipped" | "canceled";
+      "retry_not_before"?: null | string;
       "results_count": number;
       "candidates_count": number;
       "error_code"?: null | string;
@@ -722,6 +760,9 @@ export interface components {
       "published_at": null | string;
       "freshness": "current" | "stale" | "unknown";
       "bytes_read": null | number;
+      "offer_status"?: "succeeded" | "no_offer" | "identity_mismatch" | "unsupported" | "failed" | null;
+      "offer_error_code"?: null | string;
+      "offer_observation"?: Record<string, unknown>;
     };
     SourceSnapshotRead: {
       "id": string;
@@ -853,6 +894,9 @@ export interface paths {
   };
   "/projects/{project_id}/research/{research_run_id}/cancel": {
     "post": operations["cancel_research_projects__project_id__research__research_run_id__cancel_post"];
+  };
+  "/projects/{project_id}/research/{research_run_id}/retry": {
+    "post": operations["retry_research_projects__project_id__research__research_run_id__retry_post"];
   };
   "/projects/{project_id}/shortlist": {
     "get": operations["list_shortlist_projects__project_id__shortlist_get"];
@@ -2049,6 +2093,31 @@ export interface operations {
     responses: {
       "200": { content?: {
         "application/json": components["schemas"]["DecisionMutationResult"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
+  "retry_research_projects__project_id__research__research_run_id__retry_post": {
+    parameters: {
+      path: {
+        "project_id": string;
+        "research_run_id": string;
+      };
+    };
+    requestBody: { content: {
+      "application/json": components["schemas"]["ResearchRetry"];
+    } };
+    responses: {
+      "202": { content?: {
+        "application/json": components["schemas"]["ResearchCreated"];
       } };
       "404": { content?: {
         "application/json": components["schemas"]["ApiErrorEnvelope"];

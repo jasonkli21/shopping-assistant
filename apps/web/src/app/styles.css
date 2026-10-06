@@ -301,6 +301,15 @@ input[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: #bc615
 .requirement-kind-preference { background: #eef0f7; color: #5f6880; }
 .discovery-mode { display: flex; align-items: center; gap: 9px; margin: 17px 0; color: #526258; font-size: .84rem; cursor: pointer; }
 .discovery-mode input { width: 17px; min-height: 17px; accent-color: var(--green); }
+.research-mode-options { display: grid; gap: 8px; min-width: 0; margin: 14px 0; padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
+.research-mode-options label, .research-target-controls fieldset label { display: flex; align-items: flex-start; gap: 9px; color: #526258; font-size: .84rem; cursor: pointer; }
+.research-mode-options input, .research-target-controls input[type="checkbox"] { width: 17px; min-height: 17px; accent-color: var(--green); }
+.research-mode-options strong { color: var(--ink); }
+.research-target-controls { margin: 12px 0; padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
+.research-target-controls summary { color: var(--green-dark); font-size: .87rem; font-weight: 650; cursor: pointer; }
+.research-target-controls fieldset { display: grid; gap: 8px; margin: 12px 0; padding: 0; border: 0; }
+.research-target-controls > label { display: grid; gap: 5px; margin-top: 12px; color: var(--muted); font-size: .78rem; }
+.research-target-controls input:not([type="checkbox"]) { min-height: 40px; width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); }
 .discovery-start { width: 100%; margin-top: 18px; }
 .discovery-form-card .field-help { margin-top: 9px; }
 .saved-command-notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 18px; padding: 13px; border: 1px solid #e6d8b8; border-radius: 12px; background: #fff9ec; }

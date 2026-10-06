@@ -117,6 +117,7 @@ function DiscoverPageContent({ projectId }: { projectId?: string }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
   const pollingCount = useRef(0);
   const submittingRef = useRef(false);
+  const retryRequestKey = useRef<string | null>(null);
   const [isVisible, setIsVisible] = useState(() => document.visibilityState === "visible");
   const [savedCommand, setSavedCommand] = useState<SavedCommand | null>(() =>
     projectId ? readSavedCommand(projectId) : null,
@@ -124,6 +125,9 @@ function DiscoverPageContent({ projectId }: { projectId?: string }) {
   const [objective, setObjective] = useState(() => savedCommand?.command.objective ?? "");
   const [manualMode, setManualMode] = useState(() =>
     Boolean(savedCommand?.command.manual_queries),
+  );
+  const [mode, setMode] = useState<"quick" | "deep">(() =>
+    savedCommand?.command.mode === "deep" ? "deep" : "quick",
   );
   const [manualQueries, setManualQueries] = useState(
     () => savedCommand?.command.manual_queries?.join("\n") ?? "",
@@ -248,6 +252,20 @@ function DiscoverPageContent({ projectId }: { projectId?: string }) {
     },
     onError: (error) => setCancelError(readableError(error, "The run could not be canceled.")),
   });
+  const retryRun = useMutation({
+    mutationFn: (runId: string) => researchApi.retry(projectId!, runId, {
+      request_key: retryRequestKey.current ??= `discovery-retry-${globalThis.crypto.randomUUID()}`,
+      expected_version: project!.revision,
+    }),
+    onSuccess: async (result) => {
+      retryRequestKey.current = null;
+      setSelectedRunId(result.run_id);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["research-runs", projectId] }),
+        queryClient.invalidateQueries({ queryKey: ["research-run", projectId, result.run_id] }),
+      ]);
+    },
+  });
 
   async function submit(event?: FormEvent<HTMLFormElement>, replaySaved = false) {
     event?.preventDefault();
@@ -261,6 +279,7 @@ function DiscoverPageContent({ projectId }: { projectId?: string }) {
       const command: ResearchCreate = {
         objective: objective.trim(),
         type: "discovery",
+        mode,
         request_key: newRequestKey(),
         expected_version: project.revision,
         ...(manualMode ? { manual_queries: queries } : {}),
@@ -427,6 +446,29 @@ function DiscoverPageContent({ projectId }: { projectId?: string }) {
                   maxLength={2000}
                   required
                 />
+                <fieldset className="research-mode-options">
+                  <legend className="field-label">Research depth</legend>
+                  <label>
+                    <input
+                      type="radio"
+                      name="discovery-mode"
+                      value="quick"
+                      checked={mode === "quick"}
+                      onChange={() => setMode("quick")}
+                    />
+                    <span><strong>Quick</strong> · up to 3 searches, 20 results, 45 seconds</span>
+                  </label>
+                  <label>
+                    <input
+                      type="radio"
+                      name="discovery-mode"
+                      value="deep"
+                      checked={mode === "deep"}
+                      onChange={() => setMode("deep")}
+                    />
+                    <span><strong>Deep</strong> · up to the configured research limits</span>
+                  </label>
+                </fieldset>
                 <label className="discovery-mode">
                   <input
                     type="checkbox"
@@ -613,6 +655,9 @@ function DiscoverPageContent({ projectId }: { projectId?: string }) {
                 cancelling={cancelRun.isPending}
                 cancelError={cancelError}
                 onCancel={() => cancelRun.mutate(currentRun.id)}
+                retrying={retryRun.isPending}
+                retryError={retryRun.error ? readableError(retryRun.error, "Research could not be retried.") : ""}
+                onRetry={() => retryRun.mutate(currentRun.id)}
               />
             ) : !runsQuery.isError ? (
               <p className="quiet-state">Your searches and progress will appear here.</p>
@@ -668,18 +713,24 @@ function RunProgress({
   cancelling,
   cancelError,
   onCancel,
+  retrying,
+  retryError,
+  onRetry,
 }: {
   run: ResearchRunRead;
   cancelling: boolean;
   cancelError: string;
   onCancel: () => void;
+  retrying: boolean;
+  retryError: string;
+  onRetry: () => void;
 }) {
   const queries = run.queries ?? [];
   return (
     <div className="run-progress">
       <div className="run-status-row">
         <span className={`run-status status-${run.status}`}>{run.status}</span>
-        <span>Project revision {run.snapshot_revision}</span>
+        <span>{run.mode ?? "deep"} research · project revision {run.snapshot_revision}</span>
       </div>
       <p className="run-objective">{run.objective}</p>
       <dl className="run-counters">
@@ -692,6 +743,10 @@ function RunProgress({
       </dl>
       {run.summary && <p className="run-summary">{run.summary}</p>}
       {run.error_code && <p className="run-error-code">Error: {run.error_code.replaceAll("_", " ")}</p>}
+      {(run.jobs ?? []).map((job) => <div className="quiet-state" key={job.id}>
+        <p>{job.stage_type.replaceAll("_", " ")}: {job.status} · attempt {job.attempt_count}/{job.max_attempts}{job.error_code ? ` · ${job.error_code}` : ""}</p>
+        {(job.attempts ?? []).map((attempt) => attempt.error_code ? <small key={attempt.number}>Attempt {attempt.number}: {attempt.error_code.replaceAll("_", " ")}</small> : null)}
+      </div>)}
       {queries.length > 0 && (
         <ol className="query-progress-list">
           {queries.map((query) => (
@@ -701,6 +756,10 @@ function RunProgress({
                 <span className={`query-state query-state-${query.state}`}>{query.state}</span>
               </div>
               {query.error_code && <small>{query.error_code.replaceAll("_", " ")}</small>}
+              {query.retry_not_before && <small>Retry scheduled {new Date(query.retry_not_before).toLocaleTimeString()}</small>}
+              {query.attempts.map((attempt) => <small key={attempt.id}>
+                Attempt {attempt.attempt_number}: {attempt.status}{attempt.error_code ? ` · ${attempt.error_code.replaceAll("_", " ")}` : ""}
+              </small>)}
             </li>
           ))}
         </ol>
@@ -710,6 +769,12 @@ function RunProgress({
           {cancelling ? "Canceling discovery…" : "Cancel discovery"}
         </button>
       )}
+      {["partial", "failed", "canceled", "interrupted"].includes(run.status) && (
+        <button className="button" type="button" disabled={retrying} onClick={onRetry}>
+          {retrying ? "Retrying discovery…" : "Retry discovery"}
+        </button>
+      )}
+      {retryError && <p className="field-error" role="alert">{retryError}</p>}
       {cancelError && <p className="field-error" role="alert">{cancelError}</p>}
       <p className="run-timestamp">Started {run.started_at ? new Date(run.started_at).toLocaleString() : "waiting for the local worker"}</p>
     </div>

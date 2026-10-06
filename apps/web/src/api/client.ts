@@ -216,6 +216,11 @@ export const researchApi = {
       `/projects/${projectId}/research/${runId}/cancel`,
       jsonRequest("POST"),
     ),
+  retry: (projectId: string, runId: string, command: { request_key: string; expected_version: number }) =>
+    request<ResearchCreated>(
+      `/projects/${projectId}/research/${runId}/retry`,
+      jsonRequest("POST", command),
+    ),
   candidates: (
     projectId: string,
     runId: string,
