@@ -1,0 +1,78 @@
+[
+  {
+    "name": "compact furniture can be explicitly promoted",
+    "source_kind": "requirement",
+    "requirement_kind": "preference",
+    "scopes": ["furniture"],
+    "category": "Furniture",
+    "status": "active",
+    "promotable": true,
+    "suggestible": true
+  },
+  {
+    "name": "desk height constraint stays local",
+    "source_kind": "requirement",
+    "requirement_kind": "constraint",
+    "scopes": ["office"],
+    "category": "office",
+    "status": "active",
+    "promotable": false,
+    "suggestible": false
+  },
+  {
+    "name": "category budget does not cross categories",
+    "source_kind": "requirement",
+    "requirement_kind": "preference",
+    "scopes": ["furniture"],
+    "category": "office",
+    "status": "active",
+    "label": "Keep furniture under $500",
+    "key": "max_budget",
+    "operator": "lte",
+    "value": "500.00",
+    "unit": "USD",
+    "promotable": true,
+    "suggestible": false
+  },
+  {
+    "name": "one time gift must-have stays local",
+    "source_kind": "requirement",
+    "requirement_kind": "must_have",
+    "scopes": ["electronics"],
+    "category": "electronics",
+    "status": "active",
+    "promotable": false,
+    "suggestible": false
+  },
+  {
+    "name": "already owned rejection needs explicit candidate action",
+    "source_kind": "decision",
+    "source_project_product_id": "f2cf6497-9e70-41b6-844d-418320c3ea18",
+    "scopes": ["office"],
+    "category": "office",
+    "status": "pending",
+    "explicit_candidate_required": true,
+    "suggestible": false
+  },
+  {
+    "name": "revocation removes future suggestions",
+    "source_kind": "requirement",
+    "requirement_kind": "preference",
+    "scopes": ["furniture"],
+    "category": "furniture",
+    "status": "revoked",
+    "promotable": true,
+    "suggestible": false
+  },
+  {
+    "name": "conflicting soft preference preserves project constraint",
+    "source_kind": "requirement",
+    "requirement_kind": "preference",
+    "hard_requirement_kind": "constraint",
+    "hard_requirement_label": "Desk must fit under 27 inches",
+    "soft_preference_label": "Prefers desks at least 30 inches tall",
+    "promotable": true,
+    "suggestible": false,
+    "hard_requirement_wins": true
+  }
+]

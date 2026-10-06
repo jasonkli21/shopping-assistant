@@ -176,6 +176,7 @@ class ProjectPatch(StrictModel):
     budget_maximum: Decimal | None = Field(default=None, ge=0, max_digits=14, decimal_places=2)
     budget_currency: str | None = Field(default=None, min_length=3, max_length=3)
     notes: str | None = Field(default=None, max_length=10000)
+    reuse_preferences: bool | None = None
 
     @field_validator("title", "goal")
     @classmethod
@@ -223,6 +224,9 @@ class RequirementRead(StrictModel):
     unit: str | None
     position: int
     origin: Literal["user", "ai_confirmed"]
+    source_preference_id: UUID | None = None
+    source_preference_revision: int | None = None
+    source_preference_scope: list[str] | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -237,6 +241,7 @@ class ProjectSummary(StrictModel):
     budget_maximum: str | None
     budget_currency: str | None
     notes: str | None
+    reuse_preferences: bool
     revision: int
     created_at: datetime
     updated_at: datetime

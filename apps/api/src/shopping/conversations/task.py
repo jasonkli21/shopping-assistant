@@ -44,6 +44,9 @@ SYSTEM_INSTRUCTIONS = "\n\n".join(
         "in assistant_message. Ask a concise clarification when category, currency, "
         "hard-versus-soft "
         "intent, contradictory constraints, or ambiguous words materially affect the request. "
+        "Project must-haves and constraints are hard boundaries. A shopping-profile preference "
+        "shown in requirements is still soft; never weaken a must-have or constraint to satisfy "
+        "it. Explain conflicts and ask which project context the user wants to change. "
         "Preserve user wording. Infer a hard requirement only when the user clearly states it; "
         "otherwise use preference or ask. Never invent a currency, amount, dimensions, "
         "product fact, "
@@ -86,6 +89,7 @@ def build_request(
             "budget_target": project.budget_target,
             "budget_maximum": project.budget_maximum,
             "budget_currency": project.budget_currency,
+            "reuse_preferences": project.reuse_preferences,
             "notes": project.notes,
         },
         "requirements": [
@@ -98,6 +102,15 @@ def build_request(
                 "operator": item.operator,
                 "value": item.value,
                 "unit": item.unit,
+                "preference_origin": (
+                    {
+                        "preference_id": str(item.source_preference_id),
+                        "preference_revision": item.source_preference_revision,
+                        "scope": item.source_preference_scope,
+                    }
+                    if item.source_preference_id
+                    else None
+                ),
             }
             for item in project.requirements
         ],

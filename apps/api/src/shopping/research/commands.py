@@ -359,6 +359,15 @@ def _snapshot(
                 "operator": item.operator,
                 "value": item.value,
                 "unit": item.unit,
+                "preference_origin": (
+                    {
+                        "preference_id": str(item.source_preference_id),
+                        "preference_revision": item.source_preference_revision,
+                        "scope": item.source_preference_scope,
+                    }
+                    if item.source_preference_id
+                    else None
+                ),
             }
             for item in requirements
         ],

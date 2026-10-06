@@ -471,6 +471,7 @@ def _summary_data(project: ShoppingProject) -> dict:
         "budget_maximum": money_string(project.budget_maximum),
         "budget_currency": project.budget_currency,
         "notes": project.notes,
+        "reuse_preferences": project.reuse_preferences,
         "revision": project.revision,
         "created_at": project.created_at,
         "updated_at": project.updated_at,
@@ -490,6 +491,9 @@ def _requirement_read(requirement: ProjectRequirement) -> RequirementRead:
         unit=requirement.unit,
         position=requirement.position,
         origin=requirement.origin,
+        source_preference_id=requirement.source_preference_id,
+        source_preference_revision=requirement.source_preference_revision,
+        source_preference_scope=requirement.source_preference_scope,
         created_at=requirement.created_at,
         updated_at=requirement.updated_at,
     )

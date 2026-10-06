@@ -66,6 +66,9 @@ def test_fresh_database_can_upgrade_downgrade_and_upgrade_again(postgres_schema)
             "claim_relations",
             "product_assessments",
             "assessment_citations",
+            "shopping_profiles",
+            "shopping_preferences",
+            "preference_candidates",
             "alembic_version",
         } <= tables
     finally:

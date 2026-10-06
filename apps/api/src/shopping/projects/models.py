@@ -73,6 +73,9 @@ class ShoppingProject(Base):
     budget_maximum: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     budget_currency: Mapped[str | None] = mapped_column(String(3))
     notes: Mapped[str | None] = mapped_column(Text)
+    reuse_preferences: Mapped[bool] = mapped_column(
+        nullable=False, default=False, server_default="false"
+    )
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -139,6 +142,16 @@ class ProjectRequirement(Base):
     origin: Mapped[str] = mapped_column(
         String(16), nullable=False, default="user", server_default="user"
     )
+    source_preference_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey(
+            "shopping_preferences.id",
+            name="fk_project_requirements_source_preference",
+            ondelete="SET NULL",
+        ),
+    )
+    source_preference_revision: Mapped[int | None] = mapped_column(Integer)
+    source_preference_scope: Mapped[list | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

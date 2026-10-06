@@ -31,6 +31,27 @@ export interface components {
       "run": components["schemas"]["ResearchRunRead"];
       "replayed": boolean;
     };
+    CandidateAction: {
+      "expected_profile_version": number;
+    };
+    CandidateCreate: {
+      "expected_project_version": number;
+      "expected_profile_version": number;
+      "source_requirement_id"?: null | string;
+      "source_project_product_id"?: null | string;
+      "label": string;
+      "key": string;
+      "operator"?: "eq" | "gte" | "lte" | "contains" | "one_of" | null;
+      "value": unknown;
+      "unit"?: string;
+      "category_scopes": Array<string>;
+      "rationale"?: string;
+    };
+    CandidateMutation: {
+      "candidate": components["schemas"]["PreferenceCandidateRead"];
+      "preference"?: components["schemas"]["PreferenceRead"] | null;
+      "replayed"?: boolean;
+    };
     CandidateNormalizationState: {
       "candidate_id": string;
       "project_product_id": null | string;
@@ -403,6 +424,66 @@ export interface components {
       "observed_at": string;
       "freshness": "current" | "stale";
     };
+    PreferenceCandidateRead: {
+      "id": string;
+      "source_kind": "requirement" | "decision";
+      "source_project_id": null | string;
+      "source_requirement_id": null | string;
+      "source_project_product_id": null | string;
+      "source_decision_id": null | string;
+      "source_project_revision": number;
+      "source_project_title": null | string;
+      "source_available": boolean;
+      "source_stale": boolean;
+      "label": string;
+      "key": string;
+      "operator": "eq" | "gte" | "lte" | "contains" | "one_of" | null;
+      "value": unknown;
+      "unit": string;
+      "category_scopes": Array<string>;
+      "rationale": string;
+      "status": "pending" | "accepted" | "dismissed" | "stale";
+      "created_at": string;
+      "resolved_at": null | string;
+    };
+    PreferencePatch: {
+      "expected_profile_version": number;
+      "expected_preference_revision": number;
+      "label"?: null | string;
+      "key"?: null | string;
+      "operator"?: "eq" | "gte" | "lte" | "contains" | "one_of" | null;
+      "value"?: unknown;
+      "unit"?: null | string;
+      "category_scopes"?: Array<string> | null;
+      "status"?: "active" | "revoked" | null;
+    };
+    PreferenceRead: {
+      "id": string;
+      "source_kind": "requirement" | "decision";
+      "source_candidate_id": null | string;
+      "source_project_id": null | string;
+      "source_requirement_id": null | string;
+      "source_project_product_id": null | string;
+      "source_decision_id": null | string;
+      "source_project_title": null | string;
+      "source_available": boolean;
+      "key": string;
+      "operator": "eq" | "gte" | "lte" | "contains" | "one_of" | null;
+      "value": unknown;
+      "unit": string;
+      "category_scopes": Array<string>;
+      "label": string;
+      "strength": string;
+      "status": "active" | "revoked";
+      "revision": number;
+      "accepted_at": string;
+      "updated_at": string;
+    };
+    PreferenceSuggestionsRead: {
+      "reuse_enabled": boolean;
+      "profile_reuse_enabled": boolean;
+      "items": Array<components["schemas"]["PreferenceRead"]>;
+    };
     ProductIdentifierRead: {
       "id": string;
       "scheme": "manufacturer_model" | "gtin" | "mpn" | "retailer_sku";
@@ -436,6 +517,18 @@ export interface components {
       "identifiers": Array<components["schemas"]["ProductIdentifierRead"]>;
       "offers": Array<components["schemas"]["OfferRead"]>;
     };
+    ProfilePatch: {
+      "expected_version": number;
+      "reuse_enabled": boolean;
+    };
+    ProfileRead: {
+      "id": string;
+      "revision": number;
+      "reuse_enabled": boolean;
+      "preferences": Array<components["schemas"]["PreferenceRead"]>;
+      "candidates": Array<components["schemas"]["PreferenceCandidateRead"]>;
+      "updated_at": string;
+    };
     ProjectCreate: {
       "title": string;
       "goal": string;
@@ -460,6 +553,7 @@ export interface components {
       "budget_maximum"?: null | string;
       "budget_currency"?: null | string;
       "notes"?: null | string;
+      "reuse_preferences"?: boolean | null;
     };
     ProjectProductDecisionRead: {
       "product": components["schemas"]["ProjectProductRead"];
@@ -510,6 +604,7 @@ export interface components {
       "budget_maximum": null | string;
       "budget_currency": null | string;
       "notes": null | string;
+      "reuse_preferences": boolean;
       "revision": number;
       "created_at": string;
       "updated_at": string;
@@ -525,6 +620,7 @@ export interface components {
       "budget_maximum": null | string;
       "budget_currency": null | string;
       "notes": null | string;
+      "reuse_preferences": boolean;
       "revision": number;
       "created_at": string;
       "updated_at": string;
@@ -583,6 +679,9 @@ export interface components {
       "unit": null | string;
       "position": number;
       "origin": "user" | "ai_confirmed";
+      "source_preference_id"?: null | string;
+      "source_preference_revision"?: null | number;
+      "source_preference_scope"?: Array<string> | null;
       "created_at": string;
       "updated_at": string;
     };
@@ -796,6 +895,20 @@ export interface paths {
   "/products/{product_id}/sources": {
     "get": operations["product_sources_products__product_id__sources_get"];
   };
+  "/profile": {
+    "get": operations["get_profile_profile_get"];
+    "patch": operations["patch_profile_profile_patch"];
+  };
+  "/profile/preference-candidates/{candidate_id}/accept": {
+    "post": operations["accept_candidate_profile_preference_candidates__candidate_id__accept_post"];
+  };
+  "/profile/preference-candidates/{candidate_id}/dismiss": {
+    "post": operations["dismiss_candidate_profile_preference_candidates__candidate_id__dismiss_post"];
+  };
+  "/profile/preferences/{preference_id}": {
+    "delete": operations["revoke_preference_profile_preferences__preference_id__delete"];
+    "patch": operations["patch_preference_profile_preferences__preference_id__patch"];
+  };
   "/projects": {
     "get": operations["list_projects_projects_get"];
     "post": operations["create_project_projects_post"];
@@ -846,6 +959,15 @@ export interface paths {
     "delete": operations["delete_project_note_projects__project_id__notes_delete"];
     "get": operations["get_project_note_projects__project_id__notes_get"];
     "put": operations["put_project_note_projects__project_id__notes_put"];
+  };
+  "/projects/{project_id}/preference-candidates": {
+    "post": operations["create_candidate_projects__project_id__preference_candidates_post"];
+  };
+  "/projects/{project_id}/preference-suggestions": {
+    "get": operations["preference_suggestions_projects__project_id__preference_suggestions_get"];
+  };
+  "/projects/{project_id}/preferences/{preference_id}/apply": {
+    "post": operations["apply_preference_projects__project_id__preferences__preference_id__apply_post"];
   };
   "/projects/{project_id}/products": {
     "get": operations["list_project_products_projects__project_id__products_get"];
@@ -922,6 +1044,55 @@ export interface paths {
 }
 
 export interface operations {
+  "accept_candidate_profile_preference_candidates__candidate_id__accept_post": {
+    parameters: {
+      path: {
+        "candidate_id": string;
+      };
+    };
+    requestBody: { content: {
+      "application/json": components["schemas"]["CandidateAction"];
+    } };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["CandidateMutation"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
+  "apply_preference_projects__project_id__preferences__preference_id__apply_post": {
+    parameters: {
+      path: {
+        "preference_id": string;
+        "project_id": string;
+      };
+      query: {
+        "expected_project_version": number;
+      };
+    };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["ProjectRead"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
   "apply_proposal_projects__project_id__proposals__proposal_id__apply_post": {
     parameters: {
       path: {
@@ -1028,6 +1199,30 @@ export interface operations {
     responses: {
       "200": { content?: {
         "application/json": components["schemas"]["CatalogCorrectionRead"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
+  "create_candidate_projects__project_id__preference_candidates_post": {
+    parameters: {
+      path: {
+        "project_id": string;
+      };
+    };
+    requestBody: { content: {
+      "application/json": components["schemas"]["CandidateCreate"];
+    } };
+    responses: {
+      "201": { content?: {
+        "application/json": components["schemas"]["CandidateMutation"];
       } };
       "404": { content?: {
         "application/json": components["schemas"]["ApiErrorEnvelope"];
@@ -1284,6 +1479,30 @@ export interface operations {
       } };
     };
   };
+  "dismiss_candidate_profile_preference_candidates__candidate_id__dismiss_post": {
+    parameters: {
+      path: {
+        "candidate_id": string;
+      };
+    };
+    requestBody: { content: {
+      "application/json": components["schemas"]["CandidateAction"];
+    } };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["CandidateMutation"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
   "dismiss_proposal_projects__project_id__proposals__proposal_id__dismiss_post": {
     parameters: {
       path: {
@@ -1405,6 +1624,24 @@ export interface operations {
     responses: {
       "200": { content?: {
         "application/json": components["schemas"]["ProductRead"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
+  "get_profile_profile_get": {
+    parameters: {
+    };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["ProfileRead"];
       } };
       "404": { content?: {
         "application/json": components["schemas"]["ApiErrorEnvelope"];
@@ -1906,6 +2143,51 @@ export interface operations {
       } };
     };
   };
+  "patch_preference_profile_preferences__preference_id__patch": {
+    parameters: {
+      path: {
+        "preference_id": string;
+      };
+    };
+    requestBody: { content: {
+      "application/json": components["schemas"]["PreferencePatch"];
+    } };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["ProfileRead"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
+  "patch_profile_profile_patch": {
+    parameters: {
+    };
+    requestBody: { content: {
+      "application/json": components["schemas"]["ProfilePatch"];
+    } };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["ProfileRead"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
   "patch_project_projects__project_id__patch": {
     parameters: {
       path: {
@@ -1943,6 +2225,27 @@ export interface operations {
     responses: {
       "200": { content?: {
         "application/json": components["schemas"]["ProjectRead"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
+  "preference_suggestions_projects__project_id__preference_suggestions_get": {
+    parameters: {
+      path: {
+        "project_id": string;
+      };
+    };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["PreferenceSuggestionsRead"];
       } };
       "404": { content?: {
         "application/json": components["schemas"]["ApiErrorEnvelope"];
@@ -2144,6 +2447,30 @@ export interface operations {
     responses: {
       "200": { content?: {
         "application/json": components["schemas"]["CatalogCorrectionRead"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
+  "revoke_preference_profile_preferences__preference_id__delete": {
+    parameters: {
+      path: {
+        "preference_id": string;
+      };
+      query: {
+        "expected_profile_version": number;
+      };
+    };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["ProfileRead"];
       } };
       "404": { content?: {
         "application/json": components["schemas"]["ApiErrorEnvelope"];

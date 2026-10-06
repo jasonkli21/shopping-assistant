@@ -225,6 +225,7 @@ def test_prompt_context_is_bounded_without_truncating_the_current_message():
             "budget_maximum": None,
             "budget_currency": None,
             "notes": None,
+            "reuse_preferences": False,
             "revision": 1,
             "created_at": now,
             "updated_at": now,
