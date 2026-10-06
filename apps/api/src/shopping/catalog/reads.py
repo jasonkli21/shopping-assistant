@@ -32,6 +32,7 @@ from shopping.catalog.schemas import (
     ProjectProductRead,
     money_text,
 )
+from shopping.evidence.freshness import offer_freshness
 from shopping.projects.errors import ProjectError
 from shopping.projects.repository import project_by_owner
 from shopping.research.models import DiscoveryCandidate
@@ -397,6 +398,7 @@ def _offer_read(offer: RetailOffer) -> OfferRead:
         availability=offer.availability,
         condition=offer.condition,
         observed_at=offer.observed_at,
+        freshness=offer_freshness(offer.observed_at, now=datetime.now(UTC)),
     )
 
 

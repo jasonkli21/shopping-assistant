@@ -5,6 +5,10 @@ import { ApiRequestError, ResearchCreate, projectsApi, researchApi } from "../..
 
 type EvidenceSelection = { kind: "claim" | "source"; id: string };
 type SavedProductCommand = { command: ResearchCreate; requestKey: string };
+type SavedProductRetry = {
+  sourceRunId: string;
+  command: { request_key: string; expected_version: number };
+};
 const SOURCE_CLASSES = [
   ["manufacturer_specification", "Manufacturer specifications"],
   ["independent_measurement", "Independent measurements"],
@@ -50,6 +54,37 @@ function writeCommand(key: string, value: SavedProductCommand | null) {
   } catch { /* storage unavailable */ }
 }
 
+function retryStorageKey(projectId: string, projectProductId: string, sourceRunId: string) {
+  return `shopping-assistant:product-research-retry:${projectId}:${projectProductId}:${sourceRunId}`;
+}
+
+function readRetry(key: string, sourceRunId: string): SavedProductRetry | null {
+  try {
+    const raw = window.sessionStorage.getItem(key);
+    if (!raw) return null;
+    const value: unknown = JSON.parse(raw);
+    if (!value || typeof value !== "object") throw new Error("Invalid retry command");
+    const saved = value as Partial<SavedProductRetry>;
+    if (
+      saved.sourceRunId !== sourceRunId ||
+      !saved.command ||
+      typeof saved.command.request_key !== "string" ||
+      !Number.isInteger(saved.command.expected_version)
+    ) throw new Error("Invalid retry command");
+    return saved as SavedProductRetry;
+  } catch {
+    try { window.sessionStorage.removeItem(key); } catch { /* storage unavailable */ }
+    return null;
+  }
+}
+
+function writeRetry(key: string, saved: SavedProductRetry | null) {
+  try {
+    if (saved) window.sessionStorage.setItem(key, JSON.stringify(saved));
+    else window.sessionStorage.removeItem(key);
+  } catch { /* storage unavailable */ }
+}
+
 function safeUrl(value: string) {
   try {
     const url = new URL(value);
@@ -90,7 +125,6 @@ export function ProductResearch({ projectId, projectProductId }: {
   const [includeDomains, setIncludeDomains] = useState("");
   const [excludeDomains, setExcludeDomains] = useState("");
   const pollStartedAt = useRef(Date.now());
-  const retryRequestKey = useRef<string | null>(null);
   const opener = useRef<HTMLElement | null>(null);
   const closeButton = useRef<HTMLButtonElement | null>(null);
   const dialogRef = useRef<HTMLElement | null>(null);
@@ -123,9 +157,14 @@ export function ProductResearch({ projectId, projectProductId }: {
         runDetail.data?.status ?? "",
       ) && ["queued", "running"].includes(evidence.data?.latest_run_status ?? "")
     ) {
-      void queryClient.invalidateQueries({
-        queryKey: ["product-research", projectId, projectProductId],
-      });
+      void Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["product-research", projectId, projectProductId] }),
+        queryClient.invalidateQueries({ queryKey: ["product-offers"] }),
+        queryClient.invalidateQueries({ queryKey: ["product",] }),
+        queryClient.invalidateQueries({ queryKey: ["project-products", projectId] }),
+        queryClient.invalidateQueries({ queryKey: ["project-comparisons", projectId] }),
+        queryClient.invalidateQueries({ queryKey: ["comparison", projectId] }),
+      ]);
     }
   }, [
     evidence.data?.latest_run_status,
@@ -166,10 +205,21 @@ export function ProductResearch({ projectId, projectProductId }: {
     },
     onSuccess: () => {
       pollStartedAt.current = Date.now();
+      setSelectedRunId(undefined);
+      setSelectedAssessment(0);
+      setAssessmentOffset(0);
+      setClaimOffset(0);
+      setSourceOffset(0);
       writeCommand(storageKey, null);
       setSavedCommand(null);
-      void queryClient.invalidateQueries({ queryKey: ["research-runs", projectId] });
-      void queryClient.invalidateQueries({ queryKey: ["product-research", projectId, projectProductId] });
+      void Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["research-runs", projectId] }),
+        queryClient.invalidateQueries({ queryKey: ["product-research", projectId, projectProductId] }),
+        queryClient.invalidateQueries({ queryKey: ["product-offers"] }),
+        queryClient.invalidateQueries({ queryKey: ["product",] }),
+        queryClient.invalidateQueries({ queryKey: ["project-products", projectId] }),
+        queryClient.invalidateQueries({ queryKey: ["project-comparisons", projectId] }),
+      ]);
     },
     onError: (error) => {
       if (error instanceof ApiRequestError && [400, 409, 422].includes(error.status)) {
@@ -189,21 +239,45 @@ export function ProductResearch({ projectId, projectProductId }: {
     },
   });
   const retry = useMutation({
-    mutationFn: async () => {
-      if (!project.data || !latestRunId) throw new Error("The saved project or research run is unavailable.");
-      return researchApi.retry(projectId, latestRunId, {
-        request_key: retryRequestKey.current ??= `product-retry-${crypto.randomUUID()}`,
-        expected_version: project.data.revision,
-      });
+    mutationFn: async (sourceRunId: string) => {
+      if (!project.data) throw new Error("The saved project is unavailable.");
+      const retryKey = retryStorageKey(projectId, projectProductId, sourceRunId);
+      let saved = readRetry(retryKey, sourceRunId);
+      if (!saved) {
+        saved = {
+          sourceRunId,
+          command: {
+            request_key: `product-retry-${crypto.randomUUID()}`,
+            expected_version: project.data.revision,
+          },
+        };
+        writeRetry(retryKey, saved);
+      }
+      return researchApi.retry(projectId, sourceRunId, saved.command);
     },
-    onSuccess: async () => {
-      retryRequestKey.current = null;
+    onSuccess: async (_result, sourceRunId) => {
+      writeRetry(retryStorageKey(projectId, projectProductId, sourceRunId), null);
       pollStartedAt.current = Date.now();
+      setSelectedRunId(undefined);
+      setSelectedAssessment(0);
+      setAssessmentOffset(0);
+      setClaimOffset(0);
+      setSourceOffset(0);
       await queryClient.invalidateQueries({ queryKey: ["product-research", projectId, projectProductId] });
       await queryClient.invalidateQueries({ queryKey: ["research-runs", projectId] });
+      await queryClient.invalidateQueries({ queryKey: ["product-offers"] });
+      await queryClient.invalidateQueries({ queryKey: ["project-products", projectId] });
     },
-    onError: () => {
-      void queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+    onError: async (error, sourceRunId) => {
+      const retryKey = retryStorageKey(projectId, projectProductId, sourceRunId);
+      if (error instanceof ApiRequestError && [400, 404, 409, 422, 503].includes(error.status)) {
+        writeRetry(retryKey, null);
+      }
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["project", projectId] }),
+        queryClient.invalidateQueries({ queryKey: ["product-research", projectId, projectProductId] }),
+        queryClient.invalidateQueries({ queryKey: ["research-runs", projectId] }),
+      ]);
     },
   });
   const claim = useQuery({
@@ -325,7 +399,7 @@ export function ProductResearch({ projectId, projectProductId }: {
       {cancel.isPending ? "Canceling…" : "Cancel research"}
     </button>}
     {cancel.isError && <p role="alert">{readableError(cancel.error)}</p>}
-    {runDetail.data && ["failed", "partial", "interrupted", "canceled"].includes(runDetail.data.status) && <button type="button" disabled={retry.isPending || project.isPending} onClick={() => retry.mutate()}>
+    {runDetail.data && latestRunId && ["failed", "partial", "interrupted", "canceled"].includes(runDetail.data.status) && <button type="button" disabled={retry.isPending || project.isPending} onClick={() => retry.mutate(latestRunId)}>
       {retry.isPending ? "Retrying…" : "Retry incomplete research"}
     </button>}
     {retry.isError && <p role="alert">{readableError(retry.error)}</p>}

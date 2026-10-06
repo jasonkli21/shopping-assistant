@@ -34,6 +34,7 @@ from shopping.research.jobs import (
     dispatchable_run_ids,
     enqueue_run_job,
     heartbeat_job,
+    reconcile_terminal_run_jobs,
     recover_expired_jobs,
 )
 from shopping.research.reads import get_run, list_candidates, list_runs
@@ -69,6 +70,7 @@ __all__ = [
     "request_key_exists",
     "schedule_attempt_retry",
     "recover_expired_jobs",
+    "reconcile_terminal_run_jobs",
     "retry_run",
     "save_plan",
     "start_attempt",

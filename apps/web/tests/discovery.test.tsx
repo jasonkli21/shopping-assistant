@@ -207,7 +207,7 @@ describe("Discover", () => {
     const sourceLink = screen.getByRole("link", { name: /Cordless vacuum product page/ });
     expect(sourceLink).toHaveAttribute("target", "_blank");
     expect(sourceLink).toHaveAttribute("rel", "noopener noreferrer");
-    expect(screen.getByText(/Project revision 3/)).toBeInTheDocument();
+    expect(screen.getByText(/deep research · project revision 3/i)).toBeInTheDocument();
     expect(screen.queryByText(/score/i)).not.toBeInTheDocument();
   });
 

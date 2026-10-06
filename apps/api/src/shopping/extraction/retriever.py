@@ -29,9 +29,16 @@ class PageRetrievalError(Exception):
     """A typed, sanitized retrieval failure suitable for durable observations."""
 
     def __init__(
-        self, code: str, message: str, *, status_code: int | None = None, bytes_read: int = 0
+        self,
+        code: str,
+        message: str,
+        *,
+        status_code: int | None = None,
+        bytes_read: int = 0,
+        retry_after_seconds: float | None = None,
     ) -> None:
         super().__init__(message)
         self.code = code
         self.status_code = status_code
         self.bytes_read = max(0, bytes_read)
+        self.retry_after_seconds = retry_after_seconds

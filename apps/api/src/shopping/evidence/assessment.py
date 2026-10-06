@@ -9,6 +9,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from shopping.evidence.claim_task import PROMPT_VERSION
 from shopping.evidence.models import (
     AssessmentCitation,
     Claim,
@@ -98,7 +99,7 @@ def record_assessment(session: Session, run: ResearchRun, target: ResearchRunTar
         )
     ):
         return
-    snapshot_ids = list(
+    new_snapshot_ids = list(
         session.scalars(
             select(ResearchRunSource.snapshot_id).where(
                 ResearchRunSource.research_run_id == run.id,
@@ -117,11 +118,15 @@ def record_assessment(session: Session, run: ResearchRun, target: ResearchRunTar
                 Claim.owner_id == run.owner_id,
                 Claim.subject_product_id == target.product_id,
                 Claim.subject_variant_id == target.variant_id,
-                Claim.snapshot_id.in_(snapshot_ids),
+                Claim.prompt_version == PROMPT_VERSION,
             )
             .distinct()
-            .order_by(Claim.extracted_at, Claim.id)
+            .order_by(Claim.extracted_at.desc(), Claim.id.desc())
+            .limit(400)
         ).all()
+    )
+    snapshot_ids = list(
+        dict.fromkeys([*new_snapshot_ids, *(claim.snapshot_id for claim in claims)])
     )
     # Relations describe evidence; they never delete or average competing claims.
     for first, second in combinations(claims[:80], 2):

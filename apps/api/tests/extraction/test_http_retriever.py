@@ -98,6 +98,42 @@ async def test_retriever_validates_every_redirect_before_opening_it():
 
 
 @pytest.mark.asyncio
+async def test_retriever_stops_before_a_redirect_outside_saved_domain_targets():
+    requested: list[str] = []
+
+    def factory(_pins):
+        def handle(request):
+            requested.append(str(request.url))
+            return httpx.Response(
+                302,
+                headers={"location": "https://excluded.example/offer"},
+                request=request,
+            )
+
+        return httpx.MockTransport(handle)
+
+    retriever = HTTPPageRetriever(
+        resolver=_resolver_for(
+            {
+                "allowed.example": ["93.184.216.34"],
+                "excluded.example": ["93.184.216.34"],
+            }
+        ),
+        transport_factory=factory,
+    )
+    with pytest.raises(PageRetrievalError) as error:
+        await retriever.retrieve_with_limit(
+            "https://allowed.example/item",
+            1_000,
+            allowed_domains=["allowed.example"],
+            excluded_domains=["excluded.example"],
+        )
+
+    assert error.value.code == "source_domain_excluded"
+    assert requested == ["https://allowed.example/item"]
+
+
+@pytest.mark.asyncio
 async def test_retriever_blocks_private_ip_and_mixed_public_private_dns():
     opened = False
 

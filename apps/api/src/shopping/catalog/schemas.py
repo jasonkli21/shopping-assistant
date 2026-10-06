@@ -161,6 +161,7 @@ class OfferRead(StrictCatalogModel):
     availability: Literal["in_stock", "out_of_stock", "preorder", "unknown"]
     condition: Literal["new", "used", "refurbished", "unknown"]
     observed_at: datetime
+    freshness: Literal["current", "stale"]
 
 
 class ProductIdentifierRead(StrictCatalogModel):

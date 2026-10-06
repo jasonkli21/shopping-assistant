@@ -84,6 +84,8 @@ def persist_extraction(
     source_attempt_id: UUID,
     stage_attempt_id: UUID,
     extraction: ValidatedExtraction,
+    provider_request_id: str | None = None,
+    output_chars: int = 0,
 ) -> int:
     _project, run = _lock_live_run(session, owner_id, project_id, run_id)
     if (
@@ -92,6 +94,16 @@ def persist_extraction(
         or datetime.now(UTC)
         >= run.started_at + timedelta(seconds=run.effective_budgets["deadline_seconds"])
     ):
+        stage = session.scalar(
+            select(ResearchStageAttempt)
+            .where(ResearchStageAttempt.id == stage_attempt_id)
+            .with_for_update()
+        )
+        if stage is not None and stage.status == "running":
+            stage.status = "failed"
+            stage.error_code = "deadline_exceeded"
+            stage.finished_at = datetime.now(UTC)
+            session.commit()
         return 0
     row = session.execute(
         select(ResearchRunSource, SourceSnapshot, Source, ResearchRunTarget)
@@ -132,6 +144,10 @@ def persist_extraction(
     if stage is None or stage.status != "running" or target.status != "running":
         return 0
     if source.classification == "unknown":
+        stage.status = "skipped"
+        stage.error_code = "unsupported_extraction"
+        stage.finished_at = datetime.now(UTC)
+        session.commit()
         return 0
     created = 0
     for validated in extraction.claims:
@@ -194,5 +210,33 @@ def persist_extraction(
         created += 1
     target.claims_created += created
     target.updated_at = datetime.now(UTC)
+    stage.status = "succeeded"
+    stage.provider_request_id = (
+        provider_request_id[:200] if isinstance(provider_request_id, str) else None
+    )
+    stage.output_chars = min(max(output_chars, 0), 16_000)
+    stage.validation_warnings = extraction.warnings[:20]
+    stage.finished_at = datetime.now(UTC)
     session.commit()
     return created
+
+
+def has_validated_extraction(
+    session: Session, *, owner_id: UUID, snapshot_id: UUID, prompt_version: str
+) -> bool:
+    """Whether this immutable snapshot has a completed extraction at this prompt version."""
+    return (
+        session.scalar(
+            select(ResearchStageAttempt.id)
+            .where(
+                ResearchStageAttempt.owner_id == owner_id,
+                ResearchStageAttempt.source_snapshot_id == snapshot_id,
+                ResearchStageAttempt.stage == "extraction",
+                ResearchStageAttempt.task_name == TASK_NAME,
+                ResearchStageAttempt.prompt_version == prompt_version,
+                ResearchStageAttempt.status == "succeeded",
+            )
+            .limit(1)
+        )
+        is not None
+    )

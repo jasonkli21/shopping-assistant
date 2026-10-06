@@ -381,9 +381,9 @@ class FakePersonalAIClient(PersonalAIClient):
                 "independent_measurement",
                 "retailer_listing",
             ]
-        queries: list[dict[str, str]] = []
+        target_options: list[list[dict[str, str]]] = []
         for target in targets:
-            if not isinstance(target, dict) or len(queries) >= limit:
+            if not isinstance(target, dict):
                 continue
             target_id = target.get("project_product_id")
             name = " ".join(
@@ -397,19 +397,39 @@ class FakePersonalAIClient(PersonalAIClient):
                 ("retailer_listing", f"{name} retailer listing"),
                 ("community_observation", f"{name} owner experiences discussion"),
             )
-            for source_class, text in target_queries:
-                if source_class not in allowed:
+            options = [
+                {
+                    "project_product_id": target_id,
+                    "text": text[:300],
+                    "purpose": f"Find {source_class.replace('_', ' ')} evidence.",
+                    "source_class": source_class,
+                }
+                for source_class, text in target_queries
+                if source_class in allowed
+            ]
+            target_options.append(options)
+        queries: list[dict[str, str]] = []
+        # Reserve one query for every selected target before spending the remaining
+        # budget on additional source classes.
+        next_option = [0] * len(target_options)
+        for target_index, options in enumerate(target_options):
+            if len(queries) >= limit:
+                break
+            if options:
+                queries.append(options[0])
+                next_option[target_index] = 1
+        while len(queries) < limit:
+            added = False
+            for target_index, options in enumerate(target_options):
+                if next_option[target_index] >= len(options):
                     continue
+                queries.append(options[next_option[target_index]])
+                next_option[target_index] += 1
+                added = True
                 if len(queries) >= limit:
                     break
-                queries.append(
-                    {
-                        "project_product_id": target_id,
-                        "text": text[:300],
-                        "purpose": f"Find {source_class.replace('_', ' ')} evidence.",
-                        "source_class": source_class,
-                    }
-                )
+            if not added:
+                break
         return {"queries": queries, "explanation": "Searches cover distinct source classes."}
 
     def _plan_discovery(self, context: dict[str, Any]) -> dict[str, Any]:

@@ -264,12 +264,11 @@ function ProductDetail({ product, variantId, projectId, projectProductId, setVar
             {offers.map((offer) => {
               const href = safeOutboundUrl(offer.url);
               const observedAt = new Date(offer.observed_at);
-              const ageDays = (Date.now() - observedAt.getTime()) / 86_400_000;
               return (
-                <li key={offer.id}>
+            <li key={offer.id}>
                   <div className="retail-offer-heading">
                     <strong>{offer.retailer_name}</strong>
-                    {ageDays > 7 && <span className="stale-badge">Older observation</span>}
+                    {offer.freshness === "stale" && <span className="stale-badge">Older observation</span>}
                   </div>
                   <p className="retail-offer-price">
                     {offer.amount && offer.currency ? `${offer.currency} ${offer.amount}` : "Price unknown"}

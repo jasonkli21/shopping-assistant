@@ -293,3 +293,49 @@ it("refreshes a known conflict and creates a new command key", async () => {
   expect(sent[1].request_key).not.toBe(sent[0].request_key);
   expect(sent[1].expected_version).toBe(4);
 });
+
+it("replays an uncertain product retry with the original run and revision after a refresh", async () => {
+  const sent: Array<{ path: string; body: Record<string, unknown> }> = [];
+  let posts = 0;
+  let projectReads = 0;
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input));
+    if (url.pathname === `/projects/${projectId}`) {
+      projectReads += 1;
+      return { ok: true, status: 200, json: async () => ({ id: projectId, revision: projectReads > 1 ? 9 : 3, goal: "Runtime" }) };
+    }
+    if (url.pathname === `/projects/${projectId}/products/${productId}/research`) return {
+      ok: true, status: 200, json: async () => ({
+        project_product_id: productId, latest_run_id: "source-run", latest_run_status: "partial",
+        state: "partial", assessments: [], has_more_assessments: false, claims: [], sources: [],
+      }),
+    };
+    if (url.pathname === `/projects/${projectId}/research/source-run`) return {
+      ok: true, status: 200, json: async () => ({
+        id: "source-run", status: "partial", summary: "Some source work did not finish.",
+        targets: [], stages: [], jobs: [], queries: [],
+      }),
+    };
+    if (url.pathname === `/projects/${projectId}/research/source-run/retry` && init?.method === "POST") {
+      sent.push({ path: url.pathname, body: JSON.parse(String(init.body)) as Record<string, unknown> });
+      posts += 1;
+      if (posts === 1) throw new TypeError("connection reset after retry acceptance");
+      return { ok: true, status: 202, json: async () => ({ run_id: "retry-run", status: "queued", replayed: true }) };
+    }
+    throw Error(`Unexpected request ${url.pathname}`);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<QueryClientProvider client={client}><ProductResearch projectId={projectId} projectProductId={productId} /></QueryClientProvider>);
+
+  fireEvent.click(await screen.findByRole("button", { name: "Retry incomplete research" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("connection reset after retry acceptance");
+  await waitFor(() => expect(projectReads).toBeGreaterThan(1));
+  fireEvent.click(screen.getByRole("button", { name: "Retry incomplete research" }));
+  await waitFor(() => expect(posts).toBe(2));
+
+  expect(sent[0].path).toBe(sent[1].path);
+  expect(sent[1].body).toEqual(sent[0].body);
+  expect(sent[1].body.expected_version).toBe(3);
+  expect(sent[1].body.request_key).toBe(sent[0].body.request_key);
+});

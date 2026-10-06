@@ -24,6 +24,7 @@ from shopping.research.models import (
     CandidateSearchResult,
     DiscoveryCandidate,
     ResearchRun,
+    ResearchStageAttempt,
     SearchAttempt,
     SearchQueryRecord,
     SearchResult,
@@ -153,11 +154,23 @@ def save_plan(
     run_id: UUID,
     queries: list[dict[str, str]],
     summary: str | None,
+    stage_attempt_id: UUID | None = None,
+    provider_request_id: str | None = None,
+    output_chars: int = 0,
 ) -> bool:
     _project, run = _lock_live_run(session, owner_id, project_id, run_id)
     if run.status != "running":
         return False
     if run.queries_planned:
+        _finish_plan_attempt(
+            session,
+            owner_id=owner_id,
+            run_id=run.id,
+            attempt_id=stage_attempt_id,
+            provider_request_id=provider_request_id,
+            output_chars=output_chars,
+        )
+        session.commit()
         return True
     budget = run.effective_budgets
     now = datetime.now(UTC)
@@ -174,6 +187,14 @@ def save_plan(
         )
     run.queries_planned = len(queries)
     run.summary = _clean_text(summary, 1000) if summary else None
+    _finish_plan_attempt(
+        session,
+        owner_id=owner_id,
+        run_id=run.id,
+        attempt_id=stage_attempt_id,
+        provider_request_id=provider_request_id,
+        output_chars=output_chars,
+    )
     if not queries:
         run.status = "succeeded"
         run.finished_at = now
@@ -182,6 +203,38 @@ def save_plan(
         )
     session.commit()
     return True
+
+
+def _finish_plan_attempt(
+    session: Session,
+    *,
+    owner_id: UUID,
+    run_id: UUID,
+    attempt_id: UUID | None,
+    provider_request_id: str | None,
+    output_chars: int,
+) -> None:
+    if attempt_id is None:
+        return
+    attempt = session.scalar(
+        select(ResearchStageAttempt)
+        .where(
+            ResearchStageAttempt.id == attempt_id,
+            ResearchStageAttempt.owner_id == owner_id,
+            ResearchStageAttempt.research_run_id == run_id,
+            ResearchStageAttempt.stage == "planning",
+        )
+        .with_for_update()
+    )
+    if attempt is None or attempt.status != "running":
+        return
+    attempt.status = "succeeded"
+    attempt.error_code = None
+    attempt.provider_request_id = (
+        provider_request_id[:200] if isinstance(provider_request_id, str) else None
+    )
+    attempt.output_chars = min(max(output_chars, 0), 16_000)
+    attempt.finished_at = datetime.now(UTC)
 
 
 def start_attempt(

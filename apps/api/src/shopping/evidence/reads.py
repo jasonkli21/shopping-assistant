@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from shopping.catalog.models import Product, ProductVariant, ProjectProduct
+from shopping.evidence.claim_task import PROMPT_VERSION
+from shopping.evidence.freshness import evidence_freshness
 from shopping.evidence.models import (
     Claim,
     ClaimEvidence,
@@ -36,17 +38,12 @@ from shopping.research.models import ResearchRun, ResearchRunTarget
 def freshness(
     category: str, *, published_at: datetime | None, retrieved_at: datetime, now: datetime
 ) -> str:
-    if category == "retailer_listing":
-        date, limit = retrieved_at, timedelta(hours=24)
-    elif published_at is None:
-        return "unknown"
-    elif category in {"manufacturer_specification", "manufacturer_claim"}:
-        date, limit = published_at, timedelta(days=365)
-    else:
-        date, limit = published_at, timedelta(days=90)
-    if date.tzinfo is None:
-        date = date.replace(tzinfo=UTC)
-    return "stale" if now - date > limit else "current"
+    return evidence_freshness(
+        category,
+        published_at=published_at,
+        retrieved_at=retrieved_at,
+        now=now,
+    )
 
 
 def assessment_context_stale(assessment, project, product, variant) -> bool:
@@ -250,6 +247,7 @@ def project_product_research(
                 Claim.owner_id == owner_id,
                 Claim.subject_product_id == product.id,
                 Claim.subject_variant_id == variant.id,
+                Claim.prompt_version == PROMPT_VERSION,
                 Claim.snapshot_id.in_(run_snapshot_ids),
                 SourceSnapshot.owner_id == owner_id,
                 Source.owner_id == owner_id,
@@ -296,6 +294,7 @@ def project_product_research(
                 Claim.owner_id == owner_id,
                 Claim.subject_product_id == product.id,
                 Claim.subject_variant_id == variant.id,
+                Claim.prompt_version == PROMPT_VERSION,
                 Claim.snapshot_id.in_(run_snapshot_ids),
                 SourceSnapshot.owner_id == owner_id,
                 Source.owner_id == owner_id,
@@ -431,6 +430,7 @@ def source_snapshot_detail(
         .where(
             Claim.owner_id == owner_id,
             Claim.snapshot_id == snapshot.id,
+            Claim.prompt_version == PROMPT_VERSION,
             ProjectProduct.id == attempt.project_product_id,
             ProjectProduct.project_id == project_id,
         )

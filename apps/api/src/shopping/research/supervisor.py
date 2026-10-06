@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -19,8 +20,22 @@ from shopping.research.executor import (
     ResearchExecutor,
 )
 from shopping.research.jobs import ACTIVE_RESEARCH_JOB_TOKEN
+from shopping.research.product_persistence import (
+    finish_stage_attempt,
+    planning_attempt_uncertain,
+    start_stage_attempt,
+)
 from shopping.research.search_execution import execute_search_query
-from shopping.research.task import build_request, validate_output
+from shopping.research.task import (
+    PROMPT_VERSION as DISCOVERY_PROMPT_VERSION,
+)
+from shopping.research.task import (
+    TASK_NAME as DISCOVERY_TASK_NAME,
+)
+from shopping.research.task import (
+    build_request,
+    validate_output,
+)
 from shopping.search.provider import SearchProvider
 
 logger = logging.getLogger(__name__)
@@ -58,6 +73,7 @@ class DiscoverySupervisor:
         self._reserved = 0
         self._capacity_lock = Lock()
         self._worker_id = f"local-{uuid4()}"
+        self._maintenance_task: asyncio.Task[None] | None = None
 
     @property
     def provider_name(self) -> str:
@@ -86,9 +102,11 @@ class DiscoverySupervisor:
         return bool(check(run_id)) if check is not None else False
 
     async def submit(self, run_id: UUID) -> None:
-        with self._capacity_lock:
-            self._reserved = max(0, self._reserved - 1)
-        await self.executor.submit(ResearchExecutionContext(research_run_id=str(run_id)))
+        try:
+            await self.executor.submit(ResearchExecutionContext(research_run_id=str(run_id)))
+        finally:
+            with self._capacity_lock:
+                self._reserved = max(0, self._reserved - 1)
 
     async def cancel(self, run_id: UUID) -> None:
         cancel = getattr(self.executor, "cancel", None)
@@ -96,19 +114,50 @@ class DiscoverySupervisor:
             await cancel(run_id)
 
     async def shutdown(self) -> None:
+        if self._maintenance_task is not None:
+            self._maintenance_task.cancel()
+            await asyncio.gather(self._maintenance_task, return_exceptions=True)
+            self._maintenance_task = None
         shutdown = getattr(self.executor, "shutdown", None)
         if shutdown is not None:
             await shutdown()
 
     async def recover_after_restart(self) -> int:
+        try:
+            submitted = await self._dispatch_once()
+        except Exception as error:
+            logger.warning("Initial research recovery pass failed (%s)", type(error).__name__)
+            submitted = 0
+        if self._maintenance_task is None:
+            self._maintenance_task = asyncio.create_task(self._maintenance_loop())
+        return submitted
+
+    async def _maintenance_loop(self) -> None:
+        while True:
+            await asyncio.sleep(0.5)
+            try:
+                await self._dispatch_once()
+            except asyncio.CancelledError:
+                raise
+            except Exception as error:
+                logger.warning("Research recovery pass failed (%s)", type(error).__name__)
+
+    async def _dispatch_once(self) -> int:
         await self._with_session(lambda session: service.recover_expired_jobs(session))
+        await self._with_session(lambda session: service.reconcile_terminal_run_jobs(session))
         run_ids = await self._with_session(lambda session: service.dispatchable_run_ids(session))
         submitted = 0
         for run_id in run_ids:
+            if self.has_task(run_id):
+                continue
             if not self.reserve_slot():
                 break
-            await self.submit(run_id)
-            submitted += 1
+            try:
+                await self.submit(run_id)
+                submitted += 1
+            except Exception as error:
+                self.release_slot()
+                logger.warning("Research dispatch failed for %s (%s)", run_id, type(error).__name__)
         return submitted
 
     async def wait(self, run_id: UUID) -> None:
@@ -122,7 +171,7 @@ class DiscoverySupervisor:
             lambda session: service.claim_job(
                 session,
                 worker_id=self._worker_id,
-                lease_seconds=60,
+                lease_seconds=30,
                 run_id=run_id,
             )
         )
@@ -179,10 +228,10 @@ class DiscoverySupervisor:
         self, job_id: UUID, token: UUID, worker_task: asyncio.Task[None] | None
     ) -> None:
         while True:
-            await asyncio.sleep(20)
+            await asyncio.sleep(10)
             owned = await self._with_session(
                 lambda session: service.heartbeat_job(
-                    session, job_id=job_id, token=token, lease_seconds=60
+                    session, job_id=job_id, token=token, lease_seconds=30
                 )
             )
             if not owned:
@@ -191,6 +240,7 @@ class DiscoverySupervisor:
                 return
 
     async def _run_workflow(self, owner_id: UUID, project_id: UUID, run_id: UUID) -> None:
+        planning_attempt_id: UUID | None = None
         try:
             started = await self._with_session(
                 lambda session: service.mark_running(session, owner_id, project_id, run_id)
@@ -227,6 +277,8 @@ class DiscoverySupervisor:
             )
             if saved_plan is not None:
                 plan = {"queries": saved_plan["queries"], "explanation": saved_plan["summary"]}
+                plan_provider_request_id = None
+                plan_output_chars = 0
             elif snapshot.get("manual_queries") is not None:
                 plan = {
                     "queries": [
@@ -236,20 +288,112 @@ class DiscoverySupervisor:
                     "clarification": None,
                     "explanation": "Searches were supplied directly by the user.",
                 }
+                plan_provider_request_id = None
+                plan_output_chars = 0
             else:
+                if await self._with_session(
+                    lambda session: planning_attempt_uncertain(
+                        session,
+                        owner_id=owner_id,
+                        project_id=project_id,
+                        run_id=run_id,
+                    )
+                ):
+                    await self._fail_run(
+                        owner_id,
+                        project_id,
+                        run_id,
+                        "uncertain_completion",
+                        "The discovery planning call ended without a saved result "
+                        "and was not repeated.",
+                    )
+                    return
                 request = build_request(snapshot, budgets["max_queries"])
-                remaining = max(
-                    0,
-                    await self._remaining_seconds(owner_id, project_id, run_id, budgets),
+                planning_input_chars = len(
+                    json.dumps(request.input, ensure_ascii=False, separators=(",", ":"))
                 )
-                if remaining < 1:
-                    raise TimeoutError
-                async with asyncio.timeout(remaining):
-                    response = await self.client.generate(request)
+                planning_attempt = await self._with_session(
+                    lambda session: start_stage_attempt(
+                        session,
+                        owner_id=owner_id,
+                        project_id=project_id,
+                        run_id=run_id,
+                        target_project_product_id=None,
+                        stage="planning",
+                        task_name=DISCOVERY_TASK_NAME,
+                        prompt_version=DISCOVERY_PROMPT_VERSION,
+                        input_chars=planning_input_chars,
+                    )
+                )
+                if planning_attempt is None:
+                    await self._fail_run(
+                        owner_id,
+                        project_id,
+                        run_id,
+                        "ai_call_budget_exhausted",
+                        "The discovery planner could not start within the saved AI-call budget.",
+                    )
+                    return
+                planning_attempt_id = planning_attempt.id
+                for planning_call_number in range(2):
+                    if planning_call_number:
+                        planning_attempt = await self._with_session(
+                            lambda session: start_stage_attempt(
+                                session,
+                                owner_id=owner_id,
+                                project_id=project_id,
+                                run_id=run_id,
+                                target_project_product_id=None,
+                                stage="planning",
+                                task_name=DISCOVERY_TASK_NAME,
+                                prompt_version=DISCOVERY_PROMPT_VERSION,
+                                input_chars=planning_input_chars,
+                            )
+                        )
+                        if planning_attempt is None:
+                            planning_attempt_id = None
+                            await self._fail_run(
+                                owner_id,
+                                project_id,
+                                run_id,
+                                "ai_call_budget_exhausted",
+                                "The discovery planner could not retry within the saved "
+                                "AI-call budget.",
+                            )
+                            return
+                        planning_attempt_id = planning_attempt.id
+                    remaining = max(
+                        0,
+                        await self._remaining_seconds(owner_id, project_id, run_id, budgets),
+                    )
+                    if remaining < 1:
+                        raise TimeoutError
+                    try:
+                        async with asyncio.timeout(remaining):
+                            response = await self.client.generate(request)
+                    except AIProviderError as error:
+                        await self._finish_planning_attempt(
+                            owner_id, project_id, run_id, planning_attempt_id, error.code
+                        )
+                        if (
+                            planning_call_number == 0
+                            and error.code in {"provider_unavailable", "rate_limited"}
+                            and await self._remaining_seconds(owner_id, project_id, run_id, budgets)
+                            > 0.5
+                        ):
+                            planning_attempt_id = None
+                            await asyncio.sleep(0.25)
+                            continue
+                        raise
+                    break
                 if response.refused:
                     raise AIProviderError("provider_refused")
                 output = validate_output(response.output, snapshot, budgets["max_queries"])
                 plan = output.model_dump(mode="json")
+                plan_provider_request_id = response.provider_request_id
+                plan_output_chars = len(
+                    json.dumps(response.output, ensure_ascii=False, separators=(",", ":"))
+                )
 
             saved = await self._with_session(
                 lambda session: service.save_plan(
@@ -259,6 +403,9 @@ class DiscoverySupervisor:
                     run_id=run_id,
                     queries=plan["queries"],
                     summary=plan.get("clarification") or plan.get("explanation"),
+                    stage_attempt_id=planning_attempt_id,
+                    provider_request_id=plan_provider_request_id,
+                    output_chars=plan_output_chars,
                 )
             )
             if not saved:
@@ -287,6 +434,9 @@ class DiscoverySupervisor:
         except asyncio.CancelledError:
             raise
         except TimeoutError:
+            await self._finish_planning_attempt(
+                owner_id, project_id, run_id, planning_attempt_id, "planner_timeout"
+            )
             await self._fail_run(
                 owner_id,
                 project_id,
@@ -297,7 +447,8 @@ class DiscoverySupervisor:
         except AIProviderError as error:
             code = (
                 error.code
-                if error.code in {"provider_unavailable", "provider_timeout", "provider_refused"}
+                if error.code
+                in {"provider_unavailable", "provider_timeout", "provider_refused", "rate_limited"}
                 else "planner_failed"
             )
             summary = (
@@ -306,8 +457,14 @@ class DiscoverySupervisor:
                 if code == "provider_unavailable"
                 else "The discovery planner could not produce a usable query plan."
             )
+            await self._finish_planning_attempt(
+                owner_id, project_id, run_id, planning_attempt_id, code
+            )
             await self._fail_run(owner_id, project_id, run_id, code, summary)
         except ValueError:
+            await self._finish_planning_attempt(
+                owner_id, project_id, run_id, planning_attempt_id, "invalid_plan"
+            )
             await self._fail_run(
                 owner_id,
                 project_id,
@@ -317,12 +474,42 @@ class DiscoverySupervisor:
             )
         except Exception as error:
             logger.error("Discovery run failed for %s (%s)", run_id, type(error).__name__)
+            await self._finish_planning_attempt(
+                owner_id, project_id, run_id, planning_attempt_id, "provider_error"
+            )
             await self._fail_run(
                 owner_id,
                 project_id,
                 run_id,
                 "discovery_failed",
                 "Discovery could not finish. Saved search observations remain available.",
+            )
+
+    async def _finish_planning_attempt(
+        self,
+        owner_id: UUID,
+        project_id: UUID,
+        run_id: UUID,
+        attempt_id: UUID | None,
+        error_code: str,
+    ) -> None:
+        if attempt_id is None:
+            return
+        try:
+            await self._with_session(
+                lambda session: finish_stage_attempt(
+                    session,
+                    owner_id=owner_id,
+                    project_id=project_id,
+                    run_id=run_id,
+                    attempt_id=attempt_id,
+                    status="failed",
+                    error_code=error_code,
+                )
+            )
+        except Exception as error:
+            logger.info(
+                "Could not settle planning attempt for %s (%s)", run_id, type(error).__name__
             )
 
     async def _remaining_seconds(

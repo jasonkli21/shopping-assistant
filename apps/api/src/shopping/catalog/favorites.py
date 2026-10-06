@@ -19,6 +19,7 @@ from shopping.catalog.schemas import (
     SavedProductRead,
     money_text,
 )
+from shopping.evidence.freshness import offer_freshness
 from shopping.projects.errors import ProjectError
 
 
@@ -156,6 +157,7 @@ def _saved_read(session: Session, owner_id: UUID, saved, variant, product):
                 availability=offer.availability,
                 condition=offer.condition,
                 observed_at=offer.observed_at,
+                freshness=offer_freshness(offer.observed_at, now=datetime.now(UTC)),
             )
             for offer in offers
         ],

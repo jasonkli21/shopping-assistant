@@ -14,8 +14,9 @@ from sqlalchemy.orm import Session
 from shopping.catalog.models import RetailOffer
 from shopping.catalog.resolution import match_existing_variant
 from shopping.evidence.assessment import record_assessment
+from shopping.evidence.claim_task import PROMPT_VERSION
 from shopping.evidence.classification import classify_source
-from shopping.evidence.models import ResearchRunSource, Source, SourceSnapshot
+from shopping.evidence.models import Claim, ResearchRunSource, Source, SourceSnapshot
 from shopping.extraction.http_retriever import MAX_PAGE_BYTES
 from shopping.extraction.retriever import RetrievedDocument
 from shopping.extraction.schemas import CatalogExtraction
@@ -54,6 +55,9 @@ def save_product_plan(
     run_id: UUID,
     queries: list[dict[str, Any]],
     summary: str | None,
+    stage_attempt_id: UUID | None = None,
+    provider_request_id: str | None = None,
+    output_chars: int = 0,
 ) -> bool:
     project, run = _lock_live_run(session, owner_id, project_id, run_id)
     del project
@@ -69,6 +73,15 @@ def save_product_plan(
             summary="The product research deadline expired before its plan could be saved.",
         )
     if run.queries_planned:
+        _finish_planning_stage(
+            session,
+            run_id=run.id,
+            owner_id=owner_id,
+            attempt_id=stage_attempt_id,
+            provider_request_id=provider_request_id,
+            output_chars=output_chars,
+        )
+        session.commit()
         return True
     budget = run.effective_budgets
     now = datetime.now(UTC)
@@ -98,6 +111,14 @@ def save_product_plan(
         )
     run.queries_planned = len(queries)
     run.summary = summary[:1000] if summary else None
+    _finish_planning_stage(
+        session,
+        run_id=run.id,
+        owner_id=owner_id,
+        attempt_id=stage_attempt_id,
+        provider_request_id=provider_request_id,
+        output_chars=output_chars,
+    )
     if not queries:
         targets = list(
             session.scalars(
@@ -131,7 +152,7 @@ def start_stage_attempt(
     source_snapshot_id: UUID | None = None,
 ) -> ResearchStageAttempt | None:
     _project, run = _lock_live_run(session, owner_id, project_id, run_id)
-    if run.status != "running" or run.run_type != "product_research":
+    if run.status != "running":
         return None
     target = None
     if target_project_product_id is not None:
@@ -257,6 +278,57 @@ def finish_stage_attempt(
     return True
 
 
+def planning_attempt_uncertain(
+    session: Session, *, owner_id: UUID, project_id: UUID, run_id: UUID
+) -> bool:
+    _live_project(session, owner_id, project_id)
+    return (
+        session.scalar(
+            select(ResearchStageAttempt.id)
+            .where(
+                ResearchStageAttempt.owner_id == owner_id,
+                ResearchStageAttempt.research_run_id == run_id,
+                ResearchStageAttempt.stage == "planning",
+                ResearchStageAttempt.error_code == "uncertain_completion",
+            )
+            .limit(1)
+        )
+        is not None
+    )
+
+
+def _finish_planning_stage(
+    session: Session,
+    *,
+    run_id: UUID,
+    owner_id: UUID,
+    attempt_id: UUID | None,
+    provider_request_id: str | None,
+    output_chars: int,
+) -> None:
+    if attempt_id is None:
+        return
+    attempt = session.scalar(
+        select(ResearchStageAttempt)
+        .where(
+            ResearchStageAttempt.id == attempt_id,
+            ResearchStageAttempt.owner_id == owner_id,
+            ResearchStageAttempt.research_run_id == run_id,
+            ResearchStageAttempt.stage == "planning",
+        )
+        .with_for_update()
+    )
+    if attempt is None or attempt.status != "running":
+        return
+    attempt.status = "succeeded"
+    attempt.error_code = None
+    attempt.provider_request_id = (
+        provider_request_id[:200] if isinstance(provider_request_id, str) else None
+    )
+    attempt.output_chars = min(max(output_chars, 0), 16_000)
+    attempt.finished_at = datetime.now(UTC)
+
+
 def list_target_results(
     session: Session,
     *,
@@ -329,7 +401,9 @@ def processed_offer_refresh_urls(
             ResearchRunSource.owner_id == owner_id,
             ResearchRunSource.research_run_id == run.id,
             ResearchRunSource.project_product_id == target_id,
-            ResearchRunSource.offer_status.is_not(None),
+            ResearchRunSource.offer_status.in_(
+                ["succeeded", "no_offer", "identity_mismatch", "unsupported"]
+            ),
         )
     ).all()
     normalized: set[str] = set()
@@ -339,6 +413,42 @@ def processed_offer_refresh_urls(
         except ValueError:
             continue
     return normalized
+
+
+def prior_source_attempts_by_result(
+    session: Session,
+    *,
+    owner_id: UUID,
+    project_id: UUID,
+    run_id: UUID,
+    target_id: UUID,
+) -> dict[UUID, dict[str, Any]]:
+    """Latest persisted retrieval outcome for each search result in this run."""
+    _live_project(session, owner_id, project_id)
+    rows = (
+        session.execute(
+            select(ResearchRunSource)
+            .where(
+                ResearchRunSource.owner_id == owner_id,
+                ResearchRunSource.research_run_id == run_id,
+                ResearchRunSource.project_product_id == target_id,
+                ResearchRunSource.search_result_id.is_not(None),
+            )
+            .order_by(ResearchRunSource.retrieved_at.desc(), ResearchRunSource.id.desc())
+        )
+        .scalars()
+        .all()
+    )
+    outcomes: dict[UUID, dict[str, Any]] = {}
+    for attempt in rows:
+        if attempt.search_result_id in outcomes:
+            continue
+        outcomes[attempt.search_result_id] = {
+            "attempt_id": attempt.id,
+            "snapshot_id": attempt.snapshot_id,
+            "status": attempt.status,
+        }
+    return outcomes
 
 
 def _source_for_url(
@@ -770,17 +880,47 @@ def finish_product_research(
             )
             or 0
         )
+        refresh_targets = run.input_snapshot.get("refresh_targets", [])
+        claims_requested = not refresh_targets or "claims" in refresh_targets
+        offers_requested = "offers" in refresh_targets
+        usable_claims = (
+            session.scalar(
+                select(func.count(Claim.id)).where(
+                    Claim.owner_id == owner_id,
+                    Claim.subject_product_id == target.product_id,
+                    Claim.subject_variant_id == target.variant_id,
+                    Claim.prompt_version == PROMPT_VERSION,
+                )
+            )
+            or 0
+        )
+        offer_rows = list(
+            session.scalars(
+                select(ResearchRunSource).where(
+                    ResearchRunSource.research_run_id == run.id,
+                    ResearchRunSource.project_product_id == target.project_product_id,
+                    ResearchRunSource.offer_status.is_not(None),
+                )
+            ).all()
+        )
+        failed_offers = sum(item.offer_status != "succeeded" for item in offer_rows)
+        succeeded_offers = sum(item.offer_status == "succeeded" for item in offer_rows)
+        offer_problem = offers_requested and (succeeded_offers == 0 or failed_offers > 0)
         if target.sources_retrieved > 0:
-            refresh_targets = run.input_snapshot.get("refresh_targets", [])
-            claims_requested = not refresh_targets or "claims" in refresh_targets
-            if target.claims_created == 0 and not target.error_code and claims_requested:
+            if claims_requested and usable_claims == 0 and not target.error_code:
                 target.error_code = "no_grounded_claims"
+            if offers_requested and offer_problem and not target.error_code:
+                target.error_code = "offer_refresh_unavailable"
             target.status = (
-                "partial" if failed_sources or failed_stages or target.error_code else "succeeded"
+                "partial"
+                if failed_sources or failed_stages or target.error_code or offer_problem
+                else "succeeded"
             )
         else:
             target.status = "failed"
-            target.error_code = target.error_code or "no_sources_retrieved"
+            target.error_code = target.error_code or (
+                "offer_refresh_unavailable" if offers_requested else "no_sources_retrieved"
+            )
         target.updated_at = datetime.now(UTC)
     succeeded = sum(target.status == "succeeded" for target in targets)
     partial = sum(target.status == "partial" for target in targets)

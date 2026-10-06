@@ -16,6 +16,10 @@ import { ProductDecisionActions } from "../decisions/ProductDecisionActions";
 import { ProjectAssistant } from "../assistant/ProjectAssistant";
 
 type SavedCommand = { command: ResearchCreate; requestKey: string };
+type SavedRetryCommand = {
+  sourceRunId: string;
+  command: { request_key: string; expected_version: number };
+};
 const TERMINAL = new Set<ResearchRunRead["status"]>([
   "succeeded",
   "partial",
@@ -50,6 +54,38 @@ function writeSavedCommand(projectId: string, saved: SavedCommand | null) {
   } catch {
     // The form still works when browser storage is unavailable.
   }
+}
+
+function retryStorageKey(projectId: string, sourceRunId: string) {
+  return `shopping-assistant:discovery-retry:${projectId}:${sourceRunId}`;
+}
+
+function readSavedRetry(projectId: string, sourceRunId: string): SavedRetryCommand | null {
+  try {
+    const raw = window.sessionStorage.getItem(retryStorageKey(projectId, sourceRunId));
+    if (!raw) return null;
+    const value: unknown = JSON.parse(raw);
+    if (!value || typeof value !== "object") throw new Error("Invalid retry command");
+    const saved = value as Partial<SavedRetryCommand>;
+    if (
+      saved.sourceRunId !== sourceRunId ||
+      !saved.command ||
+      typeof saved.command.request_key !== "string" ||
+      !Number.isInteger(saved.command.expected_version)
+    ) throw new Error("Invalid retry command");
+    return saved as SavedRetryCommand;
+  } catch {
+    try { window.sessionStorage.removeItem(retryStorageKey(projectId, sourceRunId)); } catch { /* storage unavailable */ }
+    return null;
+  }
+}
+
+function writeSavedRetry(projectId: string, sourceRunId: string, saved: SavedRetryCommand | null) {
+  try {
+    const key = retryStorageKey(projectId, sourceRunId);
+    if (saved) window.sessionStorage.setItem(key, JSON.stringify(saved));
+    else window.sessionStorage.removeItem(key);
+  } catch { /* storage unavailable */ }
 }
 
 function isSavedCommand(value: unknown): value is SavedCommand {
@@ -117,7 +153,6 @@ function DiscoverPageContent({ projectId }: { projectId?: string }) {
   const headingRef = useRef<HTMLHeadingElement>(null);
   const pollingCount = useRef(0);
   const submittingRef = useRef(false);
-  const retryRequestKey = useRef<string | null>(null);
   const [isVisible, setIsVisible] = useState(() => document.visibilityState === "visible");
   const [savedCommand, setSavedCommand] = useState<SavedCommand | null>(() =>
     projectId ? readSavedCommand(projectId) : null,
@@ -253,17 +288,36 @@ function DiscoverPageContent({ projectId }: { projectId?: string }) {
     onError: (error) => setCancelError(readableError(error, "The run could not be canceled.")),
   });
   const retryRun = useMutation({
-    mutationFn: (runId: string) => researchApi.retry(projectId!, runId, {
-      request_key: retryRequestKey.current ??= `discovery-retry-${globalThis.crypto.randomUUID()}`,
-      expected_version: project!.revision,
-    }),
-    onSuccess: async (result) => {
-      retryRequestKey.current = null;
+    mutationFn: (runId: string) => {
+      if (!projectId || !project) throw new Error("The saved project is unavailable.");
+      let saved = readSavedRetry(projectId, runId);
+      if (!saved) {
+        const command = {
+          request_key: `discovery-retry-${globalThis.crypto.randomUUID()}`,
+          expected_version: project.revision,
+        };
+        saved = { sourceRunId: runId, command };
+        writeSavedRetry(projectId, runId, saved);
+      }
+      return researchApi.retry(projectId, runId, saved.command);
+    },
+    onSuccess: async (result, runId) => {
+      if (projectId) writeSavedRetry(projectId, runId, null);
       setSelectedRunId(result.run_id);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["research-runs", projectId] }),
         queryClient.invalidateQueries({ queryKey: ["research-run", projectId, result.run_id] }),
       ]);
+    },
+    onError: async (error, runId) => {
+      if (error instanceof ApiRequestError && [400, 404, 409, 422, 503].includes(error.status)) {
+        if (projectId) writeSavedRetry(projectId, runId, null);
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ["project", projectId] }),
+          queryClient.invalidateQueries({ queryKey: ["research-runs", projectId] }),
+          queryClient.invalidateQueries({ queryKey: ["research-run", projectId, runId] }),
+        ]);
+      }
     },
   });
 

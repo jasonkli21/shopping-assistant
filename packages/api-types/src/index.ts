@@ -401,6 +401,7 @@ export interface components {
       "availability": "in_stock" | "out_of_stock" | "preorder" | "unknown";
       "condition": "new" | "used" | "refurbished" | "unknown";
       "observed_at": string;
+      "freshness": "current" | "stale";
     };
     ProductIdentifierRead: {
       "id": string;

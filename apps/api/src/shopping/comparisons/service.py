@@ -35,6 +35,8 @@ from shopping.comparisons.schemas import (
     ComparisonRead,
     ComparisonRegenerate,
 )
+from shopping.evidence.claim_task import PROMPT_VERSION
+from shopping.evidence.freshness import offer_freshness
 from shopping.evidence.models import (
     Claim,
     ClaimEvidence,
@@ -370,7 +372,14 @@ def _cell(session, owner_id, project, membership, variant, product, dimension):
         )
         if offer is None:
             return _cell_value(membership.id, "unknown")
-        status = "known" if offer.amount is not None and offer.currency is not None else "unknown"
+        offer_age = offer_freshness(offer.observed_at, now=datetime.now(UTC))
+        status = (
+            "unknown"
+            if offer.amount is None or offer.currency is None
+            else "stale"
+            if offer_age == "stale"
+            else "known"
+        )
         value = {
             "amount": format(offer.amount, ".2f") if offer.amount is not None else None,
             "currency": offer.currency,
@@ -378,6 +387,7 @@ def _cell(session, owner_id, project, membership, variant, product, dimension):
             "availability": offer.availability,
             "condition": offer.condition,
             "observed_at": offer.observed_at.isoformat(),
+            "freshness": offer_age,
             "url": offer.url,
         }
         comparison_value = [value["amount"], value["currency"], value["observed_at"]]
@@ -390,6 +400,7 @@ def _cell(session, owner_id, project, membership, variant, product, dimension):
             provenance={
                 "offer_id": str(offer.id),
                 "observation_id": str(offer.observation_id) if offer.observation_id else None,
+                "freshness": offer_age,
             },
         )
 
@@ -404,6 +415,7 @@ def _cell(session, owner_id, project, membership, variant, product, dimension):
                     Claim.owner_id == owner_id,
                     Claim.subject_variant_id == variant.id,
                     Claim.attribute_key == dimension.key,
+                    Claim.prompt_version == PROMPT_VERSION,
                     SourceSnapshot.owner_id == owner_id,
                     Source.owner_id == owner_id,
                 )

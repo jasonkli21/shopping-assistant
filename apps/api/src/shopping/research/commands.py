@@ -2,15 +2,17 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from shopping.catalog.models import Product, ProductVariant, ProjectProduct, RetailOffer
+from shopping.evidence.claim_task import PROMPT_VERSION
+from shopping.evidence.freshness import PLANNING_FRESHNESS, evidence_freshness, offer_freshness
 from shopping.evidence.models import Claim, Source, SourceSnapshot
 from shopping.projects.models import ShoppingProject
 from shopping.research.common import (
@@ -20,6 +22,7 @@ from shopping.research.common import (
     _live_project,
     _money,
     _not_found,
+    normalize_candidate_url,
 )
 from shopping.research.jobs import enqueue_run_job
 from shopping.research.models import ResearchJob, ResearchRun, ResearchRunTarget, SearchQueryRecord
@@ -334,19 +337,7 @@ def _snapshot(
                 "exclude_domains": [],
             }
         ),
-        "freshness_needs": (
-            {
-                "offer_max_age_hours": 12,
-                "specification_max_age_days": 180,
-                "claim_max_age_days": 30,
-            }
-            if command.mode == "deep"
-            else {
-                "offer_max_age_hours": 24,
-                "specification_max_age_days": 365,
-                "claim_max_age_days": 90,
-            }
-        ),
+        "freshness_needs": PLANNING_FRESHNESS[command.mode],
         "manual_queries": command.manual_queries,
         "project": {
             "id": str(project.id),
@@ -437,53 +428,74 @@ def _planning_context(
     refresh_targets: list[str],
 ) -> dict[str, Any]:
     now = datetime.now(UTC)
+    latest_offer = (
+        select(
+            RetailOffer.id.label("offer_id"),
+            func.row_number()
+            .over(
+                partition_by=RetailOffer.url,
+                order_by=(RetailOffer.observed_at.desc(), RetailOffer.id.desc()),
+            )
+            .label("position"),
+        )
+        .where(RetailOffer.owner_id == owner_id, RetailOffer.variant_id == variant_id)
+        .subquery()
+    )
     offers = list(
         session.scalars(
             select(RetailOffer)
-            .where(RetailOffer.owner_id == owner_id, RetailOffer.variant_id == variant_id)
+            .join(latest_offer, latest_offer.c.offer_id == RetailOffer.id)
+            .where(latest_offer.c.position == 1)
             .order_by(RetailOffer.observed_at.desc(), RetailOffer.id.desc())
-            .limit(12)
         ).all()
     )
-    offer_observations = [
-        {
-            "offer_id": str(offer.id),
-            "url": offer.url,
-            "retailer_name": offer.retailer_name,
-            "domain": offer.retailer_domain,
-            "observed_at": offer.observed_at.isoformat(),
-            "freshness": (
-                "stale"
-                if now - _aware_utc(offer.observed_at)
-                > timedelta(hours=freshness_needs["offer_max_age_hours"])
-                else "current"
-            ),
-        }
-        for offer in offers
-    ]
+    offer_observations = []
+    seen_offer_urls: set[str] = set()
+    for offer in offers:
+        try:
+            identity = normalize_candidate_url(offer.url)
+        except ValueError:
+            continue
+        if identity in seen_offer_urls:
+            continue
+        seen_offer_urls.add(identity)
+        offer_observations.append(
+            {
+                "offer_id": str(offer.id),
+                "url": offer.url,
+                "retailer_name": offer.retailer_name,
+                "domain": offer.retailer_domain,
+                "observed_at": offer.observed_at.isoformat(),
+                "freshness": offer_freshness(
+                    offer.observed_at,
+                    now=now,
+                    max_age_hours=freshness_needs["offer_max_age_hours"],
+                ),
+            }
+        )
+        if len(offer_observations) >= 50:
+            break
     rows = session.execute(
         select(Claim, Source, SourceSnapshot)
         .join(SourceSnapshot, SourceSnapshot.id == Claim.snapshot_id)
         .join(Source, Source.id == SourceSnapshot.source_id)
-        .where(Claim.owner_id == owner_id, Claim.subject_variant_id == variant_id)
+        .where(
+            Claim.owner_id == owner_id,
+            Claim.subject_variant_id == variant_id,
+            Claim.prompt_version == PROMPT_VERSION,
+        )
         .order_by(Claim.extracted_at.desc(), Claim.id.desc())
         .limit(50)
     ).all()
     dimensions: dict[str, dict[str, str]] = {}
     for claim, source, source_snapshot in rows:
-        category = claim.evidence_category
-        published = source_snapshot.published_at
-        if published is None:
-            freshness = "unknown"
-        else:
-            threshold = (
-                freshness_needs["specification_max_age_days"]
-                if category in {"manufacturer_specification", "manufacturer_claim"}
-                else freshness_needs["claim_max_age_days"]
-            )
-            freshness = (
-                "stale" if now - _aware_utc(published) > timedelta(days=threshold) else "current"
-            )
+        freshness = evidence_freshness(
+            claim.evidence_category,
+            published_at=source_snapshot.published_at,
+            retrieved_at=source_snapshot.retrieved_at,
+            now=now,
+            thresholds=freshness_needs,
+        )
         key = claim.attribute_key
         if key not in dimensions:
             dimensions[key] = {

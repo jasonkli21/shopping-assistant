@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from shopping.projects.errors import ProjectError
 from shopping.projects.models import ShoppingProject
 from shopping.research.jobs import ACTIVE_RESEARCH_JOB_TOKEN
-from shopping.research.models import ResearchRun
+from shopping.research.models import ResearchJob, ResearchRun
 
 ACTIVE_STATES = {"queued", "running"}
 
@@ -65,6 +65,9 @@ SAFE_ERROR_CODES = {
     "rate_limited",
     "result_budget_exhausted",
     "source_budget_exhausted",
+    "source_class_mismatch",
+    "source_domain_excluded",
+    "server_error",
     "stage_attempt_budget_exhausted",
     "unsupported_content_type",
     "url_too_long",
@@ -102,6 +105,23 @@ def _lock_live_run(
             "execution_fenced",
             "This research worker no longer owns the active job lease.",
         )
+    if worker_token is not None:
+        now = datetime.now(UTC)
+        job = session.scalar(
+            select(ResearchJob)
+            .where(
+                ResearchJob.research_run_id == run.id,
+                ResearchJob.status == "running",
+                ResearchJob.lease_token == worker_token,
+                ResearchJob.lease_expires_at > now,
+            )
+            .with_for_update()
+        )
+        if job is None:
+            raise _conflict(
+                "execution_fenced",
+                "This research worker no longer owns a live job lease.",
+            )
     return project, run
 
 

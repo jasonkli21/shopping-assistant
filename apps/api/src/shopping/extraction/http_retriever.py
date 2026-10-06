@@ -9,6 +9,7 @@ import zlib
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from email.message import Message
+from email.utils import parsedate_to_datetime
 from urllib.parse import urljoin, urlsplit
 
 import httpcore
@@ -155,20 +156,39 @@ class HTTPPageRetriever:
     async def retrieve(self, url: str) -> RetrievedDocument:
         return await self.retrieve_with_limit(url, self._max_decoded_bytes)
 
-    async def retrieve_with_limit(self, url: str, max_decoded_bytes: int) -> RetrievedDocument:
+    async def retrieve_with_limit(
+        self,
+        url: str,
+        max_decoded_bytes: int,
+        *,
+        allowed_domains: Sequence[str] | None = None,
+        excluded_domains: Sequence[str] = (),
+    ) -> RetrievedDocument:
         if max_decoded_bytes <= 0 or max_decoded_bytes > self._max_decoded_bytes:
             raise ValueError(
                 "per-request retrieval limit must be positive and within the retriever cap"
             )
         try:
             async with asyncio.timeout(self._timeout_seconds):
-                return await self._retrieve_with_deadline(url, max_decoded_bytes)
+                return await self._retrieve_with_deadline(
+                    url,
+                    max_decoded_bytes,
+                    allowed_domains=allowed_domains,
+                    excluded_domains=excluded_domains,
+                )
         except TimeoutError as error:
             raise PageRetrievalError(
                 "timeout", "The source page exceeded its retrieval deadline."
             ) from error
 
-    async def _retrieve_with_deadline(self, url: str, max_decoded_bytes: int) -> RetrievedDocument:
+    async def _retrieve_with_deadline(
+        self,
+        url: str,
+        max_decoded_bytes: int,
+        *,
+        allowed_domains: Sequence[str] | None,
+        excluded_domains: Sequence[str],
+    ) -> RetrievedDocument:
         requested_url = url
         current_url = url
         seen = set()
@@ -178,6 +198,29 @@ class HTTPPageRetriever:
                 raise PageRetrievalError("redirect_loop", "The page redirected in a loop.")
             seen.add(current_url)
             host, port = _host_and_port(current_url)
+            normalized_host = host.casefold().removeprefix("www.").rstrip(".")
+            excludes = [
+                item.casefold().removeprefix("www.").rstrip(".") for item in excluded_domains
+            ]
+            allows = (
+                [item.casefold().removeprefix("www.").rstrip(".") for item in allowed_domains]
+                if allowed_domains
+                else []
+            )
+            if any(
+                normalized_host == domain or normalized_host.endswith("." + domain)
+                for domain in excludes
+            ) or (
+                allows
+                and not any(
+                    normalized_host == domain or normalized_host.endswith("." + domain)
+                    for domain in allows
+                )
+            ):
+                raise PageRetrievalError(
+                    "source_domain_excluded",
+                    "The source destination does not match the saved domain targets.",
+                )
             try:
                 ipaddress.ip_address(host)
                 resolved = (host,)
@@ -222,10 +265,18 @@ class HTTPPageRetriever:
                             current_url = urljoin(current_url, location)
                             continue
                         if response.status_code >= 400:
+                            retry_after = _retry_after_seconds(response.headers.get("retry-after"))
+                            if response.status_code == 429:
+                                error_code = "rate_limited"
+                            elif response.status_code in {500, 502, 503, 504}:
+                                error_code = "server_error"
+                            else:
+                                error_code = "http_error"
                             raise PageRetrievalError(
-                                "http_error",
+                                error_code,
                                 "The source page could not be retrieved.",
                                 status_code=response.status_code,
+                                retry_after_seconds=retry_after,
                             )
                         if response.status_code < 200 or response.status_code >= 300:
                             raise PageRetrievalError(
@@ -322,6 +373,21 @@ def _mime_type(content_type: str | None) -> str | None:
     message = Message()
     message["content-type"] = content_type
     return message.get_content_type().lower()
+
+
+def _retry_after_seconds(value: str | None) -> float | None:
+    if not value:
+        return None
+    try:
+        return max(0.0, float(value))
+    except ValueError:
+        try:
+            instant = parsedate_to_datetime(value)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if instant.tzinfo is None:
+            instant = instant.replace(tzinfo=UTC)
+        return max(0.0, (instant.astimezone(UTC) - datetime.now(UTC)).total_seconds())
 
 
 class _TextExtractor:

@@ -108,6 +108,11 @@ def claim_job(
 
     if job.status == "running":
         _recover_expired_attempt(session, job, run, now)
+    if _run_deadline_expired(run, now):
+        if job.status == "queued":
+            _mark_run_deadline_expired(run, job, now)
+            session.commit()
+            return None
         if job.attempt_count >= job.max_attempts:
             job.status = "failed"
             job.error_code = "lease_recovery_exhausted"
@@ -163,21 +168,16 @@ def heartbeat_job(
     lease_seconds: int = 60,
 ) -> bool:
     now = _utc(now or datetime.now(UTC))
-    job = session.scalar(
-        select(ResearchJob)
-        .where(
-            ResearchJob.id == job_id,
-            ResearchJob.status == "running",
-            ResearchJob.lease_token == token,
-            ResearchJob.lease_expires_at > now,
-        )
-        .with_for_update()
-    )
-    if job is None:
+    run, job = _lock_run_then_job(session, job_id)
+    if (
+        run is None
+        or job is None
+        or job.status != "running"
+        or job.lease_token != token
+        or job.lease_expires_at is None
+        or _utc(job.lease_expires_at) <= now
+    ):
         return False
-    run = session.scalar(
-        select(ResearchRun).where(ResearchRun.id == job.research_run_id).with_for_update()
-    )
     if run is None or run.active_job_token != token or run.status not in {"queued", "running"}:
         return False
     job.heartbeat_at = now
@@ -200,20 +200,16 @@ def complete_job(
     if status not in {"succeeded", "failed", "canceled"}:
         raise ValueError("invalid research job terminal status")
     now = _utc(now or datetime.now(UTC))
-    job = session.scalar(
-        select(ResearchJob)
-        .where(
-            ResearchJob.id == job_id,
-            ResearchJob.status == "running",
-            ResearchJob.lease_token == token,
-        )
-        .with_for_update()
-    )
-    if job is None:
+    run, job = _lock_run_then_job(session, job_id)
+    if (
+        run is None
+        or job is None
+        or job.status != "running"
+        or job.lease_token != token
+        or job.lease_expires_at is None
+        or _utc(job.lease_expires_at) <= now
+    ):
         return False
-    run = session.scalar(
-        select(ResearchRun).where(ResearchRun.id == job.research_run_id).with_for_update()
-    )
     if run is None or run.active_job_token != token:
         return False
     attempt = session.scalar(
@@ -300,15 +296,19 @@ def recover_expired_jobs(session: Session, *, now: datetime | None = None) -> li
     )
     recovered: list[UUID] = []
     for job_id in expired_ids:
-        job = session.scalar(
-            select(ResearchJob).where(ResearchJob.id == job_id).with_for_update(skip_locked=True)
-        )
-        if job is None or job.status != "running" or job.lease_expires_at > now:
+        run, job = _lock_run_then_job(session, job_id, skip_locked=True)
+        if job is None or run is None or job.status != "running" or job.lease_expires_at is None:
             continue
-        run = session.scalar(
-            select(ResearchRun).where(ResearchRun.id == job.research_run_id).with_for_update()
-        )
-        if run is None or run.status not in {"queued", "running"}:
+        if _utc(job.lease_expires_at) > now:
+            continue
+        if run.status not in {"queued", "running"}:
+            _reconcile_terminal_run_job(session, job, run, now)
+            recovered.append(run.id)
+            continue
+        if _run_deadline_expired(run, now):
+            _recover_expired_attempt(session, job, run, now)
+            _mark_run_deadline_expired(run, job, now)
+            recovered.append(run.id)
             continue
         if job.attempt_count >= job.max_attempts:
             _recover_expired_attempt(session, job, run, now)
@@ -345,6 +345,41 @@ def dispatchable_run_ids(session: Session, *, now: datetime | None = None) -> li
     )
 
 
+def reconcile_terminal_run_jobs(session: Session, *, now: datetime | None = None) -> int:
+    """Settle dispatch rows left running after a run's terminal commit."""
+    now = _utc(now or datetime.now(UTC))
+    run_ids = list(
+        session.scalars(
+            select(ResearchJob.research_run_id)
+            .join(ResearchRun, ResearchRun.id == ResearchJob.research_run_id)
+            .where(
+                ResearchJob.status == "running",
+                ResearchRun.status.not_in(["queued", "running"]),
+            )
+            .distinct()
+        ).all()
+    )
+    settled = 0
+    for run_id in run_ids:
+        run = session.scalar(
+            select(ResearchRun).where(ResearchRun.id == run_id).with_for_update(skip_locked=True)
+        )
+        if run is None or run.status in {"queued", "running"}:
+            continue
+        jobs = list(
+            session.scalars(
+                select(ResearchJob)
+                .where(ResearchJob.research_run_id == run_id, ResearchJob.status == "running")
+                .with_for_update(skip_locked=True)
+            ).all()
+        )
+        for job in jobs:
+            _reconcile_terminal_run_job(session, job, run, now)
+            settled += 1
+    session.commit()
+    return settled
+
+
 def _recover_expired_attempt(
     session: Session, job: ResearchJob, run: ResearchRun, now: datetime
 ) -> None:
@@ -367,6 +402,77 @@ def _recover_expired_attempt(
     job.lease_expires_at = None
     job.heartbeat_at = now
     job.not_before = now
+    run.active_job_token = None
+
+
+def _lock_run_then_job(
+    session: Session, job_id: UUID, *, skip_locked: bool = False
+) -> tuple[ResearchRun | None, ResearchJob | None]:
+    """Lock every dispatch mutation in the shared run -> job order."""
+    run_id = session.scalar(select(ResearchJob.research_run_id).where(ResearchJob.id == job_id))
+    if run_id is None:
+        return None, None
+    run_stmt = (
+        select(ResearchRun).where(ResearchRun.id == run_id).with_for_update(skip_locked=skip_locked)
+    )
+    run = session.scalar(run_stmt)
+    if run is None:
+        return None, None
+    job_stmt = (
+        select(ResearchJob).where(ResearchJob.id == job_id).with_for_update(skip_locked=skip_locked)
+    )
+    return run, session.scalar(job_stmt)
+
+
+def _run_deadline_expired(run: ResearchRun, now: datetime) -> bool:
+    if run.started_at is None:
+        return False
+    started = _utc(run.started_at)
+    return now >= started + timedelta(seconds=run.effective_budgets["deadline_seconds"])
+
+
+def _mark_run_deadline_expired(run: ResearchRun, job: ResearchJob, now: datetime) -> None:
+    job.status = "failed"
+    job.error_code = "deadline_exceeded"
+    job.finished_at = now
+    job.lease_owner = None
+    job.lease_token = None
+    job.lease_expires_at = None
+    run.status = "interrupted"
+    run.error_code = "deadline_exceeded"
+    run.summary = "Research stopped when its saved deadline expired."
+    run.finished_at = now
+    run.active_job_token = None
+
+
+def _reconcile_terminal_run_job(
+    session: Session, job: ResearchJob, run: ResearchRun, now: datetime
+) -> None:
+    terminal_status = (
+        "canceled"
+        if run.status == "canceled"
+        else "succeeded"
+        if run.status in {"succeeded", "partial"}
+        else "failed"
+    )
+    attempt = session.scalar(
+        select(ResearchJobAttempt)
+        .where(ResearchJobAttempt.job_id == job.id, ResearchJobAttempt.status == "running")
+        .order_by(ResearchJobAttempt.number.desc())
+        .limit(1)
+        .with_for_update()
+    )
+    if attempt is not None:
+        attempt.status = terminal_status
+        attempt.error_code = _safe_code(run.error_code)
+        attempt.finished_at = now
+    job.status = terminal_status
+    job.error_code = _safe_code(run.error_code)
+    job.finished_at = now
+    job.lease_owner = None
+    job.lease_token = None
+    job.lease_expires_at = None
+    job.heartbeat_at = now
     run.active_job_token = None
 
 
