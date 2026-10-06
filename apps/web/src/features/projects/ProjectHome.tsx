@@ -65,7 +65,10 @@ export function ProjectHome() {
           <span className="brand-mark" aria-hidden="true">S</span>
           <span>Shopping Assistant</span>
         </Link>
-        <Link className="header-caption saved-products-header-link" to="/saved-products">Saved Products</Link>
+        <div className="header-links">
+          <Link className="header-caption" to="/profile">Shopping Profile</Link>
+          <Link className="header-caption saved-products-header-link" to="/saved-products">Saved Products</Link>
+        </div>
       </header>
 
       <section className="home-intro" aria-labelledby="home-title">

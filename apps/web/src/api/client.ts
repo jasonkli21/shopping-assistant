@@ -51,6 +51,13 @@ export type ComparisonPatch = components["schemas"]["ComparisonPatch"];
 export type ComparisonDimension = components["schemas"]["ComparisonDimensionInput"];
 export type FavoriteRead = components["schemas"]["FavoriteRead"];
 export type SavedProductPage = components["schemas"]["SavedProductPage"];
+export type ProfileRead = components["schemas"]["ProfileRead"];
+export type PreferenceRead = components["schemas"]["PreferenceRead"];
+export type PreferenceCandidateRead = components["schemas"]["PreferenceCandidateRead"];
+export type CandidateMutation = components["schemas"]["CandidateMutation"];
+export type CandidateCreate = components["schemas"]["CandidateCreate"];
+export type PreferencePatch = components["schemas"]["PreferencePatch"];
+export type PreferenceSuggestionsRead = components["schemas"]["PreferenceSuggestionsRead"];
 
 export class ApiRequestError extends Error {
   constructor(
@@ -176,6 +183,44 @@ export const projectsApi = {
   dismissProposal: (projectId: string, proposalId: string) =>
     request<ProposalMutationResult>(
       `/projects/${projectId}/proposals/${proposalId}/dismiss`,
+      jsonRequest("POST"),
+    ),
+};
+
+export const preferencesApi = {
+  profile: () => request<ProfileRead>("/profile"),
+  patchProfile: (command: { expected_version: number; reuse_enabled: boolean }) =>
+    request<ProfileRead>("/profile", jsonRequest("PATCH", command)),
+  createCandidate: (projectId: string, command: CandidateCreate) =>
+    request<CandidateMutation>(
+      `/projects/${projectId}/preference-candidates`,
+      jsonRequest("POST", command),
+    ),
+  acceptCandidate: (candidateId: string, expectedProfileVersion: number) =>
+    request<CandidateMutation>(
+      `/profile/preference-candidates/${candidateId}/accept`,
+      jsonRequest("POST", { expected_profile_version: expectedProfileVersion }),
+    ),
+  dismissCandidate: (candidateId: string, expectedProfileVersion: number) =>
+    request<CandidateMutation>(
+      `/profile/preference-candidates/${candidateId}/dismiss`,
+      jsonRequest("POST", { expected_profile_version: expectedProfileVersion }),
+    ),
+  patchPreference: (preferenceId: string, command: PreferencePatch) =>
+    request<ProfileRead>(
+      `/profile/preferences/${preferenceId}`,
+      jsonRequest("PATCH", command),
+    ),
+  revokePreference: (preferenceId: string, expectedProfileVersion: number) =>
+    request<ProfileRead>(
+      `/profile/preferences/${preferenceId}?${new URLSearchParams({ expected_profile_version: String(expectedProfileVersion) })}`,
+      jsonRequest("DELETE"),
+    ),
+  suggestions: (projectId: string) =>
+    request<PreferenceSuggestionsRead>(`/projects/${projectId}/preference-suggestions`),
+  applyToProject: (projectId: string, preferenceId: string, expectedProjectVersion: number) =>
+    request<Project>(
+      `/projects/${projectId}/preferences/${preferenceId}/apply?${new URLSearchParams({ expected_project_version: String(expectedProjectVersion) })}`,
       jsonRequest("POST"),
     ),
 };

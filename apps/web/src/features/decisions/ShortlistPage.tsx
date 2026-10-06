@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 
 import { ApiRequestError, decisionsApi, projectsApi } from "../../api/client";
 import { ProjectAssistant } from "../assistant/ProjectAssistant";
+import { PreferencePromotionAction } from "../preferences/PreferencePromotionAction";
 import { ProjectNavigation } from "../projects/ProjectNavigation";
 import { ProductDecisionActions } from "./ProductDecisionActions";
 import { UserNoteEditor } from "./UserNoteEditor";
@@ -97,6 +98,13 @@ export function ShortlistPage() {
               <Link to={`/products/${product.product_id}?${new URLSearchParams({ variant: product.variant_id, project: project.id, project_product: product.id }).toString()}`}>{product.canonical_name} · {product.variant_name}</Link>
               <span>{decision.rejection_reason?.replaceAll("_", " ") ?? "Reason unknown"}</span>
               {decision.reason && <small>{decision.reason}</small>}
+              <PreferencePromotionAction
+                project={project}
+                sourceProjectProductId={product.id}
+                initialLabel={`Avoid ${product.canonical_name}`}
+                initialValue={`Avoid ${product.canonical_name}${decision.rejection_reason ? ` because it was rejected as ${decision.rejection_reason.replaceAll("_", " ")}` : ""}`}
+                initialRationale={`You explicitly selected this rejected product judgment from ${project.title} for possible cross-project reuse.`}
+              />
               <ProductDecisionActions project={project} projectProductId={product.id} offers={product.offers} />
             </li>
           ))}

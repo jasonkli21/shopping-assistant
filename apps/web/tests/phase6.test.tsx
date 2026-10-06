@@ -29,6 +29,7 @@ const project: Project = {
   budget_maximum: null,
   budget_currency: null,
   notes: null,
+  reuse_preferences: false,
   revision: 1,
   created_at: timestamp,
   updated_at: timestamp,
@@ -214,6 +215,7 @@ describe("Phase 6 decision workspace", () => {
         availability: "in_stock",
         condition: "new",
         observed_at: timestamp,
+        freshness: "current",
       }]}
     />);
 
@@ -273,6 +275,7 @@ describe("Phase 6 decision workspace", () => {
           availability: "in_stock",
           condition: "new",
           observed_at: timestamp,
+          freshness: "current",
         },
         {
           id: alternativeOfferId,
@@ -286,6 +289,7 @@ describe("Phase 6 decision workspace", () => {
           availability: "in_stock",
           condition: "new",
           observed_at: timestamp,
+          freshness: "current",
         },
       ]}
     />);

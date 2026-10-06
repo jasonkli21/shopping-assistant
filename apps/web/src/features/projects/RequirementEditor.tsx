@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { FormEvent, useEffect, useRef, useState } from "react";
 
 import { Project, Requirement, RequirementCreate, RequirementPatch, projectsApi } from "../../api/client";
+import { PreferencePromotionAction } from "../preferences/PreferencePromotionAction";
 import {
   displayRequirementValue,
   fromRequirement,
@@ -253,8 +254,15 @@ export function RequirementEditor({
           >
             {REQUIREMENT_KINDS.map((kind) => <option key={kind} value={kind}>{kind.replace("_", " ")}</option>)}
           </select>
-          <span className="requirement-origin">Added by you</span>
+          <span className="requirement-origin">
+            {requirement.source_preference_id ? "From Shopping Profile · editable here" : "Added by you"}
+          </span>
         </div>
+        {requirement.source_preference_id && (
+          <p className="requirement-preference-origin">
+            Profile preference revision {requirement.source_preference_revision}; scope {requirement.source_preference_scope?.includes("*") ? "all categories" : requirement.source_preference_scope?.join(", ") || "unavailable"}. This project copy stays independent from future profile edits.
+          </p>
+        )}
         <label className="sr-only" htmlFor={`label-${requirement.id}`}>Requirement</label>
         <input
           id={`label-${requirement.id}`}
@@ -313,6 +321,9 @@ export function RequirementEditor({
         </div>
         </fieldset>
       </form>
+      {!dirty && latestRequirement && requirement.kind === "preference" && (
+        <PreferencePromotionAction project={project} requirement={requirement} />
+      )}
     </li>
   );
 }

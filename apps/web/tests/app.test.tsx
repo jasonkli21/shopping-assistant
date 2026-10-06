@@ -43,6 +43,7 @@ function project(overrides: Partial<Project> = {}): Project {
     budget_maximum: null,
     budget_currency: null,
     notes: null,
+    reuse_preferences: false,
     revision: 1,
     created_at: timestamp,
     updated_at: timestamp,

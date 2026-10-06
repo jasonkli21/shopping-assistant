@@ -7,6 +7,7 @@ import { AssistantPanel } from "../assistant/AssistantPanel";
 import { invalidateProjectWorkspace } from "../assistant/workspace-cache";
 import { FieldError, NewRequirement, RequirementEditor } from "./RequirementEditor";
 import { ProjectNavigation } from "./ProjectNavigation";
+import { ProjectPreferenceSuggestions } from "../preferences/ProjectPreferenceSuggestions";
 import {
   CURRENCIES,
   displayProjectValue,
@@ -76,11 +77,15 @@ function ProjectOverviewContent({ projectId }: { projectId?: string }) {
 
   useEffect(() => {
     if (project && !draft) setDraft(fromProject(project));
-    if (project && !hasFocusedHeading.current && headingRef.current) {
-      headingRef.current.focus();
+  }, [project, draft]);
+
+  const assignProjectHeading = (element: HTMLHeadingElement | null) => {
+    headingRef.current = element;
+    if (project && element && !hasFocusedHeading.current) {
+      element.focus();
       hasFocusedHeading.current = true;
     }
-  }, [project, draft]);
+  };
 
   useEffect(() => {
     if (project) {
@@ -136,6 +141,12 @@ function ProjectOverviewContent({ projectId }: { projectId?: string }) {
     setConflictChoices({});
     setSaveError("");
     setSaveMessage(`Saved revision ${updated.revision}.`);
+  }
+
+  function acceptContextProjectUpdate(updated: Project) {
+    acceptProjectUpdate(updated);
+    setDraft(fromProject(updated));
+    setErrors({});
   }
 
   function acceptAssistantProjectUpdate(updated: Project, replayed: boolean) {
@@ -296,7 +307,10 @@ function ProjectOverviewContent({ projectId }: { projectId?: string }) {
           <span className="brand-mark" aria-hidden="true">S</span>
           <span>Shopping Assistant</span>
         </Link>
-        <Link className="header-back" to="/">All projects <span aria-hidden="true">↗</span></Link>
+        <div className="header-links">
+          <Link className="header-back" to="/profile">Shopping Profile</Link>
+          <Link className="header-back" to="/">All projects <span aria-hidden="true">↗</span></Link>
+        </div>
       </header>
 
       <nav aria-label="Breadcrumb" className="breadcrumbs">
@@ -307,7 +321,7 @@ function ProjectOverviewContent({ projectId }: { projectId?: string }) {
       <section className="overview-title-row">
         <div>
           <p className="eyebrow">Project overview <span className="revision-label">Revision {project.revision}</span></p>
-          <h1 ref={headingRef} tabIndex={-1}>{project.title}</h1>
+          <h1 ref={assignProjectHeading} tabIndex={-1}>{project.title}</h1>
           <p className="overview-lede">A clear place for your goal, requirements, and budget.</p>
         </div>
         <div className="project-title-actions">
@@ -323,6 +337,12 @@ function ProjectOverviewContent({ projectId }: { projectId?: string }) {
           The latest project version could not refresh. Your current entries are still available.
         </p>
       )}
+
+      <ProjectPreferenceSuggestions
+        project={project}
+        blocked={Boolean(conflict) || isDirty || saveProject.isPending || deleteProject.isPending || proposalActionPending}
+        onProjectUpdate={acceptContextProjectUpdate}
+      />
 
       {conflict && (
         <section className="notice conflict-notice" role="alert" aria-labelledby="conflict-title">

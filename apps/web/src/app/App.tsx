@@ -8,6 +8,7 @@ import { ShortlistPage } from "../features/decisions/ShortlistPage";
 import { ComparisonPage } from "../features/comparisons/ComparisonPage";
 import { ResearchPage } from "../features/research/ResearchPage";
 import { SavedProductsPage } from "../features/products/SavedProductsPage";
+import { PreferenceProfilePage } from "../features/preferences/PreferenceProfilePage";
 
 export function App() {
   return (
@@ -20,6 +21,7 @@ export function App() {
       <Route path="/projects/:projectId/research" element={<ResearchPage />} />
       <Route path="/products/:productId" element={<ProductDetailPage />} />
       <Route path="/saved-products" element={<SavedProductsPage />} />
+      <Route path="/profile" element={<PreferenceProfilePage />} />
       <Route path="/projects/:projectId" element={<ProjectOverview />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

@@ -48,6 +48,7 @@ h2 { letter-spacing: -.035em; }
 .overview-shell { padding: 28px 0 72px; }
 
 .app-header { min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.header-links { display: flex; align-items: center; gap: 18px; }
 .brand { display: inline-flex; align-items: center; gap: 11px; text-decoration: none; font-weight: 700; letter-spacing: -.02em; }
 .brand-mark { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 11px 11px 11px 4px; background: var(--green); color: white; font-family: Manrope, sans-serif; font-weight: 800; }
 .header-caption, .header-back { color: var(--muted); font-size: .92rem; }
@@ -203,6 +204,13 @@ input[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: #bc615
 }
 
 @media (max-width: 600px) {
+  .header-links { gap: 10px; }
+  .profile-settings-card { align-items: flex-start; flex-direction: column; padding: 17px; }
+  .profile-section, .project-preferences-card { padding: 17px; }
+  .profile-card-heading, .project-preference-item { align-items: flex-start; flex-direction: column; }
+  .scope-pill { max-width: 100%; text-align: left; }
+  .profile-list-item { padding: 14px; }
+  .project-preference-item .button { width: 100%; }
   .shell { width: min(100% - 32px, 520px); }
   .home-shell, .overview-shell { padding-top: 16px; }
   .header-caption { display: none; }
@@ -528,6 +536,46 @@ input[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: #bc615
 .project-private-note-card > summary strong { color: #33483a; font-size: 1rem; }
 .project-private-note-card > summary small { color: var(--muted); font-size: .72rem; }
 .comparison-builder, .comparison-view-card, .saved-comparison-list { margin: 18px 0; padding: 23px; }
+
+.profile-shell { padding: 28px 0 72px; }
+.profile-title { max-width: 740px; margin: 42px 0 28px; }
+.profile-title h1 { margin-bottom: 10px; font-size: clamp(2.3rem, 5vw, 3.7rem); line-height: 1.02; }
+.profile-title p:last-child, .project-preferences-copy p:last-child, .profile-settings-card p:last-child { margin-bottom: 0; color: var(--muted); }
+.profile-section, .profile-settings-card, .project-preferences-card { margin: 18px 0; padding: 24px; }
+.profile-settings-card { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+.profile-settings-card h2, .project-preferences-copy h2 { margin: 0 0 8px; font-size: 1.25rem; }
+.check-row { display: flex; align-items: center; gap: 10px; color: #405247; font-size: .9rem; font-weight: 600; }
+.check-row input { width: 18px; min-height: 18px; height: 18px; margin: 0; accent-color: var(--green); }
+.profile-switch { flex: 0 0 auto; padding: 11px 14px; border: 1px solid var(--line); border-radius: 12px; background: #fbfcfa; }
+.profile-list, .project-preference-list { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.profile-list-item, .project-preference-item { min-width: 0; padding: 18px; border: 1px solid #e4ebe4; border-radius: 14px; background: #fff; }
+.profile-card-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.profile-card-heading > div { min-width: 0; }
+.profile-card-heading h3 { margin: 8px 0 0; overflow-wrap: anywhere; font-size: 1.05rem; }
+.scope-pill { max-width: 45%; padding: 6px 9px; border-radius: 99px; background: #f1f5f1; color: #52645a; font-size: .72rem; text-align: right; overflow-wrap: anywhere; }
+.profile-value { margin: 12px 0 4px; overflow-wrap: anywhere; color: #34463b; font-size: .9rem; }
+.profile-list-item > p { margin-bottom: 8px; }
+.profile-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; margin-top: 14px; }
+.preference-edit, .preference-promotion { margin-top: 13px; padding-top: 12px; border-top: 1px solid #edf0ec; }
+.preference-edit summary, .preference-promotion summary { color: var(--green-dark); font-size: .86rem; font-weight: 650; cursor: pointer; }
+.preference-edit form, .preference-promotion form { margin-top: 13px; }
+.preference-promotion { padding: 10px 13px; border: 1px solid #e4ebe4; border-radius: 11px; background: #fbfcfa; }
+.preference-promotion .field-help { margin-top: 8px; }
+.requirement-preference-origin { margin: -4px 0 10px; color: #66756a; font-size: .73rem; line-height: 1.5; }
+.assistant-profile-context { display: grid; gap: 8px; margin: 0 16px 12px; padding: 12px 14px; border: 1px solid #e2e9e0; border-radius: 11px; background: #f7faf6; color: #536257; font-size: .76rem; line-height: 1.45; }
+.assistant-profile-context p, .assistant-profile-context small { margin: 0; }
+.assistant-profile-context .check-row { font-size: .76rem; }
+.assistant-profile-context small { color: #718075; }
+.external-memory-note { margin: 18px 0 0; border-color: #dfe7df; background: #f8faf7; }
+.external-memory-note p:last-child { margin: 0; color: #58685e; font-size: .9rem; }
+.project-preferences-card { display: grid; gap: 14px; }
+.project-preferences-copy p { margin-bottom: 0; color: var(--muted); font-size: .9rem; }
+.project-reuse-toggle { width: fit-content; }
+.project-preference-item { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.project-preference-item > div { min-width: 0; }
+.project-preference-item strong { display: block; margin-bottom: 5px; overflow-wrap: anywhere; }
+.project-preference-item p { margin: 0 0 4px; color: #52645a; font-size: .84rem; overflow-wrap: anywhere; }
+.project-preference-item small { color: var(--muted); font-size: .74rem; }
 .comparison-title-field { max-width: 520px; }
 .comparison-product-picker { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 8px; margin: 18px 0; padding: 14px; border: 1px solid #e3eae2; border-radius: 12px; }
 .comparison-product-picker legend { padding: 0 5px; color: #405247; font-size: .85rem; font-weight: 650; }

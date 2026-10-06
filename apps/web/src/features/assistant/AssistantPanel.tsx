@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { ApiRequestError, MessagePage, MessageRead, Project, ProposalRead, projectsApi } from "../../api/client";
 import { PendingAttempt, clearPendingAttempt, persistPendingAttempt, readPendingAttempt } from "./attempt-storage";
@@ -49,6 +49,25 @@ export function AssistantPanel({
     enabled: isOpen,
     retry: false,
     refetchOnWindowFocus: false,
+  });
+  const profilePreferenceCount = project.requirements.filter(
+    (requirement) => requirement.source_preference_id,
+  ).length;
+  const updatePreferenceReuse = useMutation({
+    mutationFn: (enabled: boolean) => projectsApi.patch(project.id, {
+      expected_version: project.revision,
+      reuse_preferences: enabled,
+    }),
+    onSuccess: (updated) => {
+      onProjectUpdate(updated, false);
+      void queryClient.invalidateQueries({ queryKey: ["preference-suggestions", project.id] });
+    },
+    onError: async (caught: unknown) => {
+      if (caught instanceof ApiRequestError && caught.status === 409) {
+        await onRevisionConflict(caught);
+      }
+      setError(caught instanceof Error ? caught.message : "Preference reuse could not be changed.");
+    },
   });
   const messages = useMemo(() => history.data?.items ?? [], [history.data]);
 
@@ -319,6 +338,25 @@ export function AssistantPanel({
               Close
             </button>
           </header>
+
+          <section className="assistant-profile-context" aria-label="Shopping profile context">
+            <p>
+              {profilePreferenceCount > 0
+                ? `Using ${profilePreferenceCount} shopping profile ${profilePreferenceCount === 1 ? "preference" : "preferences"} as editable requirements in this project.`
+                : "No shopping profile preferences have been added to this project."}
+              {" "}Must-haves and constraints stay in force if a soft preference conflicts.
+            </p>
+            <label className="check-row">
+              <input
+                type="checkbox"
+                checked={project.reuse_preferences}
+                disabled={blocked || updatePreferenceReuse.isPending}
+                onChange={(event) => updatePreferenceReuse.mutate(event.target.checked)}
+              />
+              <span>Show new profile preference suggestions for this project</span>
+            </label>
+            <small>Turning this off stops new suggestions; requirements you already added remain saved.</small>
+          </section>
 
           <div className="assistant-history" aria-live="polite" aria-relevant="additions text">
             {history.data?.next_cursor && (

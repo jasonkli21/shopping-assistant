@@ -22,6 +22,7 @@ function project(): Project {
     budget_maximum: "400.00",
     budget_currency: "USD",
     notes: null,
+    reuse_preferences: false,
     revision: 3,
     created_at: timestamp,
     updated_at: timestamp,
