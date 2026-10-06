@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Callable
 from typing import Annotated
 from uuid import UUID
@@ -16,6 +17,7 @@ from shopping.research.schemas import (
     CandidatePage,
     ResearchCreate,
     ResearchCreated,
+    ResearchRetry,
     ResearchRunPage,
     ResearchRunRead,
 )
@@ -23,6 +25,7 @@ from shopping.research.supervisor import DiscoverySupervisor
 
 router = APIRouter(prefix="/projects/{project_id}", tags=["research"])
 OwnerDependency = Annotated[UUID, Depends(get_owner_id)]
+logger = logging.getLogger(__name__)
 
 
 async def _with_session(request: Request, operation: Callable[[Session], object]):
@@ -74,7 +77,12 @@ async def create_research(
             and not supervisor.has_task(replay.id)
             and supervisor.reserve_slot()
         ):
-            supervisor.submit(owner_id, project_id, replay.id)
+            try:
+                await supervisor.submit(replay.id)
+            except Exception as error:
+                logger.warning(
+                    "Could not dispatch queued research %s (%s)", replay.id, type(error).__name__
+                )
         return ResearchCreated(run_id=replay.id, status=replay.status, replayed=True)
 
     if not supervisor.reserve_slot():
@@ -103,11 +111,21 @@ async def create_research(
         raise
 
     if created:
-        supervisor.submit(owner_id, project_id, run.id)
+        try:
+            await supervisor.submit(run.id)
+        except Exception as error:
+            logger.warning(
+                "Could not dispatch queued research %s (%s)", run.id, type(error).__name__
+            )
     else:
         supervisor.release_slot()
         if run.status == "queued" and not supervisor.has_task(run.id) and supervisor.reserve_slot():
-            supervisor.submit(owner_id, project_id, run.id)
+            try:
+                await supervisor.submit(run.id)
+            except Exception as error:
+                logger.warning(
+                    "Could not dispatch queued research %s (%s)", run.id, type(error).__name__
+                )
     return ResearchCreated(run_id=run.id, status=run.status, replayed=not created)
 
 
@@ -159,6 +177,65 @@ async def cancel_research(
             lambda session: service.get_run(session, owner_id, project_id, research_run_id),
         )
     return CancelResult(run=run, replayed=not changed)
+
+
+@router.post("/research/{research_run_id}/retry", response_model=ResearchCreated, status_code=202)
+async def retry_research(
+    project_id: UUID,
+    research_run_id: UUID,
+    command: ResearchRetry,
+    request: Request,
+    owner_id: OwnerDependency,
+) -> ResearchCreated:
+    supervisor = _supervisor(request)
+    request_key_exists = await _with_session(
+        request,
+        lambda session: service.request_key_exists(
+            session, owner_id, project_id, command.request_key
+        ),
+    )
+    reserved = False if request_key_exists else supervisor.reserve_slot()
+    if not request_key_exists and not reserved:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "research_capacity",
+                "message": "Research is at capacity. Retry when another run finishes.",
+            },
+        )
+    try:
+        run, created = await _with_session(
+            request,
+            lambda session: service.retry_run(
+                session,
+                owner_id=owner_id,
+                project_id=project_id,
+                run_id=research_run_id,
+                request_key=command.request_key,
+                expected_version=command.expected_version,
+                settings=get_settings(),
+                ai_provider_name=supervisor.ai_provider_name,
+                search_provider_name=supervisor.provider_name,
+            ),
+        )
+    except Exception:
+        if reserved:
+            supervisor.release_slot()
+        raise
+    if created:
+        try:
+            await supervisor.submit(run.id)
+        except Exception as error:
+            logger.warning("Could not dispatch retry run %s (%s)", run.id, type(error).__name__)
+    else:
+        if reserved:
+            supervisor.release_slot()
+        if run.status == "queued" and not supervisor.has_task(run.id) and supervisor.reserve_slot():
+            try:
+                await supervisor.submit(run.id)
+            except Exception as error:
+                logger.warning("Could not dispatch retry run %s (%s)", run.id, type(error).__name__)
+    return ResearchCreated(run_id=run.id, status=run.status, replayed=not created)
 
 
 @router.get("/candidates", response_model=CandidatePage)

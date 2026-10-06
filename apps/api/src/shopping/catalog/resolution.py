@@ -29,7 +29,7 @@ def resolve_or_create(
     session: Session,
     owner_id: UUID,
     extraction: CatalogExtraction,
-    observation: CatalogObservation,
+    observation: CatalogObservation | None,
     *,
     allow_create: bool = True,
     mutate: bool = True,
@@ -88,6 +88,7 @@ def resolve_or_create(
             evidence=_match_evidence(matched),
         )
         if mutate:
+            assert observation is not None
             _attach_identifiers(session, owner_id, extraction, observation, row[2], row[1])
             _refresh_source_attributes(session, row[1], extraction, observation)
         return decision
@@ -130,6 +131,7 @@ def resolve_or_create(
         if len(compatible) == 1:
             variant = compatible[0]
             if mutate:
+                assert observation is not None
                 _attach_identifiers(session, owner_id, extraction, observation, product, variant)
                 _refresh_source_attributes(session, variant, extraction, observation)
             return ResolutionDecision(
@@ -204,6 +206,13 @@ def resolve_or_create(
         reason="created_from_unmatched_observation",
         evidence=[{"kind": "new_product_observation", "observation_id": str(observation.id)}],
     )
+
+
+def match_existing_variant(
+    session: Session, owner_id: UUID, extraction: CatalogExtraction
+) -> ResolutionDecision:
+    """Resolve only an existing identity and leave catalog identity fields untouched."""
+    return resolve_or_create(session, owner_id, extraction, None, allow_create=False, mutate=False)
 
 
 def normalize_text(value: str | None) -> str:

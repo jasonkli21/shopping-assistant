@@ -1,6 +1,12 @@
 """Stable research-service facade over command, execution, and read modules."""
 
-from shopping.research.commands import create_run, effective_budgets, exact_replay
+from shopping.research.commands import (
+    create_run,
+    effective_budgets,
+    exact_replay,
+    request_key_exists,
+    retry_run,
+)
 from shopping.research.common import _decode_cursor, normalize_candidate_url
 from shopping.research.execution import (
     cancel_run,
@@ -13,26 +19,45 @@ from shopping.research.execution import (
     interrupt_run,
     list_run_queries,
     load_execution_input,
+    load_saved_plan,
     mark_running,
+    query_retry_at,
     run_started_at,
     save_plan,
+    schedule_attempt_retry,
     start_attempt,
+)
+from shopping.research.jobs import (
+    cancel_run_jobs,
+    claim_job,
+    complete_job,
+    dispatchable_run_ids,
+    enqueue_run_job,
+    heartbeat_job,
+    recover_expired_jobs,
 )
 from shopping.research.reads import get_run, list_candidates, list_runs
 
 __all__ = [
     "cancel_run",
+    "cancel_run_jobs",
+    "claim_job",
+    "complete_job",
     "complete_attempt",
     "create_run",
+    "dispatchable_run_ids",
+    "enqueue_run_job",
     "effective_budgets",
     "exact_replay",
     "fail_attempt",
     "fail_run",
     "finalize",
     "get_run",
+    "heartbeat_job",
     "interrupt_all_unfinished",
     "interrupt_project_runs",
     "interrupt_run",
+    "load_saved_plan",
     "list_candidates",
     "list_run_queries",
     "list_runs",
@@ -40,6 +65,11 @@ __all__ = [
     "mark_running",
     "normalize_candidate_url",
     "run_started_at",
+    "query_retry_at",
+    "request_key_exists",
+    "schedule_attempt_retry",
+    "recover_expired_jobs",
+    "retry_run",
     "save_plan",
     "start_attempt",
     "_decode_cursor",

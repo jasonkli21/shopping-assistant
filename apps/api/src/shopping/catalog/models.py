@@ -253,6 +253,9 @@ class RetailOffer(Base):
         ),
         CheckConstraint("char_length(url) BETWEEN 1 AND 2048", name="ck_offer_url"),
         UniqueConstraint("owner_id", "idempotency_key", name="uq_offer_owner_idempotency"),
+        UniqueConstraint(
+            "owner_id", "research_source_attempt_id", name="uq_offer_research_source_attempt"
+        ),
         Index("ix_offers_variant_observed", "variant_id", text("observed_at DESC")),
     )
 
@@ -263,6 +266,9 @@ class RetailOffer(Base):
     )
     observation_id: Mapped[UUID | None] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("catalog_observations.id", ondelete="SET NULL")
+    )
+    research_source_attempt_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("research_run_sources.id", ondelete="SET NULL")
     )
     idempotency_key: Mapped[str] = mapped_column(String(100), nullable=False)
     retailer_name: Mapped[str] = mapped_column(String(200), nullable=False)

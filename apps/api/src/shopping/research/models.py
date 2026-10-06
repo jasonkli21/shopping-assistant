@@ -32,6 +32,7 @@ class ResearchRun(Base):
             "'canceled', 'interrupted')",
             name="ck_research_run_status",
         ),
+        CheckConstraint("research_mode IN ('quick', 'deep')", name="ck_research_mode"),
         CheckConstraint("char_length(objective) BETWEEN 1 AND 2000", name="ck_research_objective"),
         CheckConstraint("snapshot_revision >= 1", name="ck_research_snapshot_revision"),
         CheckConstraint(
@@ -44,6 +45,7 @@ class ResearchRun(Base):
             name="ck_research_work_counts",
         ),
         Index("ix_research_runs_project_queued", "owner_id", "project_id", "queued_at"),
+        Index("ix_research_runs_refresh_of_run_id", "refresh_of_run_id"),
         UniqueConstraint(
             "owner_id", "project_id", "request_key", name="uq_research_runs_request_key"
         ),
@@ -62,6 +64,16 @@ class ResearchRun(Base):
     owner_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
     objective: Mapped[str] = mapped_column(String(2000), nullable=False)
     run_type: Mapped[str] = mapped_column(String(24), nullable=False, default="discovery")
+    research_mode: Mapped[str] = mapped_column(
+        String(12), nullable=False, default="deep", server_default="deep"
+    )
+    refresh_of_run_id: Mapped[UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey(
+            "research_runs.id", name="fk_research_runs_refresh_of_run_id", ondelete="SET NULL"
+        ),
+    )
+    active_job_token: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="queued")
     request_key: Mapped[str] = mapped_column(String(100), nullable=False)
     request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -96,6 +108,105 @@ class ResearchRun(Base):
         cascade="all, delete-orphan",
         order_by="ResearchRunTarget.created_at",
     )
+    jobs: Mapped[list[ResearchJob]] = relationship(
+        back_populates="run", cascade="all, delete-orphan", order_by="ResearchJob.ordinal"
+    )
+
+
+class ResearchJob(Base):
+    __tablename__ = "research_jobs"
+    __table_args__ = (
+        CheckConstraint(
+            "stage_type IN ('plan', 'search', 'retrieve', 'extract', 'assess', 'refresh_offer')",
+            name="ck_research_job_stage_type",
+        ),
+        CheckConstraint("payload_version >= 1", name="ck_research_job_payload_version"),
+        CheckConstraint(
+            "octet_length(payload::text) <= 16000", name="ck_research_job_payload_size"
+        ),
+        CheckConstraint(
+            "status IN ('queued', 'running', 'succeeded', 'failed', 'canceled')",
+            name="ck_research_job_status",
+        ),
+        CheckConstraint("ordinal >= 0", name="ck_research_job_ordinal"),
+        CheckConstraint("attempt_count BETWEEN 0 AND 5", name="ck_research_job_attempt_count"),
+        CheckConstraint("max_attempts BETWEEN 1 AND 5", name="ck_research_job_max_attempts"),
+        CheckConstraint(
+            "(status = 'running' AND lease_owner IS NOT NULL AND lease_token IS NOT NULL "
+            "AND lease_expires_at IS NOT NULL) OR status <> 'running'",
+            name="ck_research_job_lease_state",
+        ),
+        UniqueConstraint("research_run_id", "stage_type", "ordinal", name="uq_research_job_stage"),
+        Index("ix_research_jobs_dispatch", "status", "not_before", "lease_expires_at"),
+        Index("ix_research_jobs_run_order", "research_run_id", "ordinal"),
+        Index(
+            "uq_research_jobs_run_running",
+            "research_run_id",
+            unique=True,
+            postgresql_where=text("status = 'running'"),
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    research_run_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("research_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    stage_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    ordinal: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    payload_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="queued")
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+    not_before: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    lease_owner: Mapped[str | None] = mapped_column(String(100))
+    lease_token: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error_code: Mapped[str | None] = mapped_column(String(60))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    run: Mapped[ResearchRun] = relationship(back_populates="jobs")
+    attempts: Mapped[list[ResearchJobAttempt]] = relationship(
+        back_populates="job", cascade="all, delete-orphan", order_by="ResearchJobAttempt.number"
+    )
+
+
+class ResearchJobAttempt(Base):
+    __tablename__ = "research_job_attempts"
+    __table_args__ = (
+        CheckConstraint("number BETWEEN 1 AND 5", name="ck_research_job_attempt_number"),
+        CheckConstraint(
+            "status IN ('running', 'succeeded', 'failed', 'canceled', 'uncertain')",
+            name="ck_research_job_attempt_status",
+        ),
+        CheckConstraint(
+            "octet_length(budget_consumed::text) <= 4000",
+            name="ck_research_job_attempt_budget_size",
+        ),
+        UniqueConstraint("job_id", "number", name="uq_research_job_attempt_number"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid4)
+    job_id: Mapped[UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("research_jobs.id", ondelete="CASCADE"), nullable=False
+    )
+    number: Mapped[int] = mapped_column(Integer, nullable=False)
+    lease_token: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False, unique=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="running")
+    error_code: Mapped[str | None] = mapped_column(String(60))
+    provider_request_id: Mapped[str | None] = mapped_column(String(200))
+    budget_consumed: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    job: Mapped[ResearchJob] = relationship(back_populates="attempts")
 
 
 class SearchQueryRecord(Base):
@@ -122,6 +233,7 @@ class SearchQueryRecord(Base):
     purpose: Mapped[str] = mapped_column(String(200), nullable=False)
     max_results: Mapped[int] = mapped_column(Integer, nullable=False)
     state: Mapped[str] = mapped_column(String(16), nullable=False, default="queued")
+    retry_not_before: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     results_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     candidates_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error_code: Mapped[str | None] = mapped_column(String(60))
@@ -271,7 +383,7 @@ class SearchAttempt(Base):
     __table_args__ = (
         CheckConstraint("attempt_number >= 1", name="ck_search_attempt_number"),
         CheckConstraint(
-            "status IN ('running', 'succeeded', 'failed', 'canceled')",
+            "status IN ('running', 'succeeded', 'failed', 'canceled', 'uncertain')",
             name="ck_search_attempt_status",
         ),
         CheckConstraint(

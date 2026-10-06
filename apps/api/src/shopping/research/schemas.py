@@ -29,12 +29,69 @@ class ResearchBudgets(StrictModel):
     max_concurrent: int | None = Field(default=None, ge=1, le=16)
 
 
+SourceClass = Literal[
+    "manufacturer_specification",
+    "independent_measurement",
+    "editorial_assessment",
+    "retailer_listing",
+    "community_observation",
+]
+
+
+class ResearchSourceTargets(StrictModel):
+    source_classes: list[SourceClass] | None = Field(default=None, min_length=1, max_length=5)
+    include_domains: list[str] = Field(default_factory=list, max_length=10)
+    exclude_domains: list[str] = Field(default_factory=list, max_length=10)
+
+    @field_validator("source_classes")
+    @classmethod
+    def unique_source_classes(cls, value: list[str] | None) -> list[str] | None:
+        if value is not None and len(value) != len(set(value)):
+            raise ValueError("source classes must be unique")
+        return value
+
+    @field_validator("include_domains", "exclude_domains")
+    @classmethod
+    def normalize_domains(cls, value: list[str]) -> list[str]:
+        import re
+
+        normalized = [item.strip().casefold().removeprefix("www.").rstrip(".") for item in value]
+
+        def valid_hostname(item: str) -> bool:
+            if not item or len(item) > 253:
+                return False
+            labels = item.split(".")
+            return all(
+                1 <= len(label) <= 63
+                and re.fullmatch(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?", label) is not None
+                for label in labels
+            )
+
+        if any(not valid_hostname(item) for item in normalized):
+            raise ValueError("domains must be plain hostnames without URLs or paths")
+        if len(normalized) != len(set(normalized)):
+            raise ValueError("domains must be unique")
+        return normalized
+
+    @model_validator(mode="after")
+    def domains_do_not_conflict(self):
+        if set(self.include_domains) & set(self.exclude_domains):
+            raise ValueError("a domain cannot be both included and excluded")
+        return self
+
+
 class ResearchCreate(StrictModel):
     objective: str = Field(min_length=1, max_length=2000)
     type: Literal["discovery", "product_research"] = "discovery"
+    mode: Literal["quick", "deep"] = "deep"
     request_key: str = Field(min_length=8, max_length=100)
     expected_version: int = Field(ge=1)
     budgets: ResearchBudgets = Field(default_factory=ResearchBudgets)
+    source_targets: ResearchSourceTargets | None = None
+    refresh_of_run_id: UUID | None = None
+    refresh_targets: list[Literal["offers", "claims"]] | None = Field(
+        default=None, min_length=1, max_length=2
+    )
     manual_queries: list[Annotated[str, Field(min_length=1, max_length=300)]] | None = Field(
         default=None, min_length=1, max_length=20
     )
@@ -59,6 +116,13 @@ class ResearchCreate(StrictModel):
             raise ValueError("manual queries must be nonblank and unique")
         return values
 
+    @field_validator("refresh_targets")
+    @classmethod
+    def unique_refresh_targets(cls, values: list[str] | None) -> list[str] | None:
+        if values is not None and len(values) != len(set(values)):
+            raise ValueError("refresh targets must be unique")
+        return values
+
     @field_validator("selected_project_product_ids")
     @classmethod
     def selected_products_unique(cls, values: list[UUID] | None) -> list[UUID] | None:
@@ -74,6 +138,14 @@ class ResearchCreate(StrictModel):
             raise ValueError("selected products are only valid for product research")
         if self.type == "product_research" and self.manual_queries is not None:
             raise ValueError("manual queries are only valid for discovery")
+        if self.type == "discovery" and (
+            self.source_targets is not None
+            or self.refresh_of_run_id is not None
+            or self.refresh_targets is not None
+        ):
+            raise ValueError("source targets and refresh are only valid for product research")
+        if (self.refresh_of_run_id is None) != (self.refresh_targets is None):
+            raise ValueError("refresh requires both a source run and refresh targets")
         return self
 
 
@@ -81,7 +153,7 @@ class SearchAttemptRead(BaseModel):
     id: UUID
     attempt_number: int
     provider: str
-    status: Literal["running", "succeeded", "failed", "canceled"]
+    status: Literal["running", "succeeded", "failed", "canceled", "uncertain"]
     error_code: str | None = None
     provider_request_id: str | None = None
     results_count: int
@@ -98,6 +170,7 @@ class SearchQueryRead(BaseModel):
     purpose: str
     max_results: int
     state: Literal["queued", "running", "succeeded", "failed", "skipped", "canceled"]
+    retry_not_before: datetime | None = None
     results_count: int
     candidates_count: int
     error_code: str | None = None
@@ -112,6 +185,8 @@ class ResearchRunRead(BaseModel):
     project_id: UUID
     objective: str
     type: Literal["discovery", "product_research"]
+    mode: Literal["quick", "deep"] = "deep"
+    refresh_of_run_id: UUID | None = None
     status: Literal[
         "queued", "running", "succeeded", "partial", "failed", "canceled", "interrupted"
     ]
@@ -133,6 +208,7 @@ class ResearchRunRead(BaseModel):
     queries: list[SearchQueryRead] = Field(default_factory=list)
     targets: list[ResearchTargetProgressRead] = Field(default_factory=list)
     stages: list[ResearchStageProgressRead] = Field(default_factory=list)
+    jobs: list[ResearchJobRead] = Field(default_factory=list)
 
 
 class ResearchStageProgressRead(BaseModel):
@@ -156,10 +232,37 @@ class ResearchTargetProgressRead(BaseModel):
     error_code: str | None = None
 
 
+class ResearchJobAttemptRead(BaseModel):
+    number: int
+    status: Literal["running", "succeeded", "failed", "canceled", "uncertain"]
+    error_code: str | None
+    provider_request_id: str | None
+    budget_consumed: dict[str, int]
+    started_at: datetime
+    finished_at: datetime | None
+
+
+class ResearchJobRead(BaseModel):
+    id: UUID
+    stage_type: Literal["plan", "search", "retrieve", "extract", "assess", "refresh_offer"]
+    status: Literal["queued", "running", "succeeded", "failed", "canceled"]
+    attempt_count: int
+    max_attempts: int
+    not_before: datetime
+    heartbeat_at: datetime | None
+    error_code: str | None
+    attempts: list[ResearchJobAttemptRead] = Field(default_factory=list)
+
+
 class ResearchCreated(BaseModel):
     run_id: UUID
     status: str
     replayed: bool
+
+
+class ResearchRetry(StrictModel):
+    request_key: str = Field(min_length=8, max_length=100)
+    expected_version: int = Field(ge=1)
 
 
 class ResearchRunPage(BaseModel):

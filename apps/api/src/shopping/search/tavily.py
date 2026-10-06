@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from typing import Any
 
 import httpx
@@ -61,7 +63,12 @@ class TavilySearchProvider:
                     if response.status_code == 403:
                         raise SearchProviderError("provider_rejected")
                     if response.status_code == 429:
-                        raise SearchProviderError("rate_limited")
+                        raise SearchProviderError(
+                            "rate_limited",
+                            retry_after_seconds=_retry_after_seconds(
+                                response.headers.get("Retry-After")
+                            ),
+                        )
                     if response.status_code in {432, 433}:
                         raise SearchProviderError("quota_exceeded")
                     if response.status_code >= 500:
@@ -128,3 +135,21 @@ def _decode_usage_units(payload: Any) -> int | None:
     if isinstance(units, bool) or not isinstance(units, int) or not 0 <= units <= 100_000:
         raise SearchProviderError("malformed_response")
     return units
+
+
+def _retry_after_seconds(value: str | None) -> float | None:
+    if value is None:
+        return None
+    try:
+        seconds = float(value.strip())
+    except (TypeError, ValueError):
+        try:
+            retry_at = parsedate_to_datetime(value)
+            if retry_at.tzinfo is None:
+                retry_at = retry_at.replace(tzinfo=UTC)
+            seconds = (retry_at.astimezone(UTC) - datetime.now(UTC)).total_seconds()
+        except (TypeError, ValueError, OverflowError):
+            return None
+    if not 0 <= seconds <= 60:
+        return None
+    return seconds

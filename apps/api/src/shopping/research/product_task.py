@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from shopping.integrations.personal_ai.client import AIRequest
 
 TASK_NAME = "plan_product_research.v1"
-PROMPT_VERSION = "shopping-product-research-1"
+PROMPT_VERSION = "shopping-product-research-2"
 SCHEMA_VERSION = 1
 MAX_CONTEXT_CHARS = 24_000
 MAX_OUTPUT_CHARS = 16_000
@@ -23,8 +23,10 @@ SYSTEM_INSTRUCTIONS = " ".join(
         "Return search phrases and a source class for each query; do not assert product facts,",
         "fit, credibility scores, prices, or evidence. Seek manufacturer specifications,",
         "independent measured testing, current retailer pages, and context-rich community",
-        "observations where useful. Keep queries variant-specific and explain each query's",
-        "purpose briefly. Do not return arbitrary URLs.",
+        "observations where useful. Honor the saved source class and domain targets; do not",
+        "substitute excluded domains or count syndicated copies as independent sources. Use the",
+        "saved freshness needs to prioritize missing or stale dimensions. Keep queries",
+        "variant-specific and explain each query's purpose briefly. Do not return arbitrary URLs.",
     )
 )
 
@@ -82,7 +84,28 @@ def build_request(snapshot: dict[str, Any], max_queries: int) -> AIRequest:
                     "variant_name",
                 )
             }
-            | {"identity_attributes": _bounded_identity_attributes(item.get("identity_attributes"))}
+            | {
+                "identity_attributes": _bounded_identity_attributes(
+                    item.get("identity_attributes")
+                ),
+                "known_evidence_dimensions": [
+                    {
+                        key: value
+                        for key, value in known.items()
+                        if key in {"attribute_key", "source_class", "freshness"}
+                    }
+                    for known in item.get("known_evidence_dimensions", [])[:30]
+                ],
+                "offer_observations": [
+                    {
+                        key: value
+                        for key, value in offer.items()
+                        if key in {"domain", "observed_at", "freshness"}
+                    }
+                    for offer in item.get("offer_observations", [])[:8]
+                ],
+                "requested_refresh_targets": item.get("requested_refresh_targets", ["claims"]),
+            }
         )
     bounded = {
         "objective": str(snapshot.get("objective", ""))[:500],
@@ -92,6 +115,9 @@ def build_request(snapshot: dict[str, Any], max_queries: int) -> AIRequest:
         },
         "requirements": requirements,
         "selected_products": selected_products,
+        "mode": snapshot.get("mode", "deep"),
+        "source_targets": snapshot.get("source_targets", {}),
+        "freshness_needs": snapshot.get("freshness_needs", {}),
         "limits": {"maximum_queries": max_queries},
     }
     encoded = json.dumps(bounded, ensure_ascii=False, separators=(",", ":"))
@@ -158,4 +184,7 @@ def validate_output(
         seen.add(key)
         if "http://" in normalized or "https://" in normalized:
             raise ValueError("product research queries must be search phrases, not URLs")
+        allowed_classes = snapshot.get("source_targets", {}).get("source_classes")
+        if allowed_classes and item.source_class not in allowed_classes:
+            raise ValueError("product research plan used a source class outside the saved targets")
     return plan

@@ -98,6 +98,15 @@ class ResearchRunSource(Base):
             "'failed', 'skipped')",
             name="ck_research_run_source_status",
         ),
+        CheckConstraint(
+            "offer_status IS NULL OR offer_status IN "
+            "('succeeded', 'no_offer', 'identity_mismatch', 'unsupported', 'failed')",
+            name="ck_research_run_source_offer_status",
+        ),
+        CheckConstraint(
+            "octet_length(offer_observation::text) <= 4000",
+            name="ck_research_run_source_offer_size",
+        ),
         CheckConstraint("attempt_number >= 1", name="ck_research_run_source_attempt"),
         CheckConstraint(
             "bytes_read IS NULL OR bytes_read BETWEEN 0 AND 20000000",
@@ -146,6 +155,9 @@ class ResearchRunSource(Base):
     reason: Mapped[str | None] = mapped_column(String(80))
     bytes_read: Mapped[int | None] = mapped_column(Integer)
     attempt_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    offer_status: Mapped[str | None] = mapped_column(String(20))
+    offer_error_code: Mapped[str | None] = mapped_column(String(60))
+    offer_observation: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
 
 
 class Claim(Base):

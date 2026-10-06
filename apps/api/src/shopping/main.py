@@ -73,7 +73,7 @@ async def lifespan(application: FastAPI):
         # have not yet been applied; durable routes will report storage errors.
         logger.warning("Conversation restart recovery skipped because the database is unavailable")
     try:
-        await run_in_threadpool(discovery.recover_after_restart)
+        await discovery.recover_after_restart()
     except SQLAlchemyError:
         logger.warning("Research restart recovery skipped because the database is unavailable")
     try:

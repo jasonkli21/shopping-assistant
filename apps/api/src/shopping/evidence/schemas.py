@@ -23,6 +23,11 @@ class SourceAttemptRead(BaseModel):
     published_at: datetime | None
     freshness: Literal["current", "stale", "unknown"]
     bytes_read: int | None
+    offer_status: (
+        Literal["succeeded", "no_offer", "identity_mismatch", "unsupported", "failed"] | None
+    ) = None
+    offer_error_code: str | None = None
+    offer_observation: dict[str, Any] = Field(default_factory=dict)
 
 
 class ClaimSummaryRead(BaseModel):

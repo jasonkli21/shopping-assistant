@@ -152,6 +152,7 @@ class OfferRead(StrictCatalogModel):
     id: UUID
     variant_id: UUID
     observation_id: UUID | None
+    research_source_attempt_id: UUID | None = None
     retailer_name: str
     retailer_domain: str | None
     url: str

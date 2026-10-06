@@ -11,11 +11,14 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
+from shopping.catalog.models import RetailOffer
+from shopping.catalog.resolution import match_existing_variant
 from shopping.evidence.assessment import record_assessment
 from shopping.evidence.classification import classify_source
 from shopping.evidence.models import ResearchRunSource, Source, SourceSnapshot
 from shopping.extraction.http_retriever import MAX_PAGE_BYTES
 from shopping.extraction.retriever import RetrievedDocument
+from shopping.extraction.schemas import CatalogExtraction
 from shopping.research import service
 from shopping.research.common import (
     _live_project,
@@ -286,6 +289,58 @@ def list_target_results(
     return grouped
 
 
+def start_offer_refresh_targets(
+    session: Session, *, owner_id: UUID, project_id: UUID, run_id: UUID
+) -> bool:
+    _project, run = _lock_live_run(session, owner_id, project_id, run_id)
+    if run.status != "running" or run.run_type != "product_research":
+        return False
+    targets = list(
+        session.scalars(
+            select(ResearchRunTarget)
+            .where(ResearchRunTarget.research_run_id == run.id)
+            .with_for_update()
+        ).all()
+    )
+    now = datetime.now(UTC)
+    for target in targets:
+        if target.status == "queued":
+            target.status = "running"
+            target.updated_at = now
+    session.commit()
+    return True
+
+
+def processed_offer_refresh_urls(
+    session: Session, *, owner_id: UUID, project_id: UUID, run_id: UUID, target_id: UUID
+) -> set[str]:
+    _live_project(session, owner_id, project_id)
+    run = session.scalar(
+        select(ResearchRun).where(
+            ResearchRun.id == run_id,
+            ResearchRun.owner_id == owner_id,
+            ResearchRun.project_id == project_id,
+        )
+    )
+    if run is None:
+        return set()
+    urls = session.scalars(
+        select(ResearchRunSource.requested_url).where(
+            ResearchRunSource.owner_id == owner_id,
+            ResearchRunSource.research_run_id == run.id,
+            ResearchRunSource.project_product_id == target_id,
+            ResearchRunSource.offer_status.is_not(None),
+        )
+    ).all()
+    normalized: set[str] = set()
+    for url in urls:
+        try:
+            normalized.add(normalize_candidate_url(url))
+        except ValueError:
+            continue
+    return normalized
+
+
 def _source_for_url(
     session: Session,
     *,
@@ -335,7 +390,7 @@ def start_source_attempt(
     project_id: UUID,
     run_id: UUID,
     project_product_id: UUID,
-    search_result_id: UUID,
+    search_result_id: UUID | None,
     url: str,
     title: str | None,
     brand: str | None,
@@ -432,6 +487,9 @@ def finish_source_attempt(
     classification: str | None = None,
     classification_basis: str | None = None,
     bytes_read: int | None = None,
+    offer_refresh: bool = False,
+    offer_extraction: CatalogExtraction | None = None,
+    offer_error_code: str | None = None,
 ) -> bool:
     _project, run = _lock_live_run(session, owner_id, project_id, run_id)
     attempt = session.scalar(
@@ -525,8 +583,95 @@ def finish_source_attempt(
                 source.classification_basis = (classification_basis or "")[:500] or None
                 source.classification_version = "source-classifier.v1"
                 source.updated_at = now
+        if offer_refresh:
+            _save_offer_observation(
+                session,
+                run=run,
+                attempt=attempt,
+                target=target,
+                document=document,
+                extraction=offer_extraction,
+                error_code=offer_error_code,
+            )
+    elif offer_refresh:
+        attempt.offer_status = "failed"
+        attempt.offer_error_code = _safe_error_code(offer_error_code or reason or status)
+        attempt.offer_observation = {}
     session.commit()
     return allowed
+
+
+def _save_offer_observation(
+    session: Session,
+    *,
+    run: ResearchRun,
+    attempt: ResearchRunSource,
+    target: ResearchRunTarget | None,
+    document: RetrievedDocument,
+    extraction: CatalogExtraction | None,
+    error_code: str | None,
+) -> None:
+    if error_code:
+        attempt.offer_status = "unsupported"
+        attempt.offer_error_code = _safe_error_code(error_code)
+        attempt.offer_observation = {}
+        return
+    if extraction is None or extraction.offer is None:
+        attempt.offer_status = "no_offer"
+        attempt.offer_error_code = None
+        attempt.offer_observation = {}
+        return
+    if target is None:
+        attempt.offer_status = "identity_mismatch"
+        attempt.offer_error_code = "target_missing"
+        attempt.offer_observation = {}
+        return
+    decision = match_existing_variant(session, run.owner_id, extraction)
+    if (
+        decision.product is None
+        or decision.variant is None
+        or decision.product.id != target.product_id
+        or decision.variant.id != target.variant_id
+    ):
+        attempt.offer_status = "identity_mismatch"
+        attempt.offer_error_code = "variant_identity_mismatch"
+        attempt.offer_observation = {}
+        return
+    offer = extraction.offer
+    parsed = urlsplit(document.final_url)
+    if parsed.hostname is None or parsed.username is not None or parsed.password is not None:
+        attempt.offer_status = "unsupported"
+        attempt.offer_error_code = "invalid_offer_origin"
+        attempt.offer_observation = {}
+        return
+    retailer_domain = parsed.hostname.casefold().removeprefix("www.")[:253]
+    attempt.offer_status = "succeeded"
+    attempt.offer_error_code = None
+    attempt.offer_observation = {
+        "retailer_name": offer.retailer_name[:200],
+        "retailer_domain": retailer_domain,
+        "amount": format(offer.amount, ".2f") if offer.amount is not None else None,
+        "currency": offer.currency,
+        "availability": offer.availability,
+        "condition": offer.condition,
+    }
+    session.add(
+        RetailOffer(
+            owner_id=run.owner_id,
+            variant_id=target.variant_id,
+            observation_id=None,
+            research_source_attempt_id=attempt.id,
+            idempotency_key=f"research-source:{attempt.id}",
+            retailer_name=offer.retailer_name,
+            retailer_domain=retailer_domain,
+            url=offer.url,
+            amount=offer.amount,
+            currency=offer.currency,
+            availability=offer.availability,
+            condition=offer.condition,
+            observed_at=document.retrieved_at,
+        )
+    )
 
 
 def finish_product_research(
@@ -555,6 +700,7 @@ def finish_product_research(
         for query in open_queries:
             query.state = "skipped" if query.state == "queued" else "failed"
             query.error_code = "deadline_exceeded"
+            query.retry_not_before = None
             query.completed_at = now
             if query.state == "skipped":
                 run.skipped_count += 1
@@ -625,7 +771,9 @@ def finish_product_research(
             or 0
         )
         if target.sources_retrieved > 0:
-            if target.claims_created == 0 and not target.error_code:
+            refresh_targets = run.input_snapshot.get("refresh_targets", [])
+            claims_requested = not refresh_targets or "claims" in refresh_targets
+            if target.claims_created == 0 and not target.error_code and claims_requested:
                 target.error_code = "no_grounded_claims"
             target.status = (
                 "partial" if failed_sources or failed_stages or target.error_code else "succeeded"

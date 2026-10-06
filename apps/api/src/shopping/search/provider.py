@@ -31,6 +31,7 @@ class SearchProvider(Protocol):
 class SearchProviderError(Exception):
     """Sanitized, stable error categories from a configured search provider."""
 
-    def __init__(self, code: str) -> None:
+    def __init__(self, code: str, *, retry_after_seconds: float | None = None) -> None:
         super().__init__(code)
         self.code = code
+        self.retry_after_seconds = retry_after_seconds

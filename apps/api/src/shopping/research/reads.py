@@ -16,6 +16,7 @@ from shopping.research.common import (
 from shopping.research.models import (
     CandidateSearchResult,
     DiscoveryCandidate,
+    ResearchJob,
     ResearchRun,
     ResearchStageAttempt,
     SearchQueryRecord,
@@ -25,6 +26,8 @@ from shopping.research.schemas import (
     CandidatePage,
     CandidateRead,
     CandidateResultRead,
+    ResearchJobAttemptRead,
+    ResearchJobRead,
     ResearchRunPage,
     ResearchRunRead,
     ResearchStageProgressRead,
@@ -48,6 +51,7 @@ def list_runs(
         select(ResearchRun)
         .options(selectinload(ResearchRun.queries).selectinload(SearchQueryRecord.attempts))
         .options(selectinload(ResearchRun.targets))
+        .options(selectinload(ResearchRun.jobs).selectinload(ResearchJob.attempts))
         .where(ResearchRun.owner_id == owner_id, ResearchRun.project_id == project_id)
     )
     if cursor is not None:
@@ -75,6 +79,7 @@ def get_run(session: Session, owner_id: UUID, project_id: UUID, run_id: UUID) ->
         select(ResearchRun)
         .options(selectinload(ResearchRun.queries).selectinload(SearchQueryRecord.attempts))
         .options(selectinload(ResearchRun.targets))
+        .options(selectinload(ResearchRun.jobs).selectinload(ResearchJob.attempts))
         .where(
             ResearchRun.owner_id == owner_id,
             ResearchRun.project_id == project_id,
@@ -210,6 +215,7 @@ def _run_read_with_queries(
         select(ResearchRun)
         .options(selectinload(ResearchRun.queries).selectinload(SearchQueryRecord.attempts))
         .options(selectinload(ResearchRun.targets))
+        .options(selectinload(ResearchRun.jobs).selectinload(ResearchJob.attempts))
         .where(ResearchRun.id == run.id)
     )
     return _run_read(loaded or run, replayed=replayed)
@@ -225,6 +231,7 @@ def _run_read(run: ResearchRun, *, replayed: bool = False) -> ResearchRunRead:
             purpose=query.purpose,
             max_results=query.max_results,
             state=query.state,
+            retry_not_before=query.retry_not_before,
             results_count=query.results_count,
             candidates_count=query.candidates_count,
             error_code=query.error_code,
@@ -254,6 +261,8 @@ def _run_read(run: ResearchRun, *, replayed: bool = False) -> ResearchRunRead:
         project_id=run.project_id,
         objective=run.objective,
         type=run.run_type,
+        mode=run.research_mode,
+        refresh_of_run_id=run.refresh_of_run_id,
         status=run.status,
         snapshot_revision=run.snapshot_revision,
         effective_budgets=run.effective_budgets,
@@ -283,5 +292,30 @@ def _run_read(run: ResearchRun, *, replayed: bool = False) -> ResearchRunRead:
                 error_code=target.error_code,
             )
             for target in run.targets
+        ],
+        jobs=[
+            ResearchJobRead(
+                id=job.id,
+                stage_type=job.stage_type,
+                status=job.status,
+                attempt_count=job.attempt_count,
+                max_attempts=job.max_attempts,
+                not_before=job.not_before,
+                heartbeat_at=job.heartbeat_at,
+                error_code=job.error_code,
+                attempts=[
+                    ResearchJobAttemptRead(
+                        number=attempt.number,
+                        status=attempt.status,
+                        error_code=attempt.error_code,
+                        provider_request_id=attempt.provider_request_id,
+                        budget_consumed=attempt.budget_consumed,
+                        started_at=attempt.started_at,
+                        finished_at=attempt.finished_at,
+                    )
+                    for attempt in job.attempts
+                ],
+            )
+            for job in run.jobs
         ],
     )

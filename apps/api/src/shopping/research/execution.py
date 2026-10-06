@@ -19,6 +19,7 @@ from shopping.research.common import (
     _safe_http_url,
     normalize_candidate_url,
 )
+from shopping.research.jobs import cancel_run_jobs
 from shopping.research.models import (
     CandidateSearchResult,
     DiscoveryCandidate,
@@ -41,6 +42,37 @@ def load_execution_input(
     if run is None or run.status not in ACTIVE_STATES:
         return None
     return run.input_snapshot, run.effective_budgets, run.run_type
+
+
+def load_saved_plan(
+    session: Session, owner_id: UUID, project_id: UUID, run_id: UUID
+) -> dict[str, Any] | None:
+    _live_project(session, owner_id, project_id)
+    run = _owned_run(session, owner_id, project_id, run_id)
+    if run is None or not run.queries_planned:
+        return None
+    rows = list(
+        session.scalars(
+            select(SearchQueryRecord)
+            .where(SearchQueryRecord.run_id == run.id)
+            .order_by(SearchQueryRecord.ordinal)
+        ).all()
+    )
+    if run.run_type == "product_research":
+        queries = []
+        for query in rows:
+            source_class, separator, purpose = query.purpose.partition(":")
+            queries.append(
+                {
+                    "project_product_id": str(query.target_project_product_id),
+                    "text": query.text,
+                    "purpose": purpose.strip() if separator else query.purpose,
+                    "source_class": source_class if separator else "manufacturer_specification",
+                }
+            )
+    else:
+        queries = [{"text": query.text, "purpose": query.purpose} for query in rows]
+    return {"queries": queries, "summary": run.summary}
 
 
 def list_run_queries(
@@ -89,13 +121,22 @@ def interrupt_run(
         "The local discovery worker stopped before finishing. Start a new run to continue."
     )
     run.finished_at = datetime.now(UTC)
-    _cancel_open_work(session, run, "canceled")
+    _cancel_open_work(session, run, "interrupted")
+    cancel_run_jobs(
+        session,
+        run.id,
+        error_code="worker_interrupted",
+        job_status="failed",
+        attempt_status="uncertain",
+    )
     session.commit()
     return True
 
 
 def mark_running(session: Session, owner_id: UUID, project_id: UUID, run_id: UUID) -> bool:
     project, run = _lock_live_run(session, owner_id, project_id, run_id)
+    if run.status == "running":
+        return True
     if run.status != "queued":
         return False
     run.status = "running"
@@ -150,7 +191,7 @@ def start_attempt(
     project_id: UUID,
     run_id: UUID,
     query_id: UUID,
-) -> tuple[SearchQueryRecord, UUID, int] | None:
+) -> tuple[SearchQueryRecord, UUID, int, int] | None:
     _project, run = _lock_live_run(session, owner_id, project_id, run_id)
     query = session.scalar(
         select(SearchQueryRecord)
@@ -158,6 +199,9 @@ def start_attempt(
         .with_for_update()
     )
     if run.status != "running" or query is None or query.state != "queued":
+        return None
+    now = datetime.now(UTC)
+    if query.retry_not_before is not None and _aware_utc(query.retry_not_before) > now:
         return None
     budget = run.effective_budgets
     if run.started_at is None or _deadline_expired(run, budget):
@@ -180,13 +224,20 @@ def start_attempt(
         session.commit()
         return None
 
-    now = datetime.now(UTC)
+    previous_attempt = session.scalar(
+        select(SearchAttempt.attempt_number)
+        .where(SearchAttempt.query_id == query.id)
+        .order_by(SearchAttempt.attempt_number.desc())
+        .limit(1)
+    )
     query.max_results = allowance
     query.state = "running"
+    query.retry_not_before = None
+    query.error_code = None
     query.started_at = now
     attempt = SearchAttempt(
         query_id=query.id,
-        attempt_number=1,
+        attempt_number=(previous_attempt or 0) + 1,
         provider=run.search_provider,
         status="running",
         started_at=now,
@@ -195,7 +246,69 @@ def start_attempt(
     session.add(attempt)
     session.commit()
     session.refresh(attempt)
-    return query, attempt.id, allowance
+    return query, attempt.id, allowance, attempt.attempt_number
+
+
+def query_retry_at(
+    session: Session, owner_id: UUID, project_id: UUID, run_id: UUID, query_id: UUID
+) -> datetime | None:
+    _live_project(session, owner_id, project_id)
+    run = _owned_run(session, owner_id, project_id, run_id)
+    if run is None:
+        return None
+    query = session.scalar(
+        select(SearchQueryRecord).where(
+            SearchQueryRecord.id == query_id,
+            SearchQueryRecord.run_id == run_id,
+            SearchQueryRecord.state == "queued",
+        )
+    )
+    return query.retry_not_before if query is not None else None
+
+
+def schedule_attempt_retry(
+    session: Session,
+    *,
+    owner_id: UUID,
+    project_id: UUID,
+    run_id: UUID,
+    query_id: UUID,
+    attempt_id: UUID,
+    error_code: str,
+    retry_at: datetime,
+) -> bool:
+    _project, run = _lock_live_run(session, owner_id, project_id, run_id)
+    query = session.scalar(
+        select(SearchQueryRecord)
+        .where(SearchQueryRecord.id == query_id, SearchQueryRecord.run_id == run.id)
+        .with_for_update()
+    )
+    attempt = session.scalar(
+        select(SearchAttempt)
+        .where(SearchAttempt.id == attempt_id, SearchAttempt.query_id == query_id)
+        .with_for_update()
+    )
+    if (
+        run.status != "running"
+        or query is None
+        or query.state != "running"
+        or attempt is None
+        or attempt.status != "running"
+        or run.attempts_used >= run.effective_budgets["max_attempts"]
+        or attempt.attempt_number >= 3
+        or _deadline_expired(run, run.effective_budgets)
+    ):
+        return False
+    now = datetime.now(UTC)
+    attempt.status = "failed"
+    attempt.error_code = _safe_error_code(error_code)
+    attempt.finished_at = now
+    query.state = "queued"
+    query.error_code = _safe_error_code(error_code)
+    query.retry_not_before = _aware_utc(retry_at)
+    query.completed_at = None
+    session.commit()
+    return True
 
 
 def complete_attempt(
@@ -368,6 +481,7 @@ def _fail_locked_attempt(
     attempt.error_code = code
     attempt.finished_at = now
     query.state = "failed"
+    query.retry_not_before = None
     query.error_code = code
     query.completed_at = now
     run.queries_failed += 1
@@ -445,6 +559,7 @@ def cancel_run(
         run.summary = "Discovery was canceled. Saved candidates remain available."
         run.finished_at = datetime.now(UTC)
         _cancel_open_work(session, run, "canceled")
+        cancel_run_jobs(session, run.id)
         session.commit()
     return _run_read_with_queries(session, run, replayed=not changed), changed
 
@@ -467,6 +582,7 @@ def interrupt_project_runs(session: Session, owner_id: UUID, project_id: UUID) -
         run.summary = "The project was deleted before discovery finished."
         run.finished_at = datetime.now(UTC)
         _cancel_open_work(session, run, "canceled")
+        cancel_run_jobs(session, run.id, error_code="project_deleted")
     session.flush()
     return len(runs)
 
@@ -485,7 +601,14 @@ def interrupt_all_unfinished(session: Session) -> int:
             "Start a new run to continue."
         )
         run.finished_at = datetime.now(UTC)
-        _cancel_open_work(session, run, "canceled")
+        _cancel_open_work(session, run, "interrupted")
+        cancel_run_jobs(
+            session,
+            run.id,
+            error_code="process_restarted",
+            job_status="failed",
+            attempt_status="uncertain",
+        )
     session.commit()
     return len(runs)
 
@@ -493,6 +616,7 @@ def interrupt_all_unfinished(session: Session) -> int:
 def _skip_query(run: ResearchRun, query: SearchQueryRecord, reason: str) -> None:
     query.state = "skipped"
     query.error_code = reason
+    query.retry_not_before = None
     query.completed_at = datetime.now(UTC)
     run.skipped_count += 1
 
@@ -510,8 +634,10 @@ def _cancel_open_work(session: Session, run: ResearchRun, state: str) -> None:
         ).all()
     )
     for query in queries:
-        query.state = state
-        query.error_code = run.error_code
+        interrupted = state == "interrupted"
+        query.state = "failed" if interrupted else state
+        query.error_code = "uncertain_completion" if interrupted else run.error_code
+        query.retry_not_before = None
         query.completed_at = now
         attempts = list(
             session.scalars(
@@ -521,8 +647,8 @@ def _cancel_open_work(session: Session, run: ResearchRun, state: str) -> None:
             ).all()
         )
         for attempt in attempts:
-            attempt.status = "canceled"
-            attempt.error_code = run.error_code
+            attempt.status = "failed" if interrupted else "canceled"
+            attempt.error_code = "uncertain_completion" if interrupted else run.error_code
             attempt.finished_at = now
     from shopping.evidence.models import ResearchRunSource
     from shopping.research.models import ResearchRunTarget, ResearchStageAttempt
@@ -538,8 +664,10 @@ def _cancel_open_work(session: Session, run: ResearchRun, state: str) -> None:
         ).all()
     )
     for source_attempt in source_attempts:
-        source_attempt.status = "skipped"
-        source_attempt.reason = run.error_code or state
+        source_attempt.status = "failed" if state == "interrupted" else "skipped"
+        source_attempt.reason = (
+            "uncertain_completion" if state == "interrupted" else (run.error_code or state)
+        )
     stage_attempts = list(
         session.scalars(
             select(ResearchStageAttempt)
@@ -551,8 +679,14 @@ def _cancel_open_work(session: Session, run: ResearchRun, state: str) -> None:
         ).all()
     )
     for stage_attempt in stage_attempts:
-        stage_attempt.status = state if state in {"canceled", "skipped"} else "canceled"
-        stage_attempt.error_code = run.error_code
+        stage_attempt.status = (
+            "failed"
+            if state == "interrupted"
+            else (state if state in {"canceled", "skipped"} else "canceled")
+        )
+        stage_attempt.error_code = (
+            "uncertain_completion" if state == "interrupted" else run.error_code
+        )
         stage_attempt.finished_at = now
     targets = list(
         session.scalars(
@@ -574,6 +708,10 @@ def _deadline_expired(run: ResearchRun, budgets: dict[str, int]) -> bool:
     return run.started_at is None or datetime.now(UTC) >= run.started_at + timedelta(
         seconds=budgets["deadline_seconds"]
     )
+
+
+def _aware_utc(value: datetime) -> datetime:
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
 def _clean_provider_result(result: ProviderResult) -> ProviderResult:

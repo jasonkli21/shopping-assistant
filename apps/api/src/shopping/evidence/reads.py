@@ -140,6 +140,9 @@ def _source_read(
             else "unknown"
         ),
         bytes_read=attempt.bytes_read,
+        offer_status=attempt.offer_status,
+        offer_error_code=attempt.offer_error_code,
+        offer_observation=attempt.offer_observation,
     )
 
 

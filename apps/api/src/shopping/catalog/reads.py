@@ -388,6 +388,7 @@ def _offer_read(offer: RetailOffer) -> OfferRead:
         id=offer.id,
         variant_id=offer.variant_id,
         observation_id=offer.observation_id,
+        research_source_attempt_id=offer.research_source_attempt_id,
         retailer_name=offer.retailer_name,
         retailer_domain=offer.retailer_domain,
         url=offer.url,

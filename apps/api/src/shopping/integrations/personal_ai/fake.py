@@ -373,6 +373,14 @@ class FakePersonalAIClient(PersonalAIClient):
     def _plan_product_research(context: dict[str, Any]) -> dict[str, Any]:
         targets = context.get("selected_products", [])
         limit = context.get("limits", {}).get("maximum_queries", 8)
+        source_targets = context.get("source_targets", {})
+        allowed = source_targets.get("source_classes") if isinstance(source_targets, dict) else None
+        if not isinstance(allowed, list) or not allowed:
+            allowed = [
+                "manufacturer_specification",
+                "independent_measurement",
+                "retailer_listing",
+            ]
         queries: list[dict[str, str]] = []
         for target in targets:
             if not isinstance(target, dict) or len(queries) >= limit:
@@ -385,9 +393,13 @@ class FakePersonalAIClient(PersonalAIClient):
             target_queries = (
                 ("manufacturer_specification", f"{name} manufacturer specifications"),
                 ("independent_measurement", f"{name} independent runtime test measured"),
+                ("editorial_assessment", f"{name} professional review assessment"),
                 ("retailer_listing", f"{name} retailer listing"),
+                ("community_observation", f"{name} owner experiences discussion"),
             )
             for source_class, text in target_queries:
+                if source_class not in allowed:
+                    continue
                 if len(queries) >= limit:
                     break
                 queries.append(

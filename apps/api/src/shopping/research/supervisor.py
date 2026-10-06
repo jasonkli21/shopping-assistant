@@ -4,9 +4,8 @@ import asyncio
 import logging
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from functools import partial
 from threading import Lock
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy.orm import Session
 
@@ -19,8 +18,10 @@ from shopping.research.executor import (
     ResearchExecutionContext,
     ResearchExecutor,
 )
+from shopping.research.jobs import ACTIVE_RESEARCH_JOB_TOKEN
+from shopping.research.search_execution import execute_search_query
 from shopping.research.task import build_request, validate_output
-from shopping.search.provider import SearchProvider, SearchProviderError, SearchQuery
+from shopping.search.provider import SearchProvider
 
 logger = logging.getLogger(__name__)
 SessionFactory = Callable[[], Session]
@@ -52,11 +53,11 @@ class DiscoverySupervisor:
         self.session_factory = session_factory
         self.provider_timeout_seconds = provider_timeout_seconds
         self.max_concurrent = max_concurrent
-        self.executor = executor or InProcessResearchExecutor()
+        self.executor = executor or InProcessResearchExecutor(self._run)
         self.page_retriever = page_retriever or HTTPPageRetriever(max_decoded_bytes=MAX_PAGE_BYTES)
-        self._tasks: dict[UUID, asyncio.Task[None]] = {}
         self._reserved = 0
         self._capacity_lock = Lock()
+        self._worker_id = f"local-{uuid4()}"
 
     @property
     def provider_name(self) -> str:
@@ -68,7 +69,10 @@ class DiscoverySupervisor:
 
     def reserve_slot(self) -> bool:
         with self._capacity_lock:
-            if len(self._tasks) + self._reserved >= self.max_concurrent:
+            active_count = getattr(self.executor, "active_count", 0)
+            if callable(active_count):
+                active_count = active_count()
+            if int(active_count) + self._reserved >= self.max_concurrent:
                 return False
             self._reserved += 1
             return True
@@ -78,46 +82,115 @@ class DiscoverySupervisor:
             self._reserved = max(0, self._reserved - 1)
 
     def has_task(self, run_id: UUID) -> bool:
-        return run_id in self._tasks
+        check = getattr(self.executor, "has_task", None)
+        return bool(check(run_id)) if check is not None else False
 
-    def submit(self, owner_id: UUID, project_id: UUID, run_id: UUID) -> None:
+    async def submit(self, run_id: UUID) -> None:
         with self._capacity_lock:
             self._reserved = max(0, self._reserved - 1)
-            existing = self._tasks.get(run_id)
-            if existing and not existing.done():
-                return
-            context = ResearchExecutionContext(research_run_id=str(run_id))
-            task = asyncio.create_task(
-                self.executor.execute(
-                    context,
-                    lambda: self._run(owner_id, project_id, run_id),
-                )
-            )
-            self._tasks[run_id] = task
-        task.add_done_callback(lambda finished: self._task_finished(run_id, finished))
+        await self.executor.submit(ResearchExecutionContext(research_run_id=str(run_id)))
 
     async def cancel(self, run_id: UUID) -> None:
-        task = self._tasks.get(run_id)
-        if task is not None and not task.done():
-            task.cancel()
-            await asyncio.gather(task, return_exceptions=True)
+        cancel = getattr(self.executor, "cancel", None)
+        if cancel is not None:
+            await cancel(run_id)
 
     async def shutdown(self) -> None:
-        tasks = list(self._tasks.items())
-        for _run_id, task in tasks:
-            task.cancel()
-        if tasks:
-            await asyncio.gather(*(task for _, task in tasks), return_exceptions=True)
+        shutdown = getattr(self.executor, "shutdown", None)
+        if shutdown is not None:
+            await shutdown()
 
-    def recover_after_restart(self) -> int:
-        with self.session_factory() as session:
-            return service.interrupt_all_unfinished(session)
+    async def recover_after_restart(self) -> int:
+        await self._with_session(lambda session: service.recover_expired_jobs(session))
+        run_ids = await self._with_session(lambda session: service.dispatchable_run_ids(session))
+        submitted = 0
+        for run_id in run_ids:
+            if not self.reserve_slot():
+                break
+            await self.submit(run_id)
+            submitted += 1
+        return submitted
 
-    def _task_finished(self, run_id: UUID, task: asyncio.Task[None]) -> None:
-        if self._tasks.get(run_id) is task:
-            self._tasks.pop(run_id, None)
+    async def wait(self, run_id: UUID) -> None:
+        wait = getattr(self.executor, "wait", None)
+        if wait is not None:
+            await wait(run_id)
 
-    async def _run(self, owner_id: UUID, project_id: UUID, run_id: UUID) -> None:
+    async def _run(self, context: ResearchExecutionContext) -> None:
+        run_id = UUID(context.research_run_id)
+        claim = await self._with_session(
+            lambda session: service.claim_job(
+                session,
+                worker_id=self._worker_id,
+                lease_seconds=60,
+                run_id=run_id,
+            )
+        )
+        if claim is None:
+            return
+        token = ACTIVE_RESEARCH_JOB_TOKEN.set(claim.token)
+        worker_task = asyncio.current_task()
+        heartbeat_task = asyncio.create_task(
+            self._heartbeat(claim.job_id, claim.token, worker_task)
+        )
+        try:
+            await self._run_workflow(claim.owner_id, claim.project_id, claim.run_id)
+            heartbeat_task.cancel()
+            await asyncio.gather(heartbeat_task, return_exceptions=True)
+            run = await self._with_session(
+                lambda session: service.get_run(
+                    session, claim.owner_id, claim.project_id, claim.run_id
+                )
+            )
+            job_status = (
+                "canceled"
+                if run.status == "canceled"
+                else "failed"
+                if run.status in {"failed", "interrupted"}
+                else "succeeded"
+            )
+            await self._with_session(
+                lambda session: service.complete_job(
+                    session,
+                    job_id=claim.job_id,
+                    token=claim.token,
+                    status=job_status,
+                    error_code=run.error_code,
+                    budget_consumed={
+                        "search_attempts": run.attempts_used,
+                        "results": run.results_found,
+                        "sources": sum(target.sources_attempted for target in run.targets),
+                        "ai_attempts": len(run.stages),
+                    },
+                )
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            # Leave the lease to expire. Recovery can then mark in-flight provider
+            # calls uncertain and retry only work whose saved state permits it.
+            logger.warning("Research runner stopped for %s (%s)", run_id, type(error).__name__)
+        finally:
+            heartbeat_task.cancel()
+            await asyncio.gather(heartbeat_task, return_exceptions=True)
+            ACTIVE_RESEARCH_JOB_TOKEN.reset(token)
+
+    async def _heartbeat(
+        self, job_id: UUID, token: UUID, worker_task: asyncio.Task[None] | None
+    ) -> None:
+        while True:
+            await asyncio.sleep(20)
+            owned = await self._with_session(
+                lambda session: service.heartbeat_job(
+                    session, job_id=job_id, token=token, lease_seconds=60
+                )
+            )
+            if not owned:
+                if worker_task is not None and not worker_task.done():
+                    worker_task.cancel()
+                return
+
+    async def _run_workflow(self, owner_id: UUID, project_id: UUID, run_id: UUID) -> None:
         try:
             started = await self._with_session(
                 lambda session: service.mark_running(session, owner_id, project_id, run_id)
@@ -149,7 +222,12 @@ class DiscoverySupervisor:
                     page_retriever=self.page_retriever,
                 )
                 return
-            if snapshot.get("manual_queries") is not None:
+            saved_plan = await self._with_session(
+                lambda session: service.load_saved_plan(session, owner_id, project_id, run_id)
+            )
+            if saved_plan is not None:
+                plan = {"queries": saved_plan["queries"], "explanation": saved_plan["summary"]}
+            elif snapshot.get("manual_queries") is not None:
                 plan = {
                     "queries": [
                         {"text": text, "purpose": "Explicit user-supplied product search."}
@@ -189,72 +267,24 @@ class DiscoverySupervisor:
                 lambda session: service.list_run_queries(session, owner_id, project_id, run_id)
             )
             for query_id, max_results in query_rows:
-                attempt = await self._with_session(
-                    lambda session, current_id=query_id: service.start_attempt(
-                        session,
-                        owner_id=owner_id,
-                        project_id=project_id,
-                        run_id=run_id,
-                        query_id=current_id,
-                    )
-                )
-                if attempt is None:
-                    continue
-                query, attempt_id, allowance = attempt
-                remaining = await self._remaining_seconds(owner_id, project_id, run_id, budgets)
-                timeout = min(self.provider_timeout_seconds, remaining)
-                if timeout <= 0:
-                    await self._fail_attempt(
-                        owner_id, project_id, run_id, query_id, attempt_id, "deadline_exceeded"
-                    )
-                    continue
-                try:
-                    async with asyncio.timeout(timeout):
-                        response = await self.search_provider.search(
-                            SearchQuery(text=query.text, max_results=min(max_results, allowance))
-                        )
-                    completed = await self._with_session(
-                        partial(
-                            service.complete_attempt,
-                            owner_id=owner_id,
-                            project_id=project_id,
-                            run_id=run_id,
-                            query_id=query_id,
-                            attempt_id=attempt_id,
-                            response=response,
-                        )
-                    )
-                    if not completed:
-                        return
-                except TimeoutError:
-                    await self._fail_attempt(
-                        owner_id, project_id, run_id, query_id, attempt_id, "provider_timeout"
-                    )
-                except SearchProviderError as error:
-                    await self._fail_attempt(
-                        owner_id,
-                        project_id,
-                        run_id,
-                        query_id,
-                        attempt_id,
-                        error.code,
-                    )
-                except ValueError:
-                    await self._fail_attempt(
-                        owner_id, project_id, run_id, query_id, attempt_id, "malformed_response"
-                    )
-                except Exception as error:
-                    logger.warning(
-                        "Search attempt failed for run %s (%s)", run_id, type(error).__name__
-                    )
-                    await self._fail_attempt(
-                        owner_id, project_id, run_id, query_id, attempt_id, "provider_error"
-                    )
+                if not await execute_search_query(
+                    owner_id=owner_id,
+                    project_id=project_id,
+                    run_id=run_id,
+                    query_id=query_id,
+                    max_results=max_results,
+                    search_provider=self.search_provider,
+                    with_session=self._with_session,
+                    remaining_seconds=lambda: self._remaining_seconds(
+                        owner_id, project_id, run_id, budgets
+                    ),
+                    provider_timeout_seconds=self.provider_timeout_seconds,
+                ):
+                    return
             await self._with_session(
                 lambda session: service.finalize(session, owner_id, project_id, run_id)
             )
         except asyncio.CancelledError:
-            await self._interrupt_owned_run(owner_id, project_id, run_id)
             raise
         except TimeoutError:
             await self._fail_run(
@@ -312,27 +342,6 @@ class DiscoverySupervisor:
             ).total_seconds(),
         )
 
-    async def _fail_attempt(
-        self,
-        owner_id: UUID,
-        project_id: UUID,
-        run_id: UUID,
-        query_id: UUID,
-        attempt_id: UUID,
-        code: str,
-    ) -> None:
-        await self._with_session(
-            lambda session: service.fail_attempt(
-                session,
-                owner_id=owner_id,
-                project_id=project_id,
-                run_id=run_id,
-                query_id=query_id,
-                attempt_id=attempt_id,
-                error_code=code,
-            )
-        )
-
     async def _fail_run(
         self,
         owner_id: UUID,
@@ -349,18 +358,6 @@ class DiscoverySupervisor:
             )
         except Exception as error:
             logger.info("Run %s was already terminal (%s)", run_id, type(error).__name__)
-
-    async def _interrupt_owned_run(self, owner_id: UUID, project_id: UUID, run_id: UUID) -> None:
-        try:
-            await self._with_session(
-                lambda session: service.interrupt_run(
-                    session, owner_id, project_id, run_id, "worker_interrupted"
-                )
-            )
-        except Exception as error:
-            logger.error(
-                "Could not persist interrupted discovery run %s (%s)", run_id, type(error).__name__
-            )
 
     async def _with_session[Result](self, operation: Callable[[Session], Result]) -> Result:
         """Run short SQLAlchemy units off-loop and await their close on cancellation."""

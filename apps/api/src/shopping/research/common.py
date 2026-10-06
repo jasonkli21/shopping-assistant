@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from shopping.projects.errors import ProjectError
 from shopping.projects.models import ShoppingProject
+from shopping.research.jobs import ACTIVE_RESEARCH_JOB_TOKEN
 from shopping.research.models import ResearchRun
 
 ACTIVE_STATES = {"queued", "running"}
@@ -31,10 +32,13 @@ SAFE_ERROR_CODES = {
     "deadline_exceeded",
     "discovery_failed",
     "discovery_stopped",
+    "uncertain_completion",
+    "execution_fenced",
     "invalid_plan",
     "invalid_redirect",
     "malformed_response",
     "no_grounded_claims",
+    "no_product_data",
     "no_sources_retrieved",
     "page_budget_exhausted",
     "page_too_large",
@@ -48,6 +52,15 @@ SAFE_ERROR_CODES = {
     "provider_rejected",
     "provider_timeout",
     "provider_unavailable",
+    "ambiguous_products",
+    "missing_product_name",
+    "invalid_structured_data",
+    "unsupported_extraction",
+    "unrelated_offer",
+    "invalid_offer_origin",
+    "variant_identity_mismatch",
+    "target_missing",
+    "refresh_failed",
     "quota_exceeded",
     "rate_limited",
     "result_budget_exhausted",
@@ -83,6 +96,12 @@ def _lock_live_run(
     run = _owned_run(session, owner_id, project_id, run_id, lock=True)
     if run is None:
         raise _not_found("Research run not found")
+    worker_token = ACTIVE_RESEARCH_JOB_TOKEN.get()
+    if worker_token is not None and run.active_job_token != worker_token:
+        raise _conflict(
+            "execution_fenced",
+            "This research worker no longer owns the active job lease.",
+        )
     return project, run
 
 
