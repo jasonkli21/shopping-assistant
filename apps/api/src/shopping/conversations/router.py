@@ -81,12 +81,20 @@ async def create_message(
                 selected_project_product_ids=command.selected_project_product_ids,
                 comparison_id=command.comparison_id,
                 slot_reserver=reserve_slot,
+                worker_id=supervisor.worker_id,
             )
 
     try:
         result = await run_in_threadpool(create_command)
         if result.should_start:
-            supervisor.submit(owner_id, project_id, result.response.assistant_message_id)
+            if result.lease_token is None:
+                raise RuntimeError("accepted conversation command has no generation lease")
+            supervisor.submit(
+                owner_id,
+                project_id,
+                result.response.assistant_message_id,
+                result.lease_token,
+            )
         return result.response
     except Exception:
         if reserved:

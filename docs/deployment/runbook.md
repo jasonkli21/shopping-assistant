@@ -95,7 +95,7 @@ The deployment script requires real project, region, service, service-account, q
 scripts/deploy_cloud_run.sh
 ```
 
-The script sets min instances to zero, bounds max instances and per-instance concurrency, pins database/provider secret versions, and disables CPU throttling so bounded in-process work is not paused while an instance is active. This incurs CPU billing while active and does not prove work survives shutdown. Verify current timeout, SSE buffering, disconnect, and instance lifecycle behavior before using research or generation on the hosted service.
+The script sets min instances to zero, bounds max instances and per-instance concurrency, pins database/provider secret versions, and disables CPU throttling so bounded in-process work is not paused while an instance is active. This incurs CPU billing while active and does not prove work survives shutdown. Conversation generation now stores an opaque owner token and a 30-second lease on the assistant message; the owning instance renews it every 10 seconds. Startup and periodic recovery only interrupt expired ownership, and they never repeat an uncertain provider call. A retry requires a new explicit message command with a new request key. Rows created by an older revision without lease metadata receive a 180-second recovery grace from creation to cover the previous 120-second provider timeout during rollout. Apply the conversation lease migration before deploying code that expects these columns. Verify timeout, SSE buffering, disconnect, graceful shutdown, and hard instance termination behavior on the hosted service; local fencing does not establish those hosted lifecycle results.
 
 For Hosting, build with explicit public settings, then deploy the site to the selected Firebase project:
 

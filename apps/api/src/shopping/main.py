@@ -90,6 +90,7 @@ async def lifespan(application: FastAPI):
         # Liveness remains available while PostgreSQL is starting or migrations
         # have not yet been applied; durable routes will report storage errors.
         logger.warning("Conversation restart recovery skipped because the database is unavailable")
+    supervisor.start_maintenance()
     try:
         await discovery.recover_after_restart()
     except SQLAlchemyError:

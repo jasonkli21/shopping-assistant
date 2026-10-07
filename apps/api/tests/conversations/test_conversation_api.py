@@ -4,13 +4,14 @@ import json
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
 from io import StringIO
 from threading import Barrier
 from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from shopping.catalog.models import Product, ProductVariant, ProjectProduct
@@ -711,6 +712,10 @@ def test_generation_is_single_per_conversation_and_reconnect_attaches_only(proje
     project = create_project(client)
     accepted = send_message(client, project["id"], "concurrent-request-key-0001")
     assert accepted.status_code == 202
+    replay = send_message(client, project["id"], "concurrent-request-key-0001")
+    assert replay.status_code == 202
+    assert replay.json()["replayed"] is True
+    assert replay.json()["assistant_message_id"] == accepted.json()["assistant_message_id"]
 
     competing = send_message(client, project["id"], "concurrent-request-key-0002")
     assert competing.status_code == 409
@@ -770,6 +775,12 @@ def test_restart_marks_durable_generation_interrupted(project_api):
             expected_version=1,
         )
     supervisor = client.app.state.generation_supervisor
+    with Session(engine) as session:
+        now = session.scalar(select(func.now()))
+        message = session.get(ConversationMessage, reserved.response.assistant_message_id)
+        assert now is not None and message is not None
+        message.generation_lease_expires_at = now - timedelta(seconds=1)
+        session.commit()
     assert supervisor.recover_after_restart() == 1
     message = wait_for_message(client, project["id"], str(reserved.response.assistant_message_id))
     assert message["status"] == "interrupted"

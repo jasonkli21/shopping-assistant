@@ -2,7 +2,23 @@
 
 This file is chronological verification history, not current status or required fresh-session reading. For the live implementation boundary, see [`docs/current-state.md`](docs/current-state.md); for task-routed context, see [`docs/README.md`](docs/README.md).
 
-Latest records: [SA-03 and SA-04 bounded-context and regression-baseline corrections](#sa-03-and-sa-04-bounded-context-and-regression-baseline-corrections--2026-10-07), [Phase 9 review verification follow-up](#phase-9-review-verification-follow-up--2026-10-07), [Phase 9 independent review corrections](#phase-9-independent-review-corrections--2026-10-07), [Context architecture cleanup verification](#context-architecture-cleanup-verification--2026-10-07), [Phase 8 implementation baseline](#phase-8-local-implementation-checks--2026-10-05), [Phase 7](#phase-7-implementation-checks--2026-10-05), and [Phase 6](#phase-6-implementation-and-verification--2026-10-05). Older phase records below remain historical evidence.
+Latest records: [SA-01 cross-instance conversation generation ownership](#sa-01-cross-instance-conversation-generation-ownership--2026-10-07), [SA-03 and SA-04 bounded-context and regression-baseline corrections](#sa-03-and-sa-04-bounded-context-and-regression-baseline-corrections--2026-10-07), [Phase 9 review verification follow-up](#phase-9-review-verification-follow-up--2026-10-07), [Phase 9 independent review corrections](#phase-9-independent-review-corrections--2026-10-07), [Context architecture cleanup verification](#context-architecture-cleanup-verification--2026-10-07), [Phase 8 implementation baseline](#phase-8-local-implementation-checks--2026-10-05), [Phase 7](#phase-7-implementation-checks--2026-10-05), and [Phase 6](#phase-6-implementation-and-verification--2026-10-05). Older phase records below remain historical evidence.
+
+## SA-01 cross-instance conversation generation ownership — 2026-10-07
+
+Conversation messages now persist an owner ID, opaque lease token, expiry, and heartbeat timestamp. The message command creates the lease in the same transaction as the accepted request. The supervisor renews leases while provider I/O runs, and all worker terminal writes are fenced by the current unexpired token. Startup and periodic recovery take over only expired leases and mark them interrupted without retrying provider work. Request-key replay and SSE attachment do not dispatch generation.
+
+| Check | Result |
+|---|---|
+| Focused supervisor cancellation test | Passed: 1 test. |
+| Full offline API suite | Passed: 184 passed, 123 deselected. |
+| PostgreSQL conversation race/recovery tests and full PostgreSQL suite | Not run: `TEST_DATABASE_URL` is unset, Docker is unavailable, and no PostgreSQL server responds on localhost. The new tests cover competing command claims, competing recovery claims, live foreign ownership at startup, legacy rollout grace, expiry/takeover, stale completion, heartbeat, shutdown cancellation, one terminal outcome, ambiguous provider results without retry, and legacy-row preservation through migration. |
+| Ruff and formatting | Passed: `ruff check src tests migrations` and `ruff format --check src tests migrations`; 170 API files are formatted. |
+| Alembic offline SQL generation | Passed through `p9_conversation_generation_leases`; generated 1,487 lines. Online upgrade/check is not run because no PostgreSQL server is available. |
+| API types | Passed: `scripts/generate_api_types.py --check`; the API schema is unchanged. |
+| Hosted Cloud Run lifecycle, SSE disconnect, and provider behavior | Not run; remain open in the runbook. |
+
+The database and hosted lifecycle results above remain open; this local implementation does not accept Phase 9 or its predecessor gates.
 
 ## SA-03 and SA-04 bounded-context and regression-baseline corrections — 2026-10-07
 

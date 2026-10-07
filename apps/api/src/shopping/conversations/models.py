@@ -57,8 +57,21 @@ class ConversationMessage(Base):
         CheckConstraint("ordinal >= 1", name="ck_message_ordinal"),
         CheckConstraint("sequence >= 0", name="ck_message_sequence"),
         CheckConstraint("char_length(content) <= 8000", name="ck_message_content_length"),
+        CheckConstraint(
+            "(generation_owner IS NULL AND generation_lease_token IS NULL "
+            "AND generation_lease_expires_at IS NULL AND generation_heartbeat_at IS NULL) "
+            "OR (status = 'generating' AND generation_owner IS NOT NULL "
+            "AND generation_lease_token IS NOT NULL "
+            "AND generation_lease_expires_at IS NOT NULL AND generation_heartbeat_at IS NOT NULL)",
+            name="ck_message_generation_lease_state",
+        ),
         UniqueConstraint("conversation_id", "ordinal", name="uq_message_conversation_ordinal"),
         Index("ix_messages_project_created", "project_id", "created_at", "id"),
+        Index(
+            "ix_messages_generation_lease",
+            "generation_lease_expires_at",
+            postgresql_where=text("status = 'generating'"),
+        ),
         Index(
             "uq_message_request_key",
             "owner_id",
@@ -89,6 +102,10 @@ class ConversationMessage(Base):
     snapshot_revision: Mapped[int | None] = mapped_column(Integer)
     sequence: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     error_code: Mapped[str | None] = mapped_column(String(50))
+    generation_owner: Mapped[str | None] = mapped_column(String(100))
+    generation_lease_token: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
+    generation_lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    generation_heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     task_metadata: Mapped[dict | None] = mapped_column(JSONB)
     input_snapshot: Mapped[dict | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(

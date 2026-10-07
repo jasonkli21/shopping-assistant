@@ -74,6 +74,19 @@ def test_fresh_database_can_upgrade_downgrade_and_upgrade_again(postgres_schema)
             "owner_privacy_lifecycle",
             "alembic_version",
         } <= tables
+        conversation_columns = {
+            item["name"] for item in inspect(connection).get_columns("conversation_messages")
+        }
+        assert {
+            "generation_owner",
+            "generation_lease_token",
+            "generation_lease_expires_at",
+            "generation_heartbeat_at",
+        } <= conversation_columns
+        assert "ck_message_generation_lease_state" in {
+            item["name"]
+            for item in inspect(connection).get_check_constraints("conversation_messages")
+        }
     finally:
         connection.close()
 
@@ -109,7 +122,7 @@ def test_legacy_long_revision_ids_upgrade_without_losing_existing_rows(postgres_
             connection.commit()
             command.upgrade(config, "head")
             assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-                "p9_owner_privacy_lifecycle"
+                "p9_conversation_generation_leases"
             )
             assert (
                 connection.scalar(
@@ -118,6 +131,61 @@ def test_legacy_long_revision_ids_upgrade_without_losing_existing_rows(postgres_
                 )
                 == 1
             )
+    finally:
+        connection.close()
+
+
+def test_conversation_lease_migration_preserves_legacy_generating_message(postgres_schema):
+    engine, _schema = postgres_schema
+    config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
+    connection = engine.connect()
+    config.attributes["connection"] = connection
+    owner_id, project_id, conversation_id, message_id = (uuid4() for _ in range(4))
+    try:
+        command.downgrade(config, "p9_owner_privacy_lifecycle")
+        connection.execute(
+            text(
+                "INSERT INTO shopping_projects (id, owner_id, title, goal, revision) "
+                "VALUES (:id, :owner_id, 'Legacy conversation', 'Preserve active message', 1)"
+            ),
+            {"id": project_id, "owner_id": owner_id},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO conversations (id, project_id, owner_id) "
+                "VALUES (:id, :project_id, :owner_id)"
+            ),
+            {"id": conversation_id, "project_id": project_id, "owner_id": owner_id},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO conversation_messages "
+                "(id, conversation_id, project_id, owner_id, ordinal, role, content, status, "
+                "sequence, input_snapshot) VALUES (:id, :conversation_id, :project_id, "
+                ":owner_id, 1, 'assistant', '', 'generating', 0, CAST(:snapshot AS jsonb))"
+            ),
+            {
+                "id": message_id,
+                "conversation_id": conversation_id,
+                "project_id": project_id,
+                "owner_id": owner_id,
+                "snapshot": '{"saved":"context"}',
+            },
+        )
+        connection.commit()
+
+        command.upgrade(config, "head")
+        row = connection.execute(
+            text(
+                "SELECT status, input_snapshot, generation_owner, generation_lease_token "
+                "FROM conversation_messages WHERE id = :id"
+            ),
+            {"id": message_id},
+        ).one()
+        assert row.status == "generating"
+        assert row.input_snapshot == {"saved": "context"}
+        assert row.generation_owner is None
+        assert row.generation_lease_token is None
     finally:
         connection.close()
 

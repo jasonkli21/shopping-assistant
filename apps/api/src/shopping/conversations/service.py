@@ -6,9 +6,10 @@ generation lifecycle, and proposal mutations each live in focused modules.
 
 from .commands import MessageCommandResult, create_message_command
 from .generation import (
+    claim_expired_generations,
     complete_generation,
     fail_generation,
-    interrupt_all_unfinished,
+    heartbeat_generation,
     interrupt_generation,
     load_generation_input,
 )
@@ -19,11 +20,12 @@ __all__ = [
     "MessageCommandResult",
     "apply_proposal",
     "complete_generation",
+    "claim_expired_generations",
     "create_message_command",
     "dismiss_proposal",
     "fail_generation",
     "get_message_for_stream",
-    "interrupt_all_unfinished",
+    "heartbeat_generation",
     "interrupt_generation",
     "list_conversations",
     "list_messages",

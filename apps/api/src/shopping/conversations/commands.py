@@ -4,7 +4,7 @@ import hashlib
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 from sqlalchemy import desc, func, or_, select
@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from shopping.catalog.models import Product, ProductVariant, ProjectProduct, RetailOffer
 from shopping.comparisons.models import ComparisonDimension, ComparisonItem, SavedComparison
+from shopping.conversations.generation import GENERATION_LEASE_SECONDS
 from shopping.conversations.models import Conversation, ConversationMessage
 from shopping.conversations.schemas import MessageCreated
 from shopping.conversations.task import build_request
@@ -29,6 +30,7 @@ from shopping.projects.models import ProjectProductDecision, UserNote
 class MessageCommandResult:
     response: MessageCreated
     should_start: bool
+    lease_token: UUID | None = None
 
 
 def create_message_command(
@@ -42,6 +44,7 @@ def create_message_command(
     selected_project_product_ids: list[UUID] | None = None,
     comparison_id: UUID | None = None,
     slot_reserver: Callable[[], bool] | None = None,
+    worker_id: str | None = None,
 ) -> MessageCommandResult:
     project = repository.project_by_owner(session, project_id, owner_id, lock=True)
     if project is None:
@@ -174,6 +177,15 @@ def create_message_command(
         request_key=request_key,
         request_hash=request_hash,
     )
+    lease_token = uuid4() if context_error is None else None
+    generation_owner = (
+        (worker_id or f"conversation-{uuid4()}").strip()[:100] if lease_token is not None else None
+    )
+    lease_now = (
+        session.scalar(select(func.clock_timestamp())) or datetime.now(UTC)
+        if lease_token is not None
+        else None
+    )
     assistant_message = ConversationMessage(
         id=assistant_id,
         conversation_id=conversation.id,
@@ -193,6 +205,12 @@ def create_message_command(
         },
         input_snapshot=input_snapshot,
         error_code=context_error,
+        generation_owner=generation_owner,
+        generation_lease_token=lease_token,
+        generation_lease_expires_at=(
+            lease_now + timedelta(seconds=GENERATION_LEASE_SECONDS) if lease_now else None
+        ),
+        generation_heartbeat_at=lease_now,
         completed_at=datetime.now(UTC) if context_error else None,
     )
     session.add(user_message)
@@ -219,6 +237,7 @@ def create_message_command(
             replayed=False,
         ),
         should_start=context_error is None,
+        lease_token=lease_token,
     )
 
 
