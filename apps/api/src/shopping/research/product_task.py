@@ -9,6 +9,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from shopping.integrations.personal_ai.client import AIRequest
+from shopping.projects.context import compact_requirement_descriptions
 
 TASK_NAME = "plan_product_research.v1"
 PROMPT_VERSION = "shopping-product-research-3"
@@ -31,6 +32,7 @@ SYSTEM_INSTRUCTIONS = " ".join(
         "substitute excluded domains or count syndicated copies as independent sources. Use the",
         "saved freshness needs to prioritize missing or stale dimensions. Keep queries",
         "variant-specific and explain each query's purpose briefly. Do not return arbitrary URLs.",
+        "Requirement preference_origin contains its source preference id, revision, and scope.",
     )
 )
 
@@ -65,31 +67,29 @@ class ProductResearchPlanOutput(BaseModel):
 
 
 def build_request(snapshot: dict[str, Any], max_queries: int) -> AIRequest:
-    # The durable snapshot can contain 100 detailed requirements. Planning only
-    # needs concise search hints; assessment still uses the complete snapshot.
-    requirements = [
-        {
-            "label": str(item.get("label", ""))[:50],
-            "detail": str(item.get("detail") or "")[:250],
-            "attribute_key": str(item.get("attribute_key") or "")[:40] or None,
-            "value": _bounded_requirement_value(item.get("value")),
-            "unit": str(item.get("unit") or "")[:50] or None,
+    # Planning only needs descriptive hints. Keep every requirement's identity,
+    # authority, criterion, unit, and preference provenance intact; assessment
+    # still uses the complete durable snapshot.
+    requirements = []
+    for item in snapshot.get("requirements", []):
+        requirement = {
+            "id": item.get("id"),
             "kind": item.get("kind"),
-            "preference_origin": (
-                {
-                    "preference_id": str(item["preference_origin"].get("preference_id", ""))[:36],
-                    "preference_revision": item["preference_origin"].get("preference_revision"),
-                    "scope": [
-                        str(scope)[:100]
-                        for scope in item["preference_origin"].get("scope", [])[:20]
-                    ],
-                }
-                if isinstance(item.get("preference_origin"), dict)
-                else None
-            ),
+            "label": str(item.get("label", "")),
+            "detail": item.get("detail"),
+            "attribute_key": item.get("attribute_key"),
+            "operator": item.get("operator"),
+            "value": item.get("value"),
+            "unit": item.get("unit"),
         }
-        for item in snapshot.get("requirements", [])[:100]
-    ]
+        preference_origin = item.get("preference_origin")
+        if isinstance(preference_origin, dict):
+            requirement["preference_origin"] = {
+                "id": preference_origin.get("preference_id"),
+                "revision": preference_origin.get("preference_revision"),
+                "scope": preference_origin.get("scope"),
+            }
+        requirements.append(requirement)
     selected_products = []
     for item in snapshot.get("selected_products", [])[:3]:
         selected_products.append(
@@ -139,17 +139,24 @@ def build_request(snapshot: dict[str, Any], max_queries: int) -> AIRequest:
         "freshness_needs": snapshot.get("freshness_needs", {}),
         "limits": {"maximum_queries": max_queries},
     }
-    encoded = json.dumps(bounded, ensure_ascii=False, separators=(",", ":"))
-    if len(encoded) > MAX_CONTEXT_CHARS:
-        raise ValueError("product research context exceeds its configured size limit")
+    request_input = {
+        "system_instructions": SYSTEM_INSTRUCTIONS,
+        "prompt_version": PROMPT_VERSION,
+        "response_schema": ProductResearchPlanOutput.model_json_schema(),
+    }
+
+    def request_size(context: dict[str, Any]) -> int:
+        request = {"task": TASK_NAME, "input": request_input | {"context": context}}
+        return len(json.dumps(request, ensure_ascii=False, allow_nan=False, separators=(",", ":")))
+
+    bounded = compact_requirement_descriptions(
+        bounded,
+        max_chars=MAX_CONTEXT_CHARS,
+        measure=request_size,
+    )
     return AIRequest(
         task=TASK_NAME,
-        input={
-            "system_instructions": SYSTEM_INSTRUCTIONS,
-            "prompt_version": PROMPT_VERSION,
-            "response_schema": ProductResearchPlanOutput.model_json_schema(),
-            "context": bounded,
-        },
+        input=request_input | {"context": bounded},
     )
 
 
@@ -163,16 +170,6 @@ def _bounded_identity_attributes(value: Any) -> dict[str, str]:
         if isinstance(item, (str, int, float, bool)):
             bounded[str(key)[:40]] = str(item)[:60]
     return bounded
-
-
-def _bounded_requirement_value(value: Any) -> Any:
-    if isinstance(value, (str, int, float, bool)) or value is None:
-        return value[:250] if isinstance(value, str) else value
-    try:
-        encoded = json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
-    except (TypeError, ValueError, RecursionError):
-        return None
-    return encoded[:250]
 
 
 def validate_output(

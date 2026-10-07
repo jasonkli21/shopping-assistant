@@ -448,7 +448,10 @@ def test_product_research_persists_grounded_claim_and_cited_assessment(project_a
     client.app.state.discovery_supervisor.search_provider = FakeSearchProvider(
         {query: [SearchResult(title="AX-4 Specifications", url=url, snippet="Runtime")]}
     )
-    body = "<h1>Acme AX-4 HEPA US</h1><p>60 minutes runtime in normal mode.</p>"
+    body = (
+        "<h1>Acme AX-4 HEPA US</h1><p>60 minutes runtime in normal mode.</p>"
+        "<p>Technical specifications.</p>"
+    )
     client.app.state.discovery_supervisor.page_retriever = FakePageRetriever(
         {
             url: RetrievedDocument(
@@ -594,20 +597,26 @@ def test_runtime_contexts_retain_both_quotes_and_cite_only_comparable_result(pro
     project = response.json()
     _product_id, _variant_id, project_product_id = _seed_project_product(project, owner, engine)
     query = "Acme Clean Vacuum AX-4 AX-4 HEPA manufacturer specifications"
+    measurement_query = "Acme Clean Vacuum AX-4 AX-4 HEPA independent runtime test measured"
     marketing_url = "https://acme.example/ax-4/specifications"
     measured_url = "https://www.rtings.com/vacuum/reviews/ax-4"
     client.app.state.discovery_supervisor.search_provider = FakeSearchProvider(
         {
             query: [
-                SearchResult(title="AX-4 specifications", url=marketing_url, snippet="Runtime"),
+                SearchResult(title="AX-4 specifications", url=marketing_url, snippet="Runtime")
+            ],
+            measurement_query: [
                 SearchResult(
                     title="AX-4 runtime test", url=measured_url, snippet="Measured runtime"
-                ),
-            ]
+                )
+            ],
         }
     )
     bodies = {
-        marketing_url: "<h1>Acme AX-4 HEPA US</h1><p>Up to 60 minutes runtime in eco mode.</p>",
+        marketing_url: (
+            "<h1>Acme AX-4 HEPA US</h1><p>Up to 60 minutes runtime in eco mode.</p>"
+            "<p>Technical specifications.</p>"
+        ),
         measured_url: "<h1>AX-4 HEPA US runtime test</h1>"
         "<p>Measured 37 minutes in normal mode.</p>",
     }

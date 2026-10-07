@@ -40,6 +40,7 @@ def test_money_preferences_require_category_and_currency() -> None:
                 operator="lte",
                 value="500.00",
                 unit="USD",
+                monetary=True,
                 category_scopes=["*"],
             )
         )
@@ -52,6 +53,7 @@ def test_money_preferences_require_category_and_currency() -> None:
                 operator="lte",
                 value="500.00",
                 unit="",
+                monetary=True,
                 category_scopes=["furniture"],
             )
         )
@@ -64,6 +66,7 @@ def test_money_preferences_require_category_and_currency() -> None:
                 operator="lte",
                 value="500.00",
                 unit="XYZ",
+                monetary=True,
                 category_scopes=["furniture"],
             )
         )
@@ -76,6 +79,22 @@ def test_money_preferences_require_category_and_currency() -> None:
                 operator="lte",
                 value=500.0,
                 unit="usd",
+                monetary=True,
+                category_scopes=["furniture"],
+            )
+        )
+
+
+def test_currency_denominated_candidate_requires_explicit_monetary_intent() -> None:
+    with pytest.raises(ValidationError, match="mark currency-denominated preferences as monetary"):
+        CandidateCreate.model_validate(
+            candidate_payload(
+                label="Keep the budget under $500",
+                key="max_budget",
+                operator="lte",
+                value="500.00",
+                unit="USD",
+                monetary=False,
                 category_scopes=["furniture"],
             )
         )

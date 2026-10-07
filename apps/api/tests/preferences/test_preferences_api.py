@@ -93,12 +93,17 @@ def test_explicit_candidate_promotion_reuse_edit_and_revoke(project_api) -> None
         f"/projects/{destination['id']}",
         json={"expected_version": destination["revision"], "reuse_preferences": True},
     ).json()
+    profile = client.get("/profile").json()
     suggestions = client.get(f"/projects/{destination['id']}/preference-suggestions").json()
     assert [item["id"] for item in suggestions["items"]] == [preference["id"]]
 
     applied = client.post(
         f"/projects/{destination['id']}/preferences/{preference['id']}/apply",
-        params={"expected_project_version": updated["revision"]},
+        params={
+            "expected_project_version": updated["revision"],
+            "expected_preference_revision": preference["revision"],
+            "expected_profile_version": profile["revision"],
+        },
     )
     assert applied.status_code == 200, applied.text
     applied_requirement = applied.json()["requirements"][-1]

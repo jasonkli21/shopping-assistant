@@ -2,7 +2,29 @@
 
 This file is chronological verification history, not current status or required fresh-session reading. For the live implementation boundary, see [`docs/current-state.md`](docs/current-state.md); for task-routed context, see [`docs/README.md`](docs/README.md).
 
-Latest records: [Phase 9 review verification follow-up](#phase-9-review-verification-follow-up--2026-10-07), [Phase 9 independent review corrections](#phase-9-independent-review-corrections--2026-10-07), [Context architecture cleanup verification](#context-architecture-cleanup-verification--2026-10-07), [Phase 8 implementation baseline](#phase-8-local-implementation-checks--2026-10-05), [Phase 7](#phase-7-implementation-checks--2026-10-05), and [Phase 6](#phase-6-implementation-and-verification--2026-10-05). Older phase records below remain historical evidence.
+Latest records: [SA-03 and SA-04 bounded-context and regression-baseline corrections](#sa-03-and-sa-04-bounded-context-and-regression-baseline-corrections--2026-10-07), [Phase 9 review verification follow-up](#phase-9-review-verification-follow-up--2026-10-07), [Phase 9 independent review corrections](#phase-9-independent-review-corrections--2026-10-07), [Context architecture cleanup verification](#context-architecture-cleanup-verification--2026-10-07), [Phase 8 implementation baseline](#phase-8-local-implementation-checks--2026-10-05), [Phase 7](#phase-7-implementation-checks--2026-10-05), and [Phase 6](#phase-6-implementation-and-verification--2026-10-05). Older phase records below remain historical evidence.
+
+## SA-03 and SA-04 bounded-context and regression-baseline corrections — 2026-10-07
+
+Product-research and conversation requests now compact requirement descriptions deterministically against the serialized AI-request budget. Requirement IDs, current kind, structured key/operator/value, units, and applicable preference provenance remain intact; descriptions are compacted only in the model-facing context. Conversation history is removed before requirement descriptions are compacted. Individually valid structured values that cannot fit after description compaction still fail closed. Tests now distinguish compressible maximum-count projects from genuinely non-compressible context.
+
+The regression baseline corrections make monetary intent explicit in candidate fixtures, update the preference-reuse test to send its required concurrency versions, adjust the maximum-project conversation fake prompt so it does not attempt a 101st requirement, and align product-research fixtures with the classifier's specification-page and source-class contracts. No production validation was weakened and no test fixture lifecycle code changed.
+
+| Check | Result |
+|---|---|
+| Focused offline context and preference tests | Passed: 35 tests across product-plan budget, intent context, preference schemas, and preference boundary evaluations. |
+| Full offline API suite | Passed: `pytest -m 'not db and not live'`; 184 passed, 113 deselected. |
+| Focused PostgreSQL corrections | Passed: 7 cases covering compressible/non-compressible conversation context, explicit preference promotion, 100-requirement product assessment, malformed planner output, and grounded/runtime evidence. |
+| Full PostgreSQL suite | Passed: `pytest -m db`; 112 passed, 185 deselected against the disposable `shopping_assistant_sa03_test` database on a temporary local cluster. The full migration tests passed. |
+| PostgreSQL order/lifecycle investigation | The malformed-planner test passed individually and in the full suite. Previously reported order-sensitive behavior did not reproduce; no fixture isolation change was needed. |
+| API Ruff and formatting | Passed: `ruff check src tests migrations` and `ruff format --check src tests migrations`; 168 files already formatted. |
+| Generated API types | Passed: `scripts/generate_api_types.py --check`; `packages/api-types/src/index.ts` is current. |
+| Migration checks | Passed: Alembic head is `p9_owner_privacy_lifecycle`; `alembic upgrade head --sql` generated 1,471 lines. Fresh upgrade/downgrade/re-upgrade and migration drift checks passed in the full PostgreSQL suite. |
+| Frontend validation | Passed: ESLint, Vitest (68 tests across 9 files), `tsc -b`, and Vite production build, run directly with the installed bundled Node runtime. Vite emitted its existing main-chunk-size advisory. |
+| Aggregate `make validate` | Did not complete: the managed pnpm wrapper attempted to remove `node_modules` and aborted because no TTY was available. Ruff checks before that step passed; every remaining validation constituent was run directly and passed. |
+| Warnings | Existing Starlette/httpx deprecation and Alembic table-cycle warnings were emitted. No migration or application failure resulted. |
+
+No migration or public API schema changed, so frontend checks were precautionary. The PostgreSQL suite was not repeated a second time because fixture isolation was not changed. Cloud, browser, live-provider, and hosted checks remain open in their owning records.
 
 ## Phase 9 independent review corrections — 2026-10-07
 

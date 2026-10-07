@@ -48,6 +48,7 @@ def test_preference_boundary_scenarios(scenario: dict) -> None:
             "operator": scenario["operator"],
             "value": scenario["value"],
             "unit": scenario["unit"],
+            "monetary": scenario["monetary"],
             "category_scopes": ["furniture"],
         }
         CandidateCreate.model_validate(command)

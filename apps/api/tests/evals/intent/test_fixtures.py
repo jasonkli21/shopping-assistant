@@ -1,6 +1,7 @@
 import asyncio
 import json
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 
@@ -236,3 +237,149 @@ def test_prompt_context_is_bounded_without_truncating_the_current_message():
     context = request.input["context"]
     assert len(json.dumps(context, ensure_ascii=False, separators=(",", ":"))) <= MAX_CONTEXT_CHARS
     assert context["new_user_message"] == "A" * 4000
+
+
+def test_maximum_requirement_context_compacts_descriptions_and_preserves_authority():
+    from datetime import UTC, datetime
+
+    from shopping.conversations.task import MAX_CONTEXT_CHARS, build_request
+    from shopping.projects.schemas import ProjectRead
+
+    project_id = uuid4()
+    now = datetime.now(UTC)
+    requirements = []
+    for index in range(100):
+        preference_id = uuid4() if index % 3 == 0 else None
+        requirements.append(
+            {
+                "id": str(uuid4()),
+                "project_id": str(project_id),
+                "kind": "constraint" if index % 2 else "preference",
+                "label": (f"Requirement {index}: " + "label " * 80)[:300],
+                "detail": "Saved project detail " * 100,
+                "attribute_key": "maximum_height",
+                "operator": "lte",
+                "value": index + 1,
+                "unit": "cm",
+                "position": index,
+                "origin": "user",
+                "source_preference_id": str(preference_id) if preference_id else None,
+                "source_preference_revision": 4 if preference_id else None,
+                "source_preference_scope": ["furniture", "home"] if preference_id else None,
+                "created_at": now,
+                "updated_at": now,
+            }
+        )
+    project = ProjectRead.model_validate(
+        {
+            "id": str(project_id),
+            "title": "Maximum project",
+            "goal": "Find a suitable product",
+            "category": "furniture",
+            "status": "active",
+            "budget_target": None,
+            "budget_maximum": None,
+            "budget_currency": None,
+            "notes": None,
+            "reuse_preferences": True,
+            "revision": 1,
+            "created_at": now,
+            "updated_at": now,
+            "requirements": requirements,
+        }
+    )
+    original_detail_lengths = [len(item.detail) for item in project.requirements]
+
+    request = build_request(
+        project,
+        "A" * 4000,
+        [{"role": "user", "text": "previous message " * 250} for _ in range(12)],
+    )
+    context = request.input["context"]
+    encoded_request = json.dumps(
+        {"task": request.task, "input": request.input},
+        ensure_ascii=False,
+        allow_nan=False,
+        separators=(",", ":"),
+    )
+
+    assert len(encoded_request) <= MAX_CONTEXT_CHARS
+    assert context["recent_messages"] == []
+    assert context["new_user_message"] == "A" * 4000
+    assert len(context["requirements"]) == 100
+    for source, compacted in zip(requirements, context["requirements"], strict=True):
+        assert compacted["id"] == source["id"]
+        assert compacted["kind"] == source["kind"]
+        assert compacted["attribute_key"] == source["attribute_key"]
+        assert compacted["operator"] == source["operator"]
+        assert compacted["value"] == source["value"]
+        assert compacted["unit"] == source["unit"]
+        expected_origin = (
+            {
+                "preference_id": source["source_preference_id"],
+                "preference_revision": source["source_preference_revision"],
+                "scope": source["source_preference_scope"],
+            }
+            if source["source_preference_id"]
+            else None
+        )
+        assert compacted["preference_origin"] == expected_origin
+    assert all(item.detail is not None for item in project.requirements)
+    assert [len(item.detail) for item in project.requirements] == original_detail_lengths
+
+
+def test_noncompressible_structured_requirement_values_still_exceed_context_budget():
+    from datetime import UTC, datetime
+
+    from shopping.conversations.task import build_request
+    from shopping.projects.schemas import ProjectRead, RequirementCreate
+
+    project_id = uuid4()
+    now = datetime.now(UTC)
+    requirements = []
+    for index in range(10):
+        fields = {
+            "kind": "constraint",
+            "label": f"Requirement {index}",
+            "attribute_key": "supported_modes",
+            "operator": "one_of",
+            "value": [f"mode-{index}-" + "x" * 1900 for _ in range(4)],
+        }
+        RequirementCreate.model_validate(fields)
+        requirements.append(
+            {
+                "id": str(uuid4()),
+                "project_id": str(project_id),
+                **fields,
+                "detail": None,
+                "unit": None,
+                "position": index,
+                "origin": "user",
+                "source_preference_id": None,
+                "source_preference_revision": None,
+                "source_preference_scope": None,
+                "created_at": now,
+                "updated_at": now,
+            }
+        )
+    project = ProjectRead.model_validate(
+        {
+            "id": str(project_id),
+            "title": "Noncompressible project",
+            "goal": "Find a suitable product",
+            "category": "electronics",
+            "status": "active",
+            "budget_target": None,
+            "budget_maximum": None,
+            "budget_currency": None,
+            "notes": None,
+            "reuse_preferences": False,
+            "revision": 1,
+            "created_at": now,
+            "updated_at": now,
+            "requirements": requirements,
+        }
+    )
+
+    with pytest.raises(ValueError, match="configured size limit"):
+        build_request(project, "Find a matching product", [])

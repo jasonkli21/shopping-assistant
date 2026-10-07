@@ -31,6 +31,7 @@
     "operator": "lte",
     "value": "500.00",
     "unit": "USD",
+    "monetary": true,
     "promotable": true,
     "suggestible": false
   },

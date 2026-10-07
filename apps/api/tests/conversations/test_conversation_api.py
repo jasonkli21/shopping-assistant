@@ -605,7 +605,7 @@ def test_invalid_phase_one_fields_fail_generation_without_proposal_or_revision(p
         assert proposals == []
 
 
-def test_oversized_project_context_is_saved_as_failure_without_provider_call(project_api):
+def test_maximum_valid_project_context_is_compacted_for_provider(project_api):
     client, _owner, _engine = project_api
     fake = FakePersonalAIClient()
     set_fake(client, fake)
@@ -615,15 +615,61 @@ def test_oversized_project_context_is_saved_as_failure_without_provider_call(pro
             "title": "Vacuum",
             "goal": "Find a vacuum",
             "requirements": [
-                {"kind": "preference", "label": f"Preference {index}", "detail": "x" * 1000}
-                for index in range(30)
+                {
+                    "kind": "constraint" if index % 2 else "preference",
+                    "label": (f"Preference {index}: " + "criterion " * 28)[:300],
+                    "detail": "saved project note " * 100,
+                    "attribute_key": "max_height",
+                    "operator": "lte",
+                    "value": index + 1,
+                    "unit": "cm",
+                }
+                for index in range(100)
             ],
         },
     )
     assert response.status_code == 201, response.text
     project = response.json()
 
-    accepted = send_message(client, project["id"], "oversized-context-key-0001")
+    accepted = send_message(
+        client,
+        project["id"],
+        "maximum-context-key-00001",
+        text="Help me understand the requirements.",
+    )
+    assert accepted.status_code == 202
+    assistant = wait_for_message(client, project["id"], accepted.json()["assistant_message_id"])
+    assert assistant["status"] == "completed", assistant
+    assert assistant["error_code"] is None
+    assert fake.calls == 1
+    current = client.get(f"/projects/{project['id']}").json()
+    assert current["revision"] == 1
+    assert len(current["requirements"]) == 100
+    assert current["requirements"] == project["requirements"]
+
+
+def test_noncompressible_project_context_is_saved_as_failure_without_provider_call(project_api):
+    client, _owner, _engine = project_api
+    fake = FakePersonalAIClient()
+    set_fake(client, fake)
+    requirements = [
+        {
+            "kind": "constraint",
+            "label": f"Supported mode set {index}",
+            "attribute_key": "supported_modes",
+            "operator": "one_of",
+            "value": [f"mode-{index}-" + "x" * 1900 for _ in range(4)],
+        }
+        for index in range(10)
+    ]
+    response = client.post(
+        "/projects",
+        json={"title": "Vacuum", "goal": "Find a vacuum", "requirements": requirements},
+    )
+    assert response.status_code == 201, response.text
+    project = response.json()
+
+    accepted = send_message(client, project["id"], "noncompressible-context-key-01")
     assert accepted.status_code == 202
     assistant = wait_for_message(client, project["id"], accepted.json()["assistant_message_id"])
     assert assistant["status"] == "failed"
@@ -631,7 +677,7 @@ def test_oversized_project_context_is_saved_as_failure_without_provider_call(pro
     assert fake.calls == 0
     current = client.get(f"/projects/{project['id']}").json()
     assert current["revision"] == 1
-    assert len(current["requirements"]) == 30
+    assert current["requirements"] == project["requirements"]
 
 
 def test_timeout_is_persisted_and_retry_is_a_new_command(project_api):

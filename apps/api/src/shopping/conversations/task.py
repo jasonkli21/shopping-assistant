@@ -18,6 +18,7 @@ from shopping.conversations.schemas import (
     UpdateRequirement,
 )
 from shopping.integrations.personal_ai.client import AIRequest
+from shopping.projects.context import compact_requirement_descriptions
 from shopping.projects.schemas import (
     ProjectPatch,
     ProjectRead,
@@ -125,20 +126,29 @@ def build_request(
     project_note = (current_state or {}).get("project_notes")
     if isinstance(project_note, str):
         snapshot["project"]["notes"] = project_note[:2000]
-    encoded = json.dumps(snapshot, ensure_ascii=False, separators=(",", ":"))
-    if len(encoded) > MAX_CONTEXT_CHARS:
+
+    request_input = {
+        "system_instructions": SYSTEM_INSTRUCTIONS,
+        "prompt_version": PROMPT_VERSION,
+        "response_schema": InterpretationOutput.model_json_schema(),
+    }
+
+    def request_size(context: dict[str, Any]) -> int:
+        request = {"task": TASK_NAME, "input": request_input | {"context": context}}
+        return len(json.dumps(request, ensure_ascii=False, allow_nan=False, separators=(",", ":")))
+
+    # Conversation history is useful but optional. Remove it before compacting
+    # current project requirements, whose identity and criteria remain authoritative.
+    if request_size(snapshot) > MAX_CONTEXT_CHARS:
         snapshot["recent_messages"] = []
-        encoded = json.dumps(snapshot, ensure_ascii=False, separators=(",", ":"))
-        if len(encoded) > MAX_CONTEXT_CHARS:
-            raise ValueError("shopping intent context exceeds its configured size limit")
+    snapshot = compact_requirement_descriptions(
+        snapshot,
+        max_chars=MAX_CONTEXT_CHARS,
+        measure=request_size,
+    )
     return AIRequest(
         task=TASK_NAME,
-        input={
-            "system_instructions": SYSTEM_INSTRUCTIONS,
-            "prompt_version": PROMPT_VERSION,
-            "response_schema": InterpretationOutput.model_json_schema(),
-            "context": snapshot,
-        },
+        input=request_input | {"context": snapshot},
     )
 
 
