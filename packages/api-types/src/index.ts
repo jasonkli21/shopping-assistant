@@ -425,6 +425,11 @@ export interface components {
       "observed_at": string;
       "freshness": "current" | "stale";
     };
+    OwnerPurgeResult: {
+      "status": string;
+      "deleted_records": Record<string, number>;
+      "audit_retained"?: boolean;
+    };
     PreferenceCandidateRead: {
       "id": string;
       "source_kind": "requirement" | "decision";
@@ -885,6 +890,12 @@ export interface components {
 }
 
 export interface paths {
+  "/account/data": {
+    "delete": operations["purge_account_data_account_data_delete"];
+  };
+  "/account/export": {
+    "get": operations["export_account_data_account_export_get"];
+  };
   "/health": {
     "get": operations["health_health_get"];
   };
@@ -1035,6 +1046,9 @@ export interface paths {
   };
   "/projects/{project_id}/sources/{snapshot_id}": {
     "get": operations["source_snapshot_projects__project_id__sources__snapshot_id__get"];
+  };
+  "/ready": {
+    "get": operations["readiness_ready_get"];
   };
   "/saved-products": {
     "get": operations["list_saved_products_saved_products_get"];
@@ -1520,6 +1534,24 @@ export interface operations {
     responses: {
       "200": { content?: {
         "application/json": components["schemas"]["ProposalMutationResult"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
+  "export_account_data_account_export_get": {
+    parameters: {
+    };
+    responses: {
+      "200": { content?: {
+        "application/json"?: undefined;
       } };
       "404": { content?: {
         "application/json": components["schemas"]["ApiErrorEnvelope"];
@@ -2317,6 +2349,27 @@ export interface operations {
       } };
     };
   };
+  "purge_account_data_account_data_delete": {
+    parameters: {
+      query: {
+        "confirm": string;
+      };
+    };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["OwnerPurgeResult"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
   "put_product_note_projects__project_id__products__project_product_id__notes_put": {
     parameters: {
       path: {
@@ -2354,6 +2407,24 @@ export interface operations {
     responses: {
       "200": { content?: {
         "application/json": components["schemas"]["NoteMutationResult"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
+  "readiness_ready_get": {
+    parameters: {
+    };
+    responses: {
+      "200": { content?: {
+        "application/json": Record<string, string>;
       } };
       "404": { content?: {
         "application/json": components["schemas"]["ApiErrorEnvelope"];

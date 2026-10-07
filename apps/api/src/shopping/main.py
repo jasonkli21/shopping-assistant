@@ -1,5 +1,8 @@
+import json
 import logging
+import re
 from contextlib import asynccontextmanager
+from time import monotonic
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Request
@@ -16,6 +19,7 @@ from shopping.db.session import SessionLocal
 from shopping.extraction.http_retriever import HTTPPageRetriever
 from shopping.integrations.personal_ai.client import UnavailablePersonalAIClient
 from shopping.integrations.personal_ai.fake import FakePersonalAIClient
+from shopping.projects.dependencies import _firebase_app
 from shopping.projects.errors import ProjectError
 from shopping.projects.schemas import ApiError, ApiErrorEnvelope
 from shopping.research.supervisor import DiscoverySupervisor
@@ -27,6 +31,11 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
+    if settings.auth_mode == "firebase":
+        try:
+            _firebase_app(settings.firebase_project_id or "")
+        except Exception:
+            raise RuntimeError("Firebase identity verification could not be initialized") from None
     application.state.conversation_session_factory = getattr(
         application.state, "conversation_session_factory", SessionLocal
     )
@@ -98,9 +107,9 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Accept", "Authorization", "Content-Type", "X-Request-ID"],
 )
 
 app.include_router(router)
@@ -108,11 +117,31 @@ app.include_router(router)
 
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
-    request_id = request.headers.get("X-Request-ID") or str(uuid4())
+    supplied_id = request.headers.get("X-Request-ID", "")
+    request_id = supplied_id if re.fullmatch(r"[A-Za-z0-9._-]{1,64}", supplied_id) else str(uuid4())
     request.state.request_id = request_id
-    response = await call_next(request)
-    response.headers["X-Request-ID"] = request_id
-    return response
+    started_at = monotonic()
+    status_code = 500
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+        response.headers["X-Request-ID"] = request_id
+        return response
+    finally:
+        logger.info(
+            json.dumps(
+                {
+                    "event": "http_request",
+                    "request_id": request_id,
+                    "owner_key": getattr(request.state, "owner_key", None),
+                    "method": request.method,
+                    "path": request.url.path,
+                    "status_code": status_code,
+                    "duration_ms": round((monotonic() - started_at) * 1000),
+                },
+                separators=(",", ":"),
+            )
+        )
 
 
 def error_response(

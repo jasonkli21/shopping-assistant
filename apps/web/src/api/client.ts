@@ -1,5 +1,6 @@
 import type { components } from "../../../../packages/api-types/src";
 import { consumeAssistantSse, type AssistantSseEvent } from "../features/assistant/sse";
+import { firebaseAuth } from "../auth/firebase";
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000").replace(/\/$/, "");
 
@@ -72,12 +73,13 @@ export class ApiRequestError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers);
+  if (init?.body) headers.set("Content-Type", "application/json");
+  const token = await firebaseAuth?.currentUser?.getIdToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
-    headers: {
-      ...(init?.body ? { "Content-Type": "application/json" } : {}),
-      ...init?.headers,
-    },
+    headers,
   });
   if (response.status === 204) return undefined as T;
   const payload: unknown = await response.json();
@@ -154,9 +156,16 @@ export const projectsApi = {
     signal: AbortSignal,
   ) => {
     const query = new URLSearchParams({ message_id: messageId });
+    const token = await firebaseAuth?.currentUser?.getIdToken();
     const response = await fetch(
       `${API_BASE_URL}/projects/${projectId}/messages/stream?${query.toString()}`,
-      { headers: { Accept: "text/event-stream" }, signal },
+      {
+        headers: {
+          Accept: "text/event-stream",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        signal,
+      },
     );
     if (!response.ok) {
       const payload = (await response.json().catch(() => ({}))) as {

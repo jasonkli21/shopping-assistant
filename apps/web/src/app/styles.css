@@ -620,6 +620,17 @@ input[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: #bc615
 .saved-comparison-list li { display: flex; justify-content: space-between; gap: 12px; padding: 11px 12px; border: 1px solid #e7ece6; border-radius: 9px; }
 .saved-comparison-list a { color: var(--green-dark); font-size: .82rem; font-weight: 650; }
 .saved-comparison-list span { color: var(--muted); font-size: .72rem; }
+.account-session { display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 8px max(20px, calc((100vw - 1180px) / 2)); background: #f4f7f3; color: #536257; font-size: .75rem; }
+.account-session button { padding: 5px 10px; border: 1px solid #dbe4da; border-radius: 7px; background: #fff; color: #405247; font: inherit; cursor: pointer; }
+.sign-in-page { display: grid; min-height: 100vh; place-items: center; padding: 24px; background: #f4f7f3; }
+.sign-in-card { display: grid; gap: 14px; width: min(100%, 380px); padding: 26px; border: 1px solid #e1e8e0; border-radius: 16px; background: #fff; box-shadow: 0 16px 40px rgba(37, 57, 43, .08); }
+.sign-in-card h1 { margin: 0; color: #294b34; font-size: 1.45rem; }
+.sign-in-card p { margin: 0; color: #5d6c61; font-size: .88rem; line-height: 1.5; }
+.sign-in-card label { display: grid; gap: 6px; color: #405247; font-size: .8rem; font-weight: 650; }
+.sign-in-card input { min-width: 0; padding: 10px 11px; border: 1px solid #d8e1d7; border-radius: 8px; font: inherit; }
+.sign-in-card button { padding: 10px 14px; border: 0; border-radius: 8px; background: #315d3e; color: white; font: inherit; font-weight: 650; cursor: pointer; }
+.sign-in-card button:disabled { opacity: .65; cursor: wait; }
+
 .research-variant-list { display: grid; gap: 16px; }
 .research-variant-card { min-width: 0; padding: 18px; border: 1px solid var(--line); border-radius: 16px; background: rgba(255,255,255,.7); }
 .research-variant-heading { align-items: center; }

@@ -6,6 +6,13 @@ on:
     branches: [main]
 
 jobs:
+  container-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the locked production API image without credentials
+        run: docker build --file apps/api/Dockerfile --tag shopping-assistant-api:ci .
+
   backend:
     runs-on: ubuntu-latest
     defaults:

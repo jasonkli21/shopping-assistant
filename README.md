@@ -107,7 +107,7 @@ The shopping app integrates over explicit contracts rather than importing AI-sys
 │   └── planning/           # detailed engineering plans/history
 ├── infra/
 │   ├── local/
-│   └── cloud/              # cloud deployment placeholder
+│   └── cloud/              # Cloud Run/Firebase deployment inputs and scripts
 ├── scripts/
 ├── docker-compose.yml
 └── Makefile
@@ -303,9 +303,7 @@ Cloud Run: Shopping API
    +-------> personal-ai-system
 ```
 
-The repository currently keeps `infra/cloud/` intentionally minimal. A turnkey Cloud Run/Firebase/Secret Manager/Neon deployment stack is **not yet provided**.
-
-For now, treat cloud deployment as an architecture target rather than a one-command supported installation.
+Phase 9 now includes a local deployment foundation: locked non-root API container, Firebase Hosting configuration, authenticated owner binding, migration/backup scripts, and a deployment runbook. No account-specific resources are configured, and no cloud deployment or recovery has been verified. See [`docs/deployment/runbook.md`](docs/deployment/runbook.md) and [`docs/current-state.md`](docs/current-state.md).
 
 A future cloud deployment should preserve these constraints:
 

@@ -34,6 +34,7 @@ Security and privacy constraints take precedence. A current user instruction can
 | Personal AI integration and privacy boundary | [`architecture/personal-ai-integration.md`](architecture/personal-ai-integration.md), [`apps/api/src/shopping/integrations/personal_ai/CONTRACT.md`](../apps/api/src/shopping/integrations/personal_ai/CONTRACT.md), and [ADR 0003](adr/0003-personal-ai-boundary.md) |
 | Frontend implementation | [`product/ux-design.md`](product/ux-design.md), `apps/web/src/`, and `apps/web/tests/` |
 | Current phase, stop boundary, or next authorized scope | [`current-state.md`](current-state.md), then [`planning/implementation-plans-index.md`](planning/implementation-plans-index.md) and the selected phase plan |
+| Cloud deployment and production operations | [`deployment/runbook.md`](deployment/runbook.md), [`planning/phase-9-implementation-plan.md`](planning/phase-9-implementation-plan.md), and the [Phase 9 verification record](deployment/phase-9-verification.md) |
 | Validation, review, and external verification | [`../VALIDATION.md`](../VALIDATION.md), the owning phase plan/review, and `planning/*independent-review-handoff.md` where present. |
 
 ## Verification and links

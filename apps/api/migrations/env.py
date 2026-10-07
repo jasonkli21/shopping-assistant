@@ -3,6 +3,7 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
+from shopping.accounts import models as account_models  # noqa: F401
 from shopping.catalog import models as catalog_models  # noqa: F401
 from shopping.comparisons import models as comparison_models  # noqa: F401
 from shopping.config import get_settings
@@ -16,7 +17,8 @@ from shopping.research import models as research_models  # noqa: F401
 config = context.config
 settings = get_settings()
 # ConfigParser interprets percent signs in URL-encoded credentials.
-config.set_main_option("sqlalchemy.url", settings.database_url.replace("%", "%%"))
+migration_database_url = settings.migration_database_url or settings.database_url
+config.set_main_option("sqlalchemy.url", migration_database_url.replace("%", "%%"))
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
@@ -32,7 +34,7 @@ def do_run_migrations(connection) -> None:
 
 def run_migrations_offline() -> None:
     context.configure(
-        url=settings.database_url,
+        url=migration_database_url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},

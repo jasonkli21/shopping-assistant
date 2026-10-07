@@ -1,6 +1,6 @@
 # Phase 9 — Cloud deployment and production hardening
 
-Status: planned. Requires the Phase 6 gate, a completed Phase 7 execution decision, the Phase 8 scope/privacy contract, and predecessor verification evidence. Read the [index](implementation-plans-index.md), deployment/testing/technology docs, all ADRs, live provider contract notes and current official platform documentation during implementation. Cloud/provider capabilities and quotas must be checked at execution time.
+Status: local implementation started; **not accepted**. This slice delivers the Phase 9 identity/configuration foundation, API container and Hosting configuration, owner export/purge, and operator documentation. It does not close the Phase 6 or Phase 8 gates, and the Phase 7 local execution decision still lacks production lifecycle evidence. Cross-instance generation ownership, hosted research/SSE verification, actual quota/billing configuration, and restore/security evidence remain open. See the [verification record](../deployment/phase-9-verification.md) and [runbook](../deployment/runbook.md). Cloud/provider capabilities and quotas must be checked against actual accounts at execution time.
 
 ## Outcome, slice and boundary
 

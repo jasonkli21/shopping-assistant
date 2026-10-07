@@ -1,23 +1,23 @@
 # API Contract
 
-`GET /health` and feature APIs through Phase 8 are implemented locally. OpenAPI is the source for committed TypeScript transport types in `packages/api-types/src/index.ts`; regenerate with `make api-types` and verify with `make api-types-check`. Phase acceptance and open gates are tracked in [`../current-state.md`](../current-state.md); this document describes the transport contract, not phase status. See the [plans index](../planning/implementation-plans-index.md) and [validation record](../../VALIDATION.md) for related contracts and evidence.
+`GET /health`, feature APIs through Phase 8, and the local Phase 9 auth/readiness/export/purge foundation are implemented. Cloud behavior remains unverified. OpenAPI is the source for committed TypeScript transport types in `packages/api-types/src/index.ts`; regenerate with `make api-types` and verify with `make api-types-check`. Phase acceptance and open gates are tracked in [`../current-state.md`](../current-state.md); this document describes the transport contract, not phase status. See the [plans index](../planning/implementation-plans-index.md) and [validation record](../../VALIDATION.md) for related contracts and evidence.
 
 ## Shared conventions
 
 - Transport schemas are distinct from ORM models. Opaque UUID IDs, UTC ISO-8601 timestamps and decimal-string money with explicit currency; unknown values stay null/unknown.
-- Private resources are scoped to a stable server-side owner from Phase 1. Locally, `LOCAL_OWNER_ID` selects that principal (with a fixed development default); no client can set `owner_id`. Firebase auth/allowlisted identity mapping arrives before cloud exposure in Phase 9.
+- Private resources are scoped to a stable server-side owner from Phase 1. Locally, `LOCAL_OWNER_ID` selects that principal (with a fixed development default); no client can set `owner_id`. Staging/production require a verified Firebase ID token, an exact configured UID allowlist, and the one-time `firebase_owner_bindings` mapping. The client sends short-lived bearer tokens in `Authorization`, including on fetch-based SSE; tokens never go in query strings. Unconfigured or foreign UIDs cannot select another owner.
 - Context mutations carry `expected_version`, return the committed project revision and conflict with 409. Nested references must belong to the same owner/project. Catalog/profile/comparison revisions are explicit where relevant.
 - Conversation/research commands carry `request_key`: exact replay returns the same command result; same key/different payload returns 409. Validated AI proposals apply atomically and explicitly; prose/deltas cannot mutate durable state.
 - Error envelope `{error:{code,message,details?,request_id?}}`; field validation 422, unavailable/foreign-owner ID 404, revision/transition conflict 409. Sanitize provider errors. Bounded cursor pagination is specified in the index.
 - Project context edits advance its revision. Activity bookkeeping (message/run status, query/source observations and stream subscriptions) does not advance it; snapshot/run revisions describe the input used. Derived comparisons must record the committed context revision when created by a context mutation.
 
-## System — Phase 0; readiness in Phase 9
+## System — Phase 0; readiness foundation — Phase 9
 
-Implemented: `GET /health` is liveness and does not query PostgreSQL. Database/schema readiness arrives in Phase 9.
+Implemented locally: `GET /health` is liveness and does not query PostgreSQL. `GET /ready` checks database reachability, the current Alembic head, and (when Firebase auth is enabled) the configured owner binding. Failures return a generic 503 without secret details. No hosted check has run.
 
 ```text
 GET /health
-GET /ready       # Phase 9, bounded DB/schema readiness
+GET /ready
 ```
 
 ## Projects and requirements — Phase 1
@@ -146,6 +146,13 @@ Use exact ProjectProduct IDs, not family-level product IDs, for project decision
 
 Comparisons persist ordered variants, dimensions and immutable generated snapshots. Facts, offers, cited evidence, project-fit assessments and user notes retain cell provenance; unknown, conflicting, stale and incomparable cells remain visible in differences mode. Only demonstrably equal known values are hidden. Supported units normalize deterministically; unequal currencies are not ranked. `GET` does not regenerate a snapshot; use the explicit `/regenerate` command with both expected versions. These local routes and schemas are generated into the committed API types.
 
-## Profiles/memory and production — Phases 8/9
+## Profiles/memory and account privacy — Phases 8/9
 
-The Phase 8 contract covers owner-scoped profile/preferences/candidates, promotion/revocation, and conditional external memory operations with explicit consent. No external memory API is assumed to exist. The Phase 9 contract adds Firebase token verification/authorization and owner export/purge plus readiness. Final routes/types must be documented and authorization-tested across the entire implemented route inventory before release.
+The Phase 8 contract covers owner-scoped profile/preferences/candidates, promotion/revocation, and conditional external memory operations with explicit consent. No external memory API is assumed to exist. Local Phase 9 endpoints are:
+
+```text
+GET    /account/export
+DELETE /account/data?confirm=DELETE_MY_DATA
+```
+
+Export is owner-scoped, versioned JSON, bounded at 2,000 rows/10 MiB, excludes full retrieved page text and identity bindings, and redacts URL credentials. Purge requires the exact confirmation query, removes owner application rows and the Firebase UID binding, and retains a timestamp/count-only audit row. The owner must be rebound before private access resumes. PostgreSQL authorization, export/purge, migration, and restore checks remain open; do not treat this local contract as security verification.
