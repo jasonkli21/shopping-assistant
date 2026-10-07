@@ -7,9 +7,9 @@ Status: **implementation guide only; no cloud resources have been configured or 
 Do not expose the complete shopping journey until these blockers are closed:
 
 - Phase 6 PostgreSQL migration/integration and deterministic browser journey gates remain open.
-- Phase 8 independent review has unresolved lifecycle, preference validation, transaction, privacy, and prompt-contract findings. See the [Phase 8 handoff](../planning/phase-8-independent-review-handoff.md).
+- Phase 8 has unresolved review findings across preference lifecycle/concurrency, project criterion validation and content preservation, transaction safety, user-visible stale state, and AI provenance. PostgreSQL lifecycle checks and manual browser review also remain open. The detailed dated handoff is only an untracked local artifact; see the tracked [current-state summary](../current-state.md) for the known open status.
 - Phase 7 chose bounded in-process, ID-based research. Cross-instance conversation generation ownership, reconnect behavior, shutdown/restart, and deployed SSE semantics have not been verified for Cloud Run. `--no-cpu-throttling` preserves CPU while an instance is active but does not make in-process work durable.
-- The checked Personal AI contract has no structured shopping task endpoint. Production mode refuses deterministic fake generation, but the current external adapter reports `provider_unavailable`. Do not claim an assistant journey until a compatible upstream contract and implementation are verified.
+- Personal AI registers Shopping context/action capabilities, but all three Shopping-specific capabilities remain unavailable. Its exact-barcode domain lookup is not a Shopping Project context or typed task/proposal transport. Production requires `PERSONAL_AI_MODE=external` to refuse fake generation, but that mode selects `UnavailablePersonalAIClient` and returns `provider_unavailable` without making a network request. Do not claim an assistant journey until a supported upstream transport and compatible Shopping implementation are verified.
 - Neon plan connection limits, backup/restore behavior, Cloud Run quotas, provider quotas, and billing alerts have not been checked for a real account.
 
 ## Resource inventory to record

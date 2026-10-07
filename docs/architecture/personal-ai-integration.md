@@ -1,58 +1,45 @@
 # Personal AI Integration
 
-## Boundary
+## Current status
 
-The Shopping Assistant is a specialized domain application. The separate `personal-ai-system` is the shared intelligence platform.
+Shopping is registered in `personal-ai-system` as `application_id = "shopping"`. That registry entry is an application contract, not a usable Shopping AI connection. The current upstream API does not expose the typed Shopping task, Shopping context-provider, or Shopping mutation contract this application needs.
 
-Use a typed HTTP client boundary represented in this repo by `PersonalAIClient`.
+Shopping's `PersonalAIClient.generate(AIRequest) -> AIResponse` is its local boundary for AI-dependent work. The deterministic fake supports local development and tests. The external implementation is deliberately unavailable and returns `provider_unavailable`; no network request is made. Production requires `PERSONAL_AI_MODE=external` to prevent fake generation, but that setting does not prove or enable a working upstream integration.
 
-Do not import internal code or database structures from the personal-AI repository.
+## Application scope and registry
 
-## Shopping owns
+The upstream application definition currently declares:
 
-- shopping-specific prompts/task definitions;
-- product and project schemas;
-- structured mutation semantics;
-- research planning for shopping;
-- product comparison logic;
-- evidence interpretation;
-- shopping preference lifecycle.
+- `application_id = "shopping"`;
+- optional workspace scope;
+- `memory_namespace = "shopping"`;
+- sensitivity defaults of `personal` for conversation, memory, and client context, and `sensitive` for domain context;
+- `shopping.product_context` and `shopping.catalog_search` context-provider capabilities;
+- `shopping.product_action` as a tool capability; and
+- the `shopping` comparison domain.
 
-## Personal AI owns
+The three Shopping context/action capabilities are registered with `available = false`. Registration records intended capability identity and metadata; it does not implement a provider, tool, transport, or permission. The memory namespace likewise does not provide Shopping with a memory API or prove that Shopping memory reads or writes are available.
 
-- model/provider invocation;
-- generic generation and streaming;
-- user-wide memory;
-- model configuration/cost controls;
-- generic reusable research primitives when they truly become shared.
+Personal AI's `/v1/domains/shopping/lookup` route is a separate implemented API for exact barcode lookup and comparison. It does not expose Shopping Project state, implement the registered Shopping context providers, generate Shopping's typed assistant/research tasks, or accept Shopping mutation proposals. It is not a transport for this integration.
 
-## Expected API evolution
+`application_id` and optional `workspace_id` describe request scope; neither authorizes access. The owner must be authenticated and derived by the server. A future integration must continue to enforce owner and workspace access independently of the supplied application/workspace identifiers.
 
-Conceptually, the client may expose capabilities such as:
+A Shopping Project is the natural candidate for Personal AI's optional workspace scope. The upstream contract does not currently require a particular transport mapping, so do not assume or encode a project-ID-to-`workspace_id` wire mapping yet.
 
-```text
-generate(...)
-stream(...)
-retrieve_context(...)
-propose_memory(...)
-```
+## Domain authority and shared runtime
 
-Possibly later:
+Shopping remains authoritative for Shopping Projects, requirements, products and variants, offers, decisions, preferences, and Shopping evidence. These records stay in Shopping's PostgreSQL domain store.
 
-```text
-research(...)
-```
+`personal-ai-system` is the shared AI platform. Its current and planned architecture owns common inference/provider routing, AI memory, context assembly, and reusable AI/research runtime capabilities when an application explicitly integrates them. The committed Phase 11 work prepares explicitly selected provider items; the current upstream working tree also has uncommitted shared-builder changes for assembling selected items into model input. Neither implements or automatically selects Shopping domain context: Shopping-specific providers and tools remain unavailable, and the future typed mutation-capability framework is not a Shopping integration today. This does not transfer Shopping's domain authority to Personal AI.
 
-Do not design shopping features around methods that the personal-AI system does not yet expose. Use adapters/fakes until contracts are available.
+## Future data exchange
 
-## Preference promotion
+When a supported upstream transport and Shopping providers exist, Shopping → Personal AI context should be bounded, typed, and versioned. Each disclosed item should retain the appropriate owner/application/workspace scope, domain identity, source identity and version, source references and provenance, authority, freshness timestamps or expiry, sensitivity (including field-level labels where needed), and permission dependencies. Context selection should be explicit and bounded by fields, entity references, result count, bytes, and time.
 
-A project-specific preference such as “this chair must fit under a 27-inch desk” should remain local to the project.
+Personal AI → Shopping changes should arrive as typed, versioned proposals or capability results. Shopping must perform owner/domain authorization, validate project revisions and hard constraints, enforce idempotency and any required user confirmation, persist the authoritative change, and return the resulting Shopping state. Personal AI must not write Shopping records directly.
 
-A possible long-term preference such as “prefers compact furniture” may become a `PreferenceCandidate` and be explicitly promoted or proposed to personal-AI memory.
+Do not import Personal AI internal Python types into Shopping or create a shared package merely to align names. Agree on an external, versioned wire contract when an actual transport is available; map it inside Shopping's `PersonalAIClient` boundary.
 
-Avoid silently turning one shopping decision into permanent memory.
+## Related contracts
 
-Phase 2 now defines a provider-neutral `generate(AIRequest) -> AIResponse` boundary and shopping-owned `interpret_shopping_intent.v1` prompt/schema. The local deterministic fake exercises that contract. Verification of the separate Personal AI route inventory found ordinary chat text/SSE, but no typed structured-task endpoint, JSON-schema-constrained output contract, or task refusal envelope. The external adapter therefore remains unavailable and must not guess a route. See the [Phase 2 contract note](../../apps/api/src/shopping/integrations/personal_ai/CONTRACT.md).
-
-The assistant's persisted local SSE route attaches to database-backed messages; it is not evidence of upstream provider token streaming. A future verified provider implementation can return one structured response through `generate`; only add a provider `stream` method when actual structured-event semantics are documented. The local Phase 8 preference/profile lifecycle does not add external memory methods; those remain out of scope until a verified external API exists. Conceptual methods above do not assert external service availability.
+See the [Shopping integration contract check](../../apps/api/src/shopping/integrations/personal_ai/CONTRACT.md), [ADR 0003](../adr/0003-personal-ai-boundary.md), and `personal-ai-system/docs/personal-ai-chapter-2/02-target-architecture.md` in the sibling checkout for upstream details.

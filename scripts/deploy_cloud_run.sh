@@ -57,6 +57,8 @@ if [[ "$DATABASE_URL_SECRET_VERSION" == latest || "$TAVILY_API_KEY_SECRET_VERSIO
   exit 2
 fi
 
+# `external` prevents fake generation; it still selects the fail-closed
+# unavailable client until a supported Personal AI transport is implemented.
 gcloud run deploy "$CLOUD_RUN_SERVICE" \
   --project "$GCP_PROJECT_ID" \
   --region "$GCP_REGION" \

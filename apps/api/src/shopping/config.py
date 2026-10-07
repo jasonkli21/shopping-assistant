@@ -36,7 +36,8 @@ class Settings(BaseSettings):
     local_owner_id: UUID = UUID("00000000-0000-4000-8000-000000000001")
     firebase_project_id: str | None = Field(default=None, max_length=128)
     firebase_owner_uid: str | None = Field(default=None, max_length=128)
-    personal_ai_url: str = "http://localhost:8080"
+    # `external` currently selects UnavailablePersonalAIClient; production
+    # requires it only to prevent fake responses until a supported transport exists.
     personal_ai_mode: Literal["fake", "external"] = "fake"
     conversation_generation_timeout_seconds: int = Field(default=30, gt=0, le=120)
     conversation_max_concurrent_generations: int = Field(default=4, gt=0, le=32)

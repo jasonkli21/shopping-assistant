@@ -34,6 +34,6 @@ Status: **local implementation only; no cloud environment configured; Phase 9 no
 - Phase 8 review findings and PostgreSQL preference lifecycle checks remain open.
 - Repository test suites (`make validate` and `make test-db TEST_DATABASE_URL=...`) were not run. The API type generation and offline migration SQL checks above are not substitutes for those suites or live database checks.
 - No Firebase, Google Cloud, Neon, Tavily, or Personal AI credentialed check was run. No cloud resource was deployed and no production backup/restore was demonstrated.
-- The checked Personal AI API still has no structured shopping task endpoint; production's external generation adapter remains unavailable.
+- Personal AI registers Shopping's context/action capabilities, but they remain unavailable; its exact-barcode domain lookup does not provide Shopping task/context/proposal integration. Production's `PERSONAL_AI_MODE=external` selects the fail-closed unavailable client and makes no network request.
 
 Do not use this record to claim successful deployment, recovery, security review, or production readiness. Add the actual revision and real command outputs after checks run in the selected environments.

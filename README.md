@@ -238,14 +238,13 @@ Local assistant generation defaults to:
 PERSONAL_AI_MODE=fake
 ```
 
-External integration uses:
+To select the external mode (currently unavailable) instead of the local fake, set:
 
 ```env
 PERSONAL_AI_MODE=external
-PERSONAL_AI_URL=http://localhost:8080
 ```
 
-Only enable this when the upstream structured shopping contract and identity/data-handling boundary are configured.
+This currently selects an unavailable client that returns `provider_unavailable`; it does not make a network request or prove that Personal AI is connected. Production requires `external` to prevent fake generation, but the AI-backed journey remains unavailable until Personal AI publishes a supported Shopping task/context/proposal transport and Shopping implements it. There is no `PERSONAL_AI_URL` setting.
 
 ## Research bounds
 
