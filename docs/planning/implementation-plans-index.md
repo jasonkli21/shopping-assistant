@@ -1,23 +1,23 @@
 # Shopping Assistant implementation plans
 
-Updated 2026-10-05 after Phase 8 implementation at the user's explicit direction. Phases 0–5 are accepted; Phase 6 code is implemented locally, with its mandatory review gate still open because PostgreSQL and browser journey verification could not be completed. Phase 7 code is implemented locally but not accepted; its database, browser and quality-evaluation checks remain open. Phase 8 code is implemented locally but not accepted; its PostgreSQL and browser journey checks remain open. This work does not waive or pass either predecessor gate. Read [validation](../../VALIDATION.md), the [Phase 6 review](phase-6-review.md), and [handoff](../../CODEX_HANDOFF.md) before continuing. The original [roadmap outline](implementation-plan.md) remains a summary.
+Use [`../current-state.md`](../current-state.md) for current phase status and open gates. This index defines the phase sequence, shared contracts, and plan/evidence conventions; it is not a delivery record. Route task-specific reading through [`../README.md`](../README.md), then read the selected phase plan and its relevant predecessor evidence. The original [roadmap outline](implementation-plan.md) remains a summary.
 
 ## Sequence and gates
 
-| Phase | Outcome and prerequisite | Plan | Status |
-|---|---|---|---|
-| 0 | Corrected, validated foundation | [Foundation](phase-0-implementation-plan.md) | Code corrections complete; Docker/browser/hosted CI checks remain |
-| 1 | Durable manual projects and requirements; uses 0 | [Projects](phase-1-implementation-plan.md) | Implemented and locally validated; 390px responsive view and initial keyboard focus verified; full keyboard traversal and hosted CI remain unverified |
-| 2 | Inspectable intent proposals and conversation; uses 1 | [Intent](phase-2-implementation-plan.md) | Implemented and locally validated; upstream structured-task contract/live compatibility and manual browser smoke remain pending |
-| 3 | Bounded discovery and persisted candidates; uses 1–2 | [Discovery](phase-3-implementation-plan.md) | Implemented and locally validated; live Tavily and Personal AI remain unverified |
-| 4 | Canonical product/variant/offer identities; uses 3 | [Normalization](phase-4-implementation-plan.md) | Implemented and locally validated; live page coverage and browser smoke remain unverified |
-| 5 | Multi-source claims, evidence and assessments; uses 4 | [Evidence](phase-5-implementation-plan.md) | Accepted after main-session review and local verification; live/provider/browser/hosted checks unverified |
-| 6 | Complete decision journey; uses 1–5 | [MVP](phase-6-implementation-plan.md) | Implemented locally; gate open pending PostgreSQL integration/migration checks and browser E2E/manual review |
-| 7 | Durable job reliability and deeper research; requires signed-off 6 gate | [Orchestration](phase-7-implementation-plan.md) | Implemented locally at explicit user direction; not accepted; Phase 6 gate and Phase 7 PostgreSQL/browser/quality verification remain open; remote execution conditional |
-| 8 | Explicit persistent preferences and optional external memory; uses 7 | [Memory](phase-8-implementation-plan.md) | Implemented locally at explicit user direction; not accepted; Phase 6 gate remains open, and Phase 8 PostgreSQL/browser verification remains unrun; external memory unavailable |
-| 9 | Authorized and verified cloud deployment; uses 1–8 | [Production](phase-9-implementation-plan.md) | Planned |
+| Phase | Outcome and prerequisite | Plan |
+|---|---|---|
+| 0 | Corrected, validated foundation | [Foundation](phase-0-implementation-plan.md) |
+| 1 | Durable manual projects and requirements; uses 0 | [Projects](phase-1-implementation-plan.md) |
+| 2 | Inspectable intent proposals and conversation; uses 1 | [Intent](phase-2-implementation-plan.md) |
+| 3 | Bounded discovery and persisted candidates; uses 1–2 | [Discovery](phase-3-implementation-plan.md) |
+| 4 | Canonical product/variant/offer identities; uses 3 | [Normalization](phase-4-implementation-plan.md) |
+| 5 | Multi-source claims, evidence and assessments; uses 4 | [Evidence](phase-5-implementation-plan.md) |
+| 6 | Complete decision journey; uses 1–5 | [MVP](phase-6-implementation-plan.md) |
+| 7 | Durable job reliability and deeper research; requires signed-off 6 gate | [Orchestration](phase-7-implementation-plan.md) |
+| 8 | Explicit persistent preferences and optional external memory; uses 7 | [Memory](phase-8-implementation-plan.md) |
+| 9 | Authorized and verified cloud deployment; uses 1–8 | [Production](phase-9-implementation-plan.md) |
 
-Complete one phase and stop. Read successor handoff requirements before implementing the selected phase, but do not implement its successor. A predecessor's failed acceptance criterion remains a blocker or an explicitly documented limitation; a plan is never evidence that code exists. Phase 6 requires a comprehensive product, architecture, data, code, privacy, and testing review plus resolution of blocking findings before Phase 7.
+Complete only the explicitly selected scope. Read the selected plan and predecessor evidence; do not infer authorization for its successor. A predecessor's failed acceptance criterion remains open or an explicitly documented limitation; a plan is never evidence that code exists. Phase 6 requires a comprehensive product, architecture, data, code, privacy, and testing review plus resolution of blocking findings before Phase 7.
 
 ## Shared implementation rules
 
@@ -54,7 +54,7 @@ uv run alembic check          # online, after upgrade; model imports must be com
 
 Phase 1 establishes the test split: default CI/`make test` excludes `db` and `live`, while `make test-db TEST_DATABASE_URL=...` runs against isolated schemas inside a disposable, explicitly named PostgreSQL database. Its CI job provisions PostgreSQL 16. Phase 2 introduces `live` opt-in collection/execution guarded by an explicit `--run-live` option plus dedicated provider configuration (use `uv run pytest -m live --run-live`); no credentialed calls during default `pytest`. Each plan specifies its additional tests/evals and manual checks. `make validate` remains deterministic and explicitly reports that PostgreSQL integration tests run separately.
 
-After every phase, update that phase's status with a table mapping acceptance criterion → actual files/contracts → executed command/test → result, plus date, commit if available, and outstanding external checks. Record architectural changes in the relevant doc/ADR only when actually justified. Keep API draft and generated TypeScript types aligned. Do not mark provider/cloud checks passed based on fixtures. Retain a concise handoff of contracts, migrations and limitations for the successor.
+After a phase, preserve its evidence in the phase record with acceptance criterion → actual files/contracts → executed command/test → result, plus date, commit if available, and outstanding external checks. Update [`../current-state.md`](../current-state.md) only when live implementation status or the authorized boundary changes. Record architectural changes in the relevant doc/ADR only when actually justified. Keep API draft and generated TypeScript types aligned. Do not mark provider/cloud checks passed based on fixtures.
 
 ## Cross-phase consistency review, 2026-10-03
 
@@ -69,8 +69,4 @@ The ten plans were reviewed together against the source and ADRs, including rout
 7. Phase 6 favorites/purchased state is local shopping state. Phase 8 explicitly promotes preferences and optionally proposes memory; neither implies automatic cross-application writes.
 8. Phase 9 authenticates existing owner-scoped data and verifies the entire hosted MVP, not merely container health. Job deployment is conditional on Phase 7 evidence.
 
-Comparison creation records its committed revision to avoid instant staleness. Run/message status does not change shopping context revision. Phase 9 explicitly revisits conversation execution ownership and in-memory stream state before multi-instance cloud exposure. Normal CI marker selection separates database/live checks instead of skipping them ambiguously. No circular prerequisite or extra infrastructure is required. Actual Personal AI wire capabilities, provider credentials/quotas, cloud account settings and any need for remote jobs remain external checks at their owning phase. They do not block Phase 1. No attached implementation guide was available in this checkout/session; depth follows the supplied review criteria and repository design docs.
-
-## Reusable Luna Max prompt
-
-> Implement only Phase N using `docs/planning/phase-N-implementation-plan.md` and the shared contracts in `docs/planning/implementation-plans-index.md`. First read `README.md`, `CODEX_HANDOFF.md`, the selected plan, its predecessor's completion evidence, and referenced product/architecture/API/ADR docs. Reconcile the plan against the current code and tests; distinguish completed work, missing work and external dependencies. Preserve the established architecture and implement the smallest complete phase outcome, including migrations, failure behavior and UX. Satisfy every acceptance criterion and run the plan's verification with deterministic fakes and real PostgreSQL where specified. Record plan → code → test evidence, command results, remaining risks and genuinely unrun provider/cloud/credentialed checks; update phase status, API/docs and successor handoff. Resolve review findings within this phase, commit in coherent boundaries if Git is available, and stop. Do not begin Phase N+1. For Phase 6, complete and document the mandatory repository-wide review gate before allowing Phase 7.
+Comparison creation records its committed revision to avoid instant staleness. Run/message status does not change shopping context revision. Phase 9 revisits conversation execution ownership and in-memory stream state before multi-instance cloud exposure. Normal CI marker selection separates database/live checks instead of skipping them ambiguously. No circular prerequisite or extra infrastructure is required. Actual Personal AI wire capabilities, provider credentials/quotas, cloud account settings, and any need for remote jobs remain external checks at their owning phase.

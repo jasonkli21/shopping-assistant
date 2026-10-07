@@ -1,6 +1,6 @@
 # Phase 6 — Decision workspace and MVP review gate
 
-Status: implementation delivered locally on 2026-10-05; mandatory gate not passed. Decisions, comparison snapshots, workspace screens and explicit assistant operations are implemented. PostgreSQL integration/migration execution and the planned Playwright journey suite/manual browser review remain outstanding. See the [validation record](../../VALIDATION.md) and [Phase 6 review report](phase-6-review.md). Phase 7 remains blocked until these acceptance gaps are resolved and the gate is explicitly passed.
+Status: implemented locally; independently reviewed; external verification open; not accepted. Decisions, comparison snapshots, workspace screens and explicit assistant operations are implemented. PostgreSQL integration/migration execution and the planned Playwright journey suite/manual browser review remain outstanding. See the [validation record](../../VALIDATION.md) and [Phase 6 review report](phase-6-review.md). Phase 7's planned prerequisite is the explicit acceptance of this gate.
 
 ## Outcome and scope
 

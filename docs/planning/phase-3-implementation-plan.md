@@ -1,6 +1,6 @@
 # Phase 3 — Bounded product discovery
 
-Status: implemented and locally validated on the deterministic path (2026-10-04). Requires Phase 1 project state and Phase 2 task/client contracts. Read the [index](implementation-plans-index.md), AI/search design, Discover UX, testing/observability and API contract. This phase creates candidate observations, not canonical catalog products. Live Tavily use and live Personal AI query planning remain unverified.
+Status: accepted; external verification open. Deterministic-path implementation was validated on 2026-10-04. Requires Phase 1 project state and Phase 2 task/client contracts. Read the [index](implementation-plans-index.md), AI/search design, Discover UX, testing/observability and API contract. This phase creates candidate observations, not canonical catalog products. Live Tavily use and live Personal AI query planning remain unverified.
 
 Phase 2 added a shopping-owned `interpret_shopping_intent.v1` task and provider-neutral `PersonalAIClient.generate(AIRequest) -> AIResponse` interface. The deterministic fake is task-aware, but the external client is intentionally unavailable because the checked upstream contract has no verified structured-task route. Phase 3 can add `plan_discovery.v1` under the same boundary and fake pattern; it must not infer that structured live generation is supported or add direct model calls. The Phase 2 conversation supervisor is local and scoped to conversations, not a durable research executor.
 

@@ -1,6 +1,6 @@
-# API Contract (Phases 0–6 Implemented Locally; Phase 6 Gate Open)
+# API Contract
 
-`GET /health`, the Phase 1 project/requirement API, Phase 2 conversation/proposal API, Phase 3 discovery API, Phase 4 catalog API, Phase 5 evidence/research API, and Phase 6 decision/comparison API are implemented locally. The Phase 6 repository gate remains open pending PostgreSQL migration/integration checks and browser journey review; Phases 7–9 remain a planning contract. See the [plans index](../planning/implementation-plans-index.md), [Phase 6 review](../planning/phase-6-review.md), and [validation record](../../VALIDATION.md). OpenAPI is the source for committed TypeScript transport types in `packages/api-types/src/index.ts`; regenerate with `make api-types` and verify with `make api-types-check`.
+`GET /health` and feature APIs through Phase 8 are implemented locally. OpenAPI is the source for committed TypeScript transport types in `packages/api-types/src/index.ts`; regenerate with `make api-types` and verify with `make api-types-check`. Phase acceptance and open gates are tracked in [`../current-state.md`](../current-state.md); this document describes the transport contract, not phase status. See the [plans index](../planning/implementation-plans-index.md) and [validation record](../../VALIDATION.md) for related contracts and evidence.
 
 ## Shared conventions
 
@@ -148,4 +148,4 @@ Comparisons persist ordered variants, dimensions and immutable generated snapsho
 
 ## Profiles/memory and production — Phases 8/9
 
-Phase 8 adds owner-scoped profile/preferences/candidates, promotion/revocation and conditional external memory operation contracts, with explicit consent. No external memory API is assumed to exist. Phase 9 adds Firebase token verification/authorization and owner export/purge plus readiness. Final routes/types must be documented and authorization-tested across the entire implemented route inventory before release.
+The Phase 8 contract covers owner-scoped profile/preferences/candidates, promotion/revocation, and conditional external memory operations with explicit consent. No external memory API is assumed to exist. The Phase 9 contract adds Firebase token verification/authorization and owner export/purge plus readiness. Final routes/types must be documented and authorization-tested across the entire implemented route inventory before release.

@@ -1,6 +1,6 @@
 # Phase 9 — Cloud deployment and production hardening
 
-Status: planned. Requires Phase 6 gate, completed Phase 7 execution decision, Phase 8 scope/privacy contract and predecessor verification evidence. Read the [index](implementation-plans-index.md), deployment/testing/technology docs, all ADRs, live provider contract notes and current official platform documentation during implementation. Cloud/provider capabilities and quotas must be checked at execution time.
+Status: planned. Requires the Phase 6 gate, a completed Phase 7 execution decision, the Phase 8 scope/privacy contract, and predecessor verification evidence. Read the [index](implementation-plans-index.md), deployment/testing/technology docs, all ADRs, live provider contract notes and current official platform documentation during implementation. Cloud/provider capabilities and quotas must be checked at execution time.
 
 ## Outcome, slice and boundary
 

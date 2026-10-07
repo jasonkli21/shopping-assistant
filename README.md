@@ -329,7 +329,9 @@ A future cloud deployment should preserve these constraints:
 
 ## Documentation
 
-Useful starting points include:
+For a fresh task, use [`AGENTS.md`](AGENTS.md) for the durable repository contract and [`docs/README.md`](docs/README.md) to find the relevant documentation. [`docs/current-state.md`](docs/current-state.md) is the live implementation-status summary; verification details remain in `VALIDATION.md` and phase review records.
+
+Human-facing product and architecture references include:
 
 ```text
 docs/product/product-vision.md

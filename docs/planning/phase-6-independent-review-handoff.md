@@ -1,8 +1,10 @@
-# Phase 6 independent review — Luna XHigh handoff
+# Phase 6 independent review handoff
 
 Reviewed 2026-10-05 at `f39b978`, covering `bd54f86^..HEAD`: API persistence (`bd54f86`), assistant proposals (`29a75a9`), workspace UI (`208dafb`), and review/docs (`f39b978`).
 
 **At review time, the implementation was not sound enough to pass the Phase 6 gate.** The existing review's claim of no remaining code blockers was contradicted by the findings below. No substantive fixes had been implemented at `f39b978`; this handoff was the only retained change at that point. Continue Phase 6 only; do not start Phase 7. This document is the review input and disposition record.
+
+The sequencing recommendation above is historical and was later superseded by explicit user authorization for Phase 7 and Phase 8 work. That authorization did not pass or waive the Phase 6 gate. See [`../current-state.md`](../current-state.md) for current status. Findings below remain review evidence, not standalone authorization for phase work.
 
 Review basis: the Phase 6 plan (including its original contract), product vision/UX, architecture/ADRs, API contract, changed code/tests/migration, and the existing catalog, evidence, project, conversation, and frontend integration points. P1 means resolve before the MVP gate; P2 means a real functional issue requiring a fix or explicit gate disposition. No P0 found. Findings are grouped by behavior rather than capped.
 

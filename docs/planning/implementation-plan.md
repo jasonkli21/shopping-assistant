@@ -1,6 +1,6 @@
 # Phased Implementation Roadmap
 
-Detailed execution contracts and work packages are in [the Phase 0–9 plans index](implementation-plans-index.md). This document is the summary roadmap; the selected detailed plan and index govern implementation. Phases 0–5 are accepted. Phase 6 is implemented locally, but its mandatory review gate remains open pending PostgreSQL and browser-journey verification; see [VALIDATION.md](../../VALIDATION.md) and the [Phase 6 review](phase-6-review.md). Phases 7–9 remain planned.
+Detailed execution contracts and work packages are in [the Phase 0–9 plans index](implementation-plans-index.md). This document is the summary roadmap; the selected detailed plan and index govern implementation. See [`../current-state.md`](../current-state.md) for the live implementation boundary and [`../../VALIDATION.md`](../../VALIDATION.md) for verification evidence.
 
 Phases 0–5 are implemented and locally accepted. Implement remaining phases in order; complete and review each phase before starting the next. Do not pull later infrastructure forward without a demonstrated need.
 

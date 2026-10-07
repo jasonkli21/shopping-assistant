@@ -1,6 +1,6 @@
 # Phase 4 — Product, variant and offer normalization
 
-Status: implemented and locally validated on the deterministic path (2026-10-04). Requires Phase 3 candidates/search lineage and run lifecycle. Read the [index](implementation-plans-index.md), data model, research/evidence model, AI/search design and ADR 0002. Canonical does not mean all claims are unquestionably true. See the completion evidence at the end of this plan; live page coverage and browser inspection remain unverified.
+Status: accepted; external verification open. Deterministic-path implementation was validated on 2026-10-04. Requires Phase 3 candidates/search lineage and run lifecycle. Read the [index](implementation-plans-index.md), data model, research/evidence model, AI/search design and ADR 0002. Canonical does not mean all claims are unquestionably true. See the completion evidence at the end of this plan; live page coverage and browser inspection remain unverified.
 
 Implementation commits: `68e5da3` (bounded extraction and deterministic identity evidence), `5b47631` (versioned catalog API and persistence), and `dd845ec` (Discover correction and product detail UX). The acceptance/handoff documentation is committed with the Phase 4 completion record.
 

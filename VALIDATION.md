@@ -1,5 +1,22 @@
 # Validation record
 
+This file is chronological verification history, not current status or required fresh-session reading. For the live implementation boundary, see [`docs/current-state.md`](docs/current-state.md); for task-routed context, see [`docs/README.md`](docs/README.md).
+
+Latest records: [Context architecture cleanup verification](#context-architecture-cleanup-verification--2026-10-07), [Phase 8 implementation baseline](#phase-8-local-implementation-checks--2026-10-05), [Phase 7](#phase-7-implementation-checks--2026-10-05), and [Phase 6](#phase-6-implementation-and-verification--2026-10-05). Older phase records below remain historical evidence.
+
+## Context architecture cleanup verification — 2026-10-07
+
+This documentation-only change adds the canonical agent contract, documentation router, current-state page, and research module guide; it does not change shopping behavior. Relative Markdown file links resolved, `git diff --check` passed, API Ruff/format passed, generated API types were current, the scaffold source compile passed, and direct frontend tests (64), ESLint, TypeScript, and Vite production build passed. Vite emitted its existing advisory that the main chunk exceeds 500 kB.
+
+The aggregate `make validate` could not finish because pnpm attempted to fetch the pinned version from the unavailable registry and could not replace `node_modules` without a TTY. Direct offline API tests collected 164 and finished with 160 passed and 4 failed:
+
+- `test_full_requirement_snapshot_stays_plannable_without_dropping_assessment_data`
+- `test_preference_boundary_scenarios[category budget does not cross categories]`
+- `test_preference_boundary_scenarios[soft profile conflict keeps hard project requirement in assistant context]`
+- `test_money_preferences_require_category_and_currency`
+
+These failures leave relevant research/preference correctness open; they were not changed as part of this documentation cleanup. No PostgreSQL or browser journey checks were run. The Phase 8 record below is the earlier implementation baseline, not a replacement for this newer result.
+
 ## Phase 8 local implementation checks — 2026-10-05
 
 Phase 8 implements an owner-scoped local shopping profile, explicitly reviewed candidates from a saved project preference or rejected-product judgment, bounded category-scoped suggestions, opt-in per-project reuse, and source provenance on applied project requirements and snapshots. It proceeded at the user's explicit direction while the Phase 6 gate and Phase 7 acceptance remain open; this record does not close either predecessor gate.

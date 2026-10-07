@@ -1,9 +1,11 @@
 # Phase 6 repository review
 
 Review date: 2026-10-05  
-Status: **gate open; Phase 7 is not authorized**
+Status: **gate open; Phase 7 was later explicitly authorized and implemented locally without passing this gate**
 
 This report records the main-session review of the Phase 6 implementation. Product, API, architecture, data-model and ADR guidance were compared with the code and focused regression coverage. The decision, comparison and workspace implementation is present locally, but acceptance evidence is incomplete. In particular, this report does not claim that the end-to-end MVP gate passed.
+
+The original sequencing recommendation below was superseded by an explicit user request to implement Phases 7 and 8 while this gate remained open. That authorization did not pass or waive the Phase 6 gate. See [`../current-state.md`](../current-state.md) for the live boundary.
 
 ## Reviewed boundaries and behavior
 
@@ -34,4 +36,4 @@ No code-level authorization, revision, provenance or unsupported-unit equality b
 
 ## Gate decision
 
-**Do not pass the Phase 6 gate yet. Do not begin Phase 7.** The implementation and offline checks are reviewable, but required PostgreSQL behavior and the planned browser journey remain without evidence. Update this report and the [validation record](../../VALIDATION.md) only after those checks have actually run.
+**Do not pass the Phase 6 gate yet.** Required PostgreSQL behavior and the planned browser journey remain without evidence. The original instruction not to begin Phase 7 is superseded as stated above; Phase 7 implementation does not close this gate. Update this report and the [validation record](../../VALIDATION.md) only after those checks have actually run.

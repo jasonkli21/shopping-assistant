@@ -1,6 +1,6 @@
 # Phase 5 — Detailed research and inspectable evidence
 
-Status: accepted after independent main-session review and verification on 2026-10-04. Local implementation is complete; live/provider/hosted and manual browser checks remain unverified. Requires Phase 4 canonical variant/project-product IDs, bounded retriever and observation provenance, and Phase 3 run/attempt semantics. Read the [index](implementation-plans-index.md), research/evidence model, data model, AI/search architecture, product detail UX and ADR 0004.
+Status: accepted; independently reviewed; external verification open. Local implementation and verification completed on 2026-10-04; live/provider/hosted and manual browser checks remain unverified. Requires Phase 4 canonical variant/project-product IDs, bounded retriever and observation provenance, and Phase 3 run/attempt semantics. Read the [index](implementation-plans-index.md), research/evidence model, data model, AI/search architecture, product detail UX and ADR 0004.
 
 ## Outcome, vertical slice and boundary
 

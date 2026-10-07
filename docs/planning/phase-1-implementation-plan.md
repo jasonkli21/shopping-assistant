@@ -1,6 +1,6 @@
 # Phase 1 — Shopping projects and editable requirements
 
-Status: implemented and locally validated on 2026-10-03, with focused independent-review fixes completed the same day. Original commits: 1A persistence/test harness `0ff4fd1`; 1B service/API/generated types `c0aadc9`; 1C Home/Overview `6a1e673`. Review follow-up commits are recorded in the [validation record](../../VALIDATION.md). No later-phase functionality was added.
+Status: accepted; independently reviewed; external verification open. Local implementation and verification completed on 2026-10-03. Original commits: 1A persistence/test harness `0ff4fd1`; 1B service/API/generated types `c0aadc9`; 1C Home/Overview `6a1e673`. Review follow-up commits are recorded in the [validation record](../../VALIDATION.md). No later-phase functionality was added.
 
 | Acceptance area | Implementation and contract | Verification and result |
 |---|---|---|

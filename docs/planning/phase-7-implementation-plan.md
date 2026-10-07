@@ -1,6 +1,6 @@
 # Phase 7 — Research quality and durable orchestration
 
-Status: implemented locally at the user's explicit direction while Phase 6's repository-wide gate remains open. This does not pass or waive that gate. Read the [index](implementation-plans-index.md), [Phase 6 review](phase-6-review.md), [validation record](../../VALIDATION.md), and [executor decision](../architecture/research-execution-decision.md). Quality measurements and PostgreSQL/browser verification remain incomplete.
+Status: implemented locally; independently reviewed; external verification open; not accepted. User-authorized work in this phase does not pass or waive the Phase 6 gate. Read the [index](implementation-plans-index.md), [Phase 6 review](phase-6-review.md), [validation record](../../VALIDATION.md), and [executor decision](../architecture/research-execution-decision.md). Quality measurements and PostgreSQL/browser verification remain incomplete.
 
 ## Outcome, slice and boundary
 

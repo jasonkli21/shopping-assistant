@@ -1,6 +1,6 @@
 # Phase 0 — Corrected foundation
 
-Status: scaffold corrections complete on 2026-10-03; external foundation verification remains below. This is a record and limited follow-up plan, not an instruction to rebuild completed scaffolding. Read the [index](implementation-plans-index.md), [validation record](../../VALIDATION.md) and ADRs 0001–0004.
+Status: accepted; external verification open. Scaffold corrections are recorded below. This is a record and limited follow-up plan, not an instruction to rebuild completed scaffolding. Read the [index](implementation-plans-index.md), [validation record](../../VALIDATION.md) and ADRs 0001–0004.
 
 ## Outcome and baseline
 

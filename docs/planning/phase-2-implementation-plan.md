@@ -1,6 +1,6 @@
 # Phase 2 — AI-assisted intent and conversation
 
-Status: implemented and locally validated on 2026-10-04. Requires Phase 1's project service, revisions, owners and database harness. Read the [index](implementation-plans-index.md), Personal AI integration, AI/search design, UX assistant, API draft and ADR 0003. The verified upstream API does not expose a typed structured-task contract; local development uses the deterministic fake, and external compatibility remains pending.
+Status: accepted; external verification open. Local implementation was validated on 2026-10-04. Requires Phase 1's project service, revisions, owners and database harness. Read the [index](implementation-plans-index.md), Personal AI integration, AI/search design, UX assistant, API draft and ADR 0003. The verified upstream API does not expose a typed structured-task contract; local development uses the deterministic fake, and external compatibility remains pending.
 
 ## Outcome and scope
 

@@ -96,4 +96,4 @@ Domain code should depend on interfaces/protocols rather than vendor SDKs.
 
 Early phases run synchronously/in-process where practical. Research work is modeled as persistent runs/jobs so execution can later move to Cloud Run Jobs without rewriting domain semantics.
 
-The scaffold executor currently accepts a local callable; this cannot be remotely serialized. Phase 7 evolves the same boundary to persisted run/job IDs before any remote dispatch. See the [implementation plans](../planning/implementation-plans-index.md) for phased contracts.
+Research execution now submits persisted run IDs through the `ResearchExecutor` boundary and records durable jobs, attempts, and leases. The current in-process executor and manual runner share the same ID-based claim path; remote dispatch remains conditional on measured need. See the [research execution decision](research-execution-decision.md), [module guide](../../apps/api/src/shopping/research/README.md), and [implementation plans](../planning/implementation-plans-index.md).
