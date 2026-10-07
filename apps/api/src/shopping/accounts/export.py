@@ -13,7 +13,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 from sqlalchemy.schema import sort_tables
 
-from shopping.accounts.models import OwnerPrivacyEvent, OwnerPrivacyLifecycle
+from shopping.accounts.models import FirebaseOwnerBinding, OwnerPrivacyEvent, OwnerPrivacyLifecycle
 from shopping.catalog import models as catalog_models  # noqa: F401
 from shopping.comparisons import models as comparison_models  # noqa: F401
 from shopping.conversations import models as conversation_models  # noqa: F401
@@ -221,6 +221,13 @@ def purge_owner_data(
             for table, rows in collected.items()
             if table.name not in _PRIVACY_AUDIT_EXCLUDED_TABLES and rows
         }
+        binding = session.execute(
+            select(FirebaseOwnerBinding.__table__.c.firebase_uid).where(
+                FirebaseOwnerBinding.__table__.c.owner_id == owner_id
+            )
+        ).scalar_one_or_none()
+        if binding is not None:
+            record_counts[FirebaseOwnerBinding.__tablename__] = 1
 
         purge_order = sort_tables(
             _owner_tables(),
@@ -243,6 +250,13 @@ def purge_owner_data(
                     filters.append(table.c[foreign_key.parent.name].in_(values))
             if filters:
                 session.execute(delete(table).where(or_(*filters)))
+
+        if binding is not None:
+            session.execute(
+                delete(FirebaseOwnerBinding.__table__).where(
+                    FirebaseOwnerBinding.__table__.c.owner_id == owner_id
+                )
+            )
 
         session.execute(
             update(lifecycle).where(lifecycle.c.owner_id == owner_id).values(state="purged")

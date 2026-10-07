@@ -2,7 +2,7 @@
 
 This file is chronological verification history, not current status or required fresh-session reading. For the live implementation boundary, see [`docs/current-state.md`](docs/current-state.md); for task-routed context, see [`docs/README.md`](docs/README.md).
 
-Latest records: [Phase 9 independent review corrections](#phase-9-independent-review-corrections--2026-10-07), [Context architecture cleanup verification](#context-architecture-cleanup-verification--2026-10-07), [Phase 8 implementation baseline](#phase-8-local-implementation-checks--2026-10-05), [Phase 7](#phase-7-implementation-checks--2026-10-05), and [Phase 6](#phase-6-implementation-and-verification--2026-10-05). Older phase records below remain historical evidence.
+Latest records: [Phase 9 review verification follow-up](#phase-9-review-verification-follow-up--2026-10-07), [Phase 9 independent review corrections](#phase-9-independent-review-corrections--2026-10-07), [Context architecture cleanup verification](#context-architecture-cleanup-verification--2026-10-07), [Phase 8 implementation baseline](#phase-8-local-implementation-checks--2026-10-05), [Phase 7](#phase-7-implementation-checks--2026-10-05), and [Phase 6](#phase-6-implementation-and-verification--2026-10-05). Older phase records below remain historical evidence.
 
 ## Phase 9 independent review corrections — 2026-10-07
 
@@ -22,6 +22,24 @@ The 12 actionable findings documented in the Phase 9 independent review handoff 
 | Aggregate `make validate` | Not run. The changed API checks were run directly; no frontend source changed. |
 
 The local corrections cover packaged import/readiness paths, Alembic version width and legacy IDs, short-lived Firebase binding lookup, purge write fencing and cascade-aware counts, repeatable-read export, a complete operator export/purge path beyond HTTP caps, explicit INFO and SSE lifetime logging, Firebase IAM/error guidance, production container defaults, cloud administrative URL validation, and executable regression cases. See the handoff for the full findings and the [current-state summary](docs/current-state.md) for the remaining stop boundary.
+
+## Phase 9 review verification follow-up — 2026-10-07
+
+Verification of `c38441d` found that purge did not delete the Firebase UID binding even though the runbook and review contract promise that behavior. The working-tree follow-up explicitly deletes and counts that binding, with a PostgreSQL regression assertion. Review coverage also lacked browser tests for Firebase initialization, auth account changes, logout, and token headers; added tests cover those paths, including JSON and SSE bearer headers. The container CI smoke now uses disposable PostgreSQL to exercise missing-schema, migrated-ready, and outdated-schema responses from a different working directory. These are follow-up changes beyond `c38441d`, not changes to its historical verification evidence.
+
+| Check | Result |
+|---|---|
+| API Ruff lint and formatting | Passed: `ruff check src tests migrations` and `ruff format --check src tests migrations`; 167 files formatted. |
+| API generated types | Passed: `scripts/generate_api_types.py --check`. |
+| Focused Firebase/operator offline tests | Passed: 8 tests. |
+| Full offline API suite | 177 passed, 3 failed, 112 deselected. The three failures are the same existing product-plan context budget and Phase 8 monetary preference fixture/schema expectation issues listed in the review handoff. |
+| Frontend lint and typecheck | Passed: ESLint and `tsc -b`. |
+| Frontend tests | Passed: 68 tests across 9 files, including the new auth tests. |
+| Frontend production build | Passed; Vite reported the existing main-chunk warning. |
+| Whitespace check | Passed: `git diff --check`. |
+| PostgreSQL suite and image smoke | Not run locally: `TEST_DATABASE_URL` is unset and Docker is unavailable. The CI container smoke change is not hosted-run evidence. |
+| Aggregate `make validate` | Not passed. The default pnpm wrapper requested an interactive dependency reinstall; with the bundled Node runtime, the constituent checks ran and the API suite reported the three existing failures above. |
+| Hosted Firebase/IAM, Neon, provider, restore and deployment checks | Not run; remain open as recorded above. |
 
 ## Context architecture cleanup verification — 2026-10-07
 

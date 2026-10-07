@@ -9,7 +9,11 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
 from shopping.accounts.export import _safe_url, export_owner_data, purge_owner_data
-from shopping.accounts.models import OwnerPrivacyEvent, OwnerPrivacyLifecycle
+from shopping.accounts.models import (
+    FirebaseOwnerBinding,
+    OwnerPrivacyEvent,
+    OwnerPrivacyLifecycle,
+)
 from shopping.projects.models import ProjectRequirement, ShoppingProject
 
 pytestmark = pytest.mark.db
@@ -89,12 +93,16 @@ def test_purge_reports_cascaded_rows_and_fences_later_writes(project_api):
         json={"kind": "must_have", "label": "Narrow enough"},
     )
     assert requirement.status_code == 200, requirement.text
+    with Session(engine) as session:
+        session.add(FirebaseOwnerBinding(firebase_uid="privacy-test-uid", owner_id=owner["id"]))
+        session.commit()
 
     response = client.delete("/account/data?confirm=DELETE_MY_DATA")
     assert response.status_code == 200, response.text
     counts = response.json()["deleted_records"]
     assert counts["shopping_projects"] == 1
     assert counts["project_requirements"] == 1
+    assert counts["firebase_owner_bindings"] == 1
 
     with Session(engine) as session:
         lifecycle = session.get(OwnerPrivacyLifecycle, owner["id"])
@@ -103,6 +111,7 @@ def test_purge_reports_cascaded_rows_and_fences_later_writes(project_api):
         )
         assert lifecycle.state == "purged"
         assert event.record_counts == counts
+        assert session.get(FirebaseOwnerBinding, "privacy-test-uid") is None
         session.add(
             ShoppingProject(owner_id=owner["id"], title="Late write", goal="Must be rejected")
         )

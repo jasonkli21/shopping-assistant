@@ -8,34 +8,71 @@ on:
 jobs:
   container-build:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: shopping_smoke
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d shopping_smoke"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - name: Build the locked production API image without credentials
         run: docker build --file apps/api/Dockerfile --tag shopping-assistant-api:ci .
-      - name: Smoke test packaged imports, health, and readiness from another working directory
+      - name: Smoke test packaged imports, health, and schema readiness from another working directory
         shell: bash
         run: |
           set -euo pipefail
+          db_url='postgresql+psycopg://postgres:postgres@127.0.0.1:5432/shopping_smoke'
           docker run --detach --name shopping-assistant-api-smoke \
-            --publish 127.0.0.1:18080:8080 \
+            --network host \
             --workdir /tmp \
             --env ENVIRONMENT=local \
             --env AUTH_MODE=local \
+            --env DATABASE_URL="$db_url" \
+            --env SEARCH_PROVIDER=tavily \
+            --env TAVILY_API_KEY=ci-smoke-key \
             --env DB_CONNECT_TIMEOUT_SECONDS=1 \
             shopping-assistant-api:ci
           cleanup() { docker rm --force shopping-assistant-api-smoke >/dev/null 2>&1 || true; }
           trap cleanup EXIT
           for attempt in $(seq 1 30); do
-            if curl --silent --fail http://127.0.0.1:18080/health >/dev/null; then
+            if curl --silent --fail http://127.0.0.1:8080/health >/dev/null; then
               break
             fi
             sleep 1
           done
-          curl --silent --show-error --fail http://127.0.0.1:18080/health
+          curl --silent --show-error --fail http://127.0.0.1:8080/health
           ready_status=$(curl --silent --output /tmp/shopping-ready.json \
-            --write-out '%{http_code}' http://127.0.0.1:18080/ready)
+            --write-out '%{http_code}' http://127.0.0.1:8080/ready)
           test "$ready_status" = 503
           grep --quiet 'storage_not_ready' /tmp/shopping-ready.json
+          docker run --rm --network host --workdir /tmp \
+            --env DATABASE_URL="$db_url" \
+            shopping-assistant-api:ci alembic upgrade head
+          docker run --rm --network host --workdir /tmp \
+            --env DATABASE_URL="$db_url" \
+            shopping-assistant-api:ci python -c \
+            "from sqlalchemy import create_engine, text; engine=create_engine('$db_url'); connection=engine.connect(); connection.execute(text(\"INSERT INTO firebase_owner_bindings (firebase_uid, owner_id) VALUES ('ci-smoke-owner', '00000000-0000-4000-8000-000000000001')\")); connection.commit(); connection.close()"
+          ready_status=$(curl --silent --output /tmp/shopping-ready.json \
+            --write-out '%{http_code}' http://127.0.0.1:8080/ready)
+          test "$ready_status" = 200
+          grep --quiet 'ready' /tmp/shopping-ready.json
+          docker run --rm --network host --workdir /tmp \
+            --env DATABASE_URL="$db_url" \
+            shopping-assistant-api:ci python -c \
+            "from sqlalchemy import create_engine, text; engine=create_engine('$db_url'); connection=engine.connect(); connection.execute(text(\"UPDATE alembic_version SET version_num='0018_research_offer_observations'\")); connection.commit(); connection.close()"
+          ready_status=$(curl --silent --output /tmp/shopping-ready.json \
+            --write-out '%{http_code}' http://127.0.0.1:8080/ready)
+          test "$ready_status" = 503
+          grep --quiet 'schema_not_ready' /tmp/shopping-ready.json
 
   backend:
     runs-on: ubuntu-latest
