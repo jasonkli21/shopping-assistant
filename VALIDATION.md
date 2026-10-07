@@ -2,7 +2,26 @@
 
 This file is chronological verification history, not current status or required fresh-session reading. For the live implementation boundary, see [`docs/current-state.md`](docs/current-state.md); for task-routed context, see [`docs/README.md`](docs/README.md).
 
-Latest records: [Context architecture cleanup verification](#context-architecture-cleanup-verification--2026-10-07), [Phase 8 implementation baseline](#phase-8-local-implementation-checks--2026-10-05), [Phase 7](#phase-7-implementation-checks--2026-10-05), and [Phase 6](#phase-6-implementation-and-verification--2026-10-05). Older phase records below remain historical evidence.
+Latest records: [Phase 9 independent review corrections](#phase-9-independent-review-corrections--2026-10-07), [Context architecture cleanup verification](#context-architecture-cleanup-verification--2026-10-07), [Phase 8 implementation baseline](#phase-8-local-implementation-checks--2026-10-05), [Phase 7](#phase-7-implementation-checks--2026-10-05), and [Phase 6](#phase-6-implementation-and-verification--2026-10-05). Older phase records below remain historical evidence.
+
+## Phase 9 independent review corrections — 2026-10-07
+
+The 12 actionable findings documented in the Phase 9 independent review handoff have local implementation corrections and focused regression coverage. These changes do not accept Phase 9 or close the separately listed hosted release work, predecessor gates, or external checks.
+
+| Check | Result |
+|---|---|
+| Focused offline review checks | Passed: 23 tests covering production/operator configuration, Firebase auth error classification and session lifetime, private route ownership, request-log redaction, privacy CLI refusal paths, and the explicit requirement-kind prompt boundary. |
+| Focused PostgreSQL review checks | Passed: 13 tests covering migration upgrade/downgrade/re-upgrade and legacy revision aliases, privacy export/purge snapshot and concurrency behavior, readiness, and SSE lifetime logs. Two non-database tests in the selected files were deselected. |
+| API Ruff lint and formatting | Passed: `ruff check src tests migrations` and `ruff format --check src tests migrations`; 167 files formatted. |
+| API generated types | Passed: `scripts/generate_api_types.py --check`; TypeScript API types match the OpenAPI contract. |
+| Alembic offline SQL | Passed through `p9_owner_privacy_lifecycle`. Offline generation does not replace online migration execution; online fresh, downgrade/re-upgrade, and legacy alias paths passed in the focused PostgreSQL tests. |
+| Full offline API suite | 177 passed, 3 failed, 112 deselected. Failures: `test_full_requirement_snapshot_stays_plannable_without_dropping_assessment_data`, `test_preference_boundary_scenarios[category budget does not cross categories]`, and `test_money_preferences_require_category_and_currency`. These remain open product-planning and Phase 8 preference-boundary issues. |
+| Full PostgreSQL suite | 105 passed, 6 failed, 179 deselected. Failures: `test_oversized_project_context_is_saved_as_failure_without_provider_call`, `test_explicit_candidate_promotion_reuse_edit_and_revoke`, `test_product_research_assesses_all_one_hundred_requirements`, `test_malformed_planner_output_is_terminal_and_inspectable`, `test_product_research_persists_grounded_claim_and_cited_assessment`, and `test_runtime_contexts_retain_both_quotes_and_cite_only_comparable_result`. The malformed-planner case passed when rerun alone; the other conversation, preference and product-research failures remain open predecessor issues. |
+| Container build/runtime and CI smoke | Not run locally because Docker is unavailable. CI now builds the image and checks health plus fail-closed readiness from `/tmp`; the hosted workflow has not run for this change. |
+| Browser, Firebase/GCP IAM, Neon, live provider, hosted backup/restore and deployment checks | Not run. No cloud resources were created or deployed; these remain open in the runbook and Phase 9 plan. |
+| Aggregate `make validate` | Not run. The changed API checks were run directly; no frontend source changed. |
+
+The local corrections cover packaged import/readiness paths, Alembic version width and legacy IDs, short-lived Firebase binding lookup, purge write fencing and cascade-aware counts, repeatable-read export, a complete operator export/purge path beyond HTTP caps, explicit INFO and SSE lifetime logging, Firebase IAM/error guidance, production container defaults, cloud administrative URL validation, and executable regression cases. See the handoff for the full findings and the [current-state summary](docs/current-state.md) for the remaining stop boundary.
 
 ## Context architecture cleanup verification — 2026-10-07
 

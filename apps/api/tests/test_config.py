@@ -26,6 +26,57 @@ def test_assistant_defaults_to_fake_with_bounded_generation_limits() -> None:
     assert settings.conversation_max_concurrent_generations == 4
 
 
+def test_production_artifact_rejects_missing_auth_configuration() -> None:
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, environment="production")
+
+
+def test_production_rejects_wildcard_cors_origins() -> None:
+    with pytest.raises(ValidationError, match="CORS_ORIGINS"):
+        Settings(
+            _env_file=None,
+            environment="production",
+            auth_mode="firebase",
+            firebase_project_id="shopping-project",
+            firebase_owner_uid="owner-uid",
+            database_url="postgresql+psycopg://user:pass@db.example.test/app?sslmode=require",
+            search_provider="tavily",
+            tavily_api_key="test-key",
+            personal_ai_mode="external",
+            cors_origins="*",
+        )
+
+
+@pytest.mark.parametrize(
+    "database_url",
+    [
+        "postgresql://user:pass@db.example.test/app?sslmode=require",
+        "postgresql+psycopg://user:pass@db.example.test/app",
+        "postgresql+psycopg://user:pass@ep-test-pooler.us-east-1.aws.neon.tech/app?sslmode=require",
+        "not a url",
+    ],
+)
+def test_cloud_migration_rejects_urls_that_are_not_direct_tls(database_url: str) -> None:
+    with pytest.raises(ValidationError):
+        Settings(
+            _env_file=None,
+            migration_target="cloud",
+            migration_database_url=database_url,
+        )
+
+
+def test_cloud_migration_accepts_direct_tls_url_with_escaped_credentials() -> None:
+    settings = Settings(
+        _env_file=None,
+        migration_target="cloud",
+        migration_database_url=(
+            "postgresql+psycopg://owner:p%40ss%2Fword@ep-test.us-east-1.aws.neon.tech/"
+            "app?sslmode=verify-full"
+        ),
+    )
+    assert settings.migration_target == "cloud"
+
+
 @pytest.mark.parametrize("value", [0, -1])
 def test_research_budgets_must_be_positive(value: int) -> None:
     with pytest.raises(ValidationError):

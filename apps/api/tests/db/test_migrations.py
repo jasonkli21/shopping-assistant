@@ -69,8 +69,55 @@ def test_fresh_database_can_upgrade_downgrade_and_upgrade_again(postgres_schema)
             "shopping_profiles",
             "shopping_preferences",
             "preference_candidates",
+            "firebase_owner_bindings",
+            "owner_privacy_events",
+            "owner_privacy_lifecycle",
             "alembic_version",
         } <= tables
+    finally:
+        connection.close()
+
+
+def test_legacy_long_revision_ids_upgrade_without_losing_existing_rows(postgres_schema):
+    engine, _schema = postgres_schema
+    config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
+    connection = engine.connect()
+    config.attributes["connection"] = connection
+    project_id = uuid4()
+    owner_id = uuid4()
+    try:
+        connection.execute(
+            text(
+                "INSERT INTO shopping_projects (id, owner_id, title, goal, revision) "
+                "VALUES (:id, :owner_id, 'Kept project', 'Upgrade aliases', 1)"
+            ),
+            {"id": project_id, "owner_id": owner_id},
+        )
+        connection.commit()
+
+        legacy_revisions = [
+            ("p9_shopping_preferences", "0019_explicit_shopping_preferences"),
+            ("p9_monetary_preferences", "0020_explicit_monetary_preferences"),
+            ("p9_identity_privacy_audit", "0021_cloud_identity_and_privacy_audit"),
+        ]
+        for compatible_revision, legacy_revision in legacy_revisions:
+            command.downgrade(config, compatible_revision)
+            connection.execute(
+                text("UPDATE alembic_version SET version_num = :legacy"),
+                {"legacy": legacy_revision},
+            )
+            connection.commit()
+            command.upgrade(config, "head")
+            assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+                "p9_owner_privacy_lifecycle"
+            )
+            assert (
+                connection.scalar(
+                    text("SELECT count(*) FROM shopping_projects WHERE id = :id"),
+                    {"id": project_id},
+                )
+                == 1
+            )
     finally:
         connection.close()
 

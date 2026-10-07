@@ -16,7 +16,7 @@ Security and privacy constraints take precedence. A current user instruction can
 - [`current-state.md`](current-state.md) is the only living implementation-status summary.
 - [`adr/`](adr/) contains durable decisions.
 - [`planning/`](planning/) contains the phase index, plans, and review handoffs. A plan is not evidence that code exists; review handoffs record findings, and any embedded follow-up prompt does not authorize work or change acceptance.
-- [`../VALIDATION.md`](../VALIDATION.md) is chronological verification evidence, not required fresh-session reading. Its latest entry records the 2026-10-07 documentation cleanup checks and their four offline API failures; the latest phase implementation baseline is Phase 8. See the [Phase 7](../VALIDATION.md#phase-7-implementation-checks--2026-10-05) and [Phase 6](../VALIDATION.md#phase-6-implementation-and-verification--2026-10-05) records for open checks.
+- [`../VALIDATION.md`](../VALIDATION.md) is chronological verification evidence, not required fresh-session reading. Its latest entry records the 2026-10-07 Phase 9 review corrections and remaining offline/PostgreSQL failures; earlier implementation baselines and open Phase 6–8 gates remain recorded below it.
 - `history/` is reserved for superseded material worth retaining outside Git history. The old handoff and coordinator diary are retained only as short redirects; their prior text remains in Git history.
 
 ## Route by task

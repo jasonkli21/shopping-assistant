@@ -1,7 +1,7 @@
 from logging.config import fileConfig
 
 from alembic import context
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import engine_from_config, inspect, pool, text
 
 from shopping.accounts import models as account_models  # noqa: F401
 from shopping.catalog import models as catalog_models  # noqa: F401
@@ -24,11 +24,44 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
+LEGACY_REVISION_IDS = {
+    "0019_explicit_shopping_preferences": "p9_shopping_preferences",
+    "0020_explicit_monetary_preferences": "p9_monetary_preferences",
+    "0021_cloud_identity_and_privacy_audit": "p9_identity_privacy_audit",
+}
+
+
+def _widen_alembic_version_column(connection) -> None:
+    """Keep historical revision IDs readable in Alembic's default version table."""
+    if connection.dialect.name != "postgresql":
+        return
+    if not inspect(connection).has_table("alembic_version"):
+        connection.execute(
+            text("CREATE TABLE alembic_version (version_num VARCHAR(128) NOT NULL PRIMARY KEY)")
+        )
+    else:
+        column = next(
+            item
+            for item in inspect(connection).get_columns("alembic_version")
+            if item["name"] == "version_num"
+        )
+        if getattr(column["type"], "length", None) is not None and column["type"].length < 128:
+            connection.execute(
+                text("ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(128)")
+            )
+    for legacy_revision, compatible_revision in LEGACY_REVISION_IDS.items():
+        connection.execute(
+            text(
+                "UPDATE alembic_version SET version_num = :compatible WHERE version_num = :legacy"
+            ),
+            {"compatible": compatible_revision, "legacy": legacy_revision},
+        )
 
 
 def do_run_migrations(connection) -> None:
     context.configure(connection=connection, target_metadata=target_metadata)
     with context.begin_transaction():
+        _widen_alembic_version_column(connection)
         context.run_migrations()
 
 

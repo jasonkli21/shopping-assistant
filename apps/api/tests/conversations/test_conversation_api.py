@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import json
+import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
+from io import StringIO
 from threading import Barrier
 from uuid import UUID, uuid4
 
@@ -14,6 +17,7 @@ from shopping.catalog.models import Product, ProductVariant, ProjectProduct
 from shopping.conversations import service
 from shopping.conversations.models import ConversationMessage, ProjectUpdateProposal
 from shopping.integrations.personal_ai.fake import FakePersonalAIClient
+from shopping.main import logger as application_logger
 from shopping.projects.models import ProjectRequirement, UserNote
 
 pytestmark = pytest.mark.db
@@ -670,12 +674,26 @@ def test_generation_is_single_per_conversation_and_reconnect_attaches_only(proje
         f"/projects/{project['id']}/messages/stream"
         f"?message_id={accepted.json()['assistant_message_id']}"
     )
-    first = client.get(stream_url)
-    second = client.get(stream_url)
+    log_output = StringIO()
+    handler = logging.StreamHandler(log_output)
+    application_logger.addHandler(handler)
+    try:
+        first = client.get(stream_url)
+        second = client.get(stream_url)
+    finally:
+        application_logger.removeHandler(handler)
     assert first.status_code == second.status_code == 200
     assert "event: snapshot" in first.text
     assert "event: complete" in first.text
     assert "event: complete" in second.text
+    stream_events = [
+        json.loads(line)
+        for line in log_output.getvalue().splitlines()
+        if json.loads(line).get("event") == "http_stream"
+    ]
+    assert len(stream_events) == 2, log_output.getvalue()
+    assert all(item["duration_ms"] >= 0 and item["request_id"] for item in stream_events)
+    assert "concurrent-request-key-0001" not in log_output.getvalue()
     assert fake.calls == 1
     messages = client.get(f"/projects/{project['id']}/messages?limit=100").json()["items"]
     assert len([message for message in messages if message["role"] == "user"]) == 1

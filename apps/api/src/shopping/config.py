@@ -1,3 +1,4 @@
+import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -8,7 +9,20 @@ from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 
-REPOSITORY_ROOT = Path(__file__).resolve().parents[4]
+
+def _repository_root() -> Path:
+    configured_root = os.environ.get("SHOPPING_REPOSITORY_ROOT")
+    if configured_root:
+        return Path(configured_root).resolve()
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "apps/api/alembic.ini").is_file():
+            return parent
+    # Keep packaged deployments independent of the process working directory.
+    return Path(__file__).resolve().parents[4]
+
+
+REPOSITORY_ROOT = _repository_root()
+API_ROOT = REPOSITORY_ROOT / "apps" / "api"
 
 
 class Settings(BaseSettings):
@@ -18,6 +32,7 @@ class Settings(BaseSettings):
     auth_mode: Literal["local", "firebase"] = "local"
     database_url: str = "postgresql+psycopg://shopping:shopping@localhost:5432/shopping"
     migration_database_url: str | None = None
+    migration_target: Literal["local", "cloud"] = "local"
     local_owner_id: UUID = UUID("00000000-0000-4000-8000-000000000001")
     firebase_project_id: str | None = Field(default=None, max_length=128)
     firebase_owner_uid: str | None = Field(default=None, max_length=128)
@@ -56,6 +71,11 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_deployment_security(self) -> "Settings":
+        if self.migration_target == "cloud":
+            if not self.migration_database_url:
+                raise ValueError("MIGRATION_DATABASE_URL is required for cloud operations")
+            validate_cloud_database_url(self.migration_database_url)
+
         if self.environment == "local":
             if self.auth_mode != "local":
                 raise ValueError("Local development must use AUTH_MODE=local")
@@ -104,3 +124,24 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+def validate_cloud_database_url(database_url: str) -> None:
+    """Validate a protected operator URL without exposing credentials in errors."""
+    try:
+        parsed = make_url(database_url)
+        host = (parsed.host or "").casefold()
+        sslmode = parsed.query.get("sslmode")
+        valid = (
+            parsed.drivername == "postgresql+psycopg"
+            and bool(host)
+            and sslmode in {"require", "verify-ca", "verify-full"}
+            and "-pooler" not in host
+            and ".pooler." not in host
+        )
+    except Exception:
+        valid = False
+    if not valid:
+        raise ValueError(
+            "Cloud administrative database URL must use a direct PostgreSQL endpoint with TLS"
+        )

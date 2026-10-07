@@ -33,7 +33,7 @@ Never commit connection strings, provider keys, Firebase private keys, service-a
 
 1. Create or select the Firebase project and register its web app. Enable the intended sign-in provider in Firebase Authentication. The UI currently supports email/password sign-in.
 2. Record the Firebase project ID and the owner's immutable Firebase UID. Configure `FIREBASE_PROJECT_ID`, `FIREBASE_OWNER_UID`, and the existing stable `LOCAL_OWNER_ID` on the API. The server verifies Firebase ID tokens and accepts only that one UID; it does not authorize every signed-in Firebase account.
-3. Give the Cloud Run service identity only the Secret Manager access required for the selected database and Tavily secret versions. Firebase Admin uses the Cloud Run service identity through Application Default Credentials; no service-account key belongs in the image or frontend.
+3. Give the Cloud Run service identity only the Secret Manager access required for the selected database and Tavily secret versions. Enable the Firebase Authentication / Identity Toolkit API in the Firebase project and grant the service identity `firebaseauth.users.get` there so `check_revoked=True` can look up user status. Prefer a custom role containing only that permission; `roles/firebaseauth.viewer` is the narrower predefined fallback. Firebase Admin uses the Cloud Run service identity through Application Default Credentials; no service-account key belongs in the image or frontend. See [Firebase Authentication IAM permissions](https://docs.cloud.google.com/iam/docs/roles-permissions/firebaseauth) and [Admin SDK setup](https://firebase.google.com/docs/admin/setup).
 4. Build with `VITE_API_BASE_URL` set to the explicit HTTPS Cloud Run origin and the public `VITE_FIREBASE_*` web configuration. Those Vite values are public Firebase client configuration, not server secrets. Do not set a secret in any `VITE_*` variable.
 5. Set `CORS_ORIGINS` to the exact Firebase Hosting origin(s). Production rejects wildcard origins and credentialed CORS. The browser sends short-lived Firebase bearer tokens in normal API requests and authenticated `fetch` streams; tokens never go in query strings.
 
@@ -124,9 +124,26 @@ The backup script uses restrictive file permissions, a caller-selected encryptio
 
 Restore a backup to a disposable database or Neon branch, never over the live database by default. Decrypt to a pipe and use `pg_restore --no-owner --no-acl` with a separate restore role. Then apply migrations, run integrity queries, compare project/offer/source/claim/evidence counts, and exercise one restored project journey. Record measured restore time and the timestamp of the latest recoverable backup. An export download is not a database restore.
 
-`GET /account/export` returns a bounded versioned JSON export of owner-scoped shopping rows and child records. It excludes Firebase UID bindings, privacy audit, and full retrieved source text; it retains claim/evidence excerpts and source metadata, redacting credentials from URL fields. Export is capped at 2,000 records and 10 MiB and is not an import format.
+`GET /account/export` returns a bounded versioned JSON export of owner-scoped shopping rows and child records. It excludes Firebase UID bindings, privacy audit, and full retrieved source text; it retains claim/evidence excerpts and source metadata, redacting credentials from URL fields. The HTTP path is capped at 2,000 records and 10 MiB and is not an import format. For a complete export beyond those limits, run the operator command against the verified direct TLS endpoint; it creates a new mode-0600 file and refuses to overwrite an existing path:
 
-`DELETE /account/data?confirm=DELETE_MY_DATA` deletes owner-scoped application rows and the Firebase UID binding, retaining only a timestamped audit row with per-table counts and no deleted content. It is limited to 2,000 rows per operation. After purge, the configured UID must be bound again by an operator before the owner can use private routes. Optional external memory is disabled; there is no external memory data to retract.
+```bash
+cd apps/api
+MIGRATION_DATABASE_URL='postgresql+psycopg://…?sslmode=require' \
+  uv run --locked python -m shopping.accounts.privacy \
+    --owner-id 'the-existing-owner-uuid' --mode export \
+    --output '/protected/export/shopping-owner.json'
+```
+
+`DELETE /account/data?confirm=DELETE_MY_DATA` deletes owner-scoped application rows and the Firebase UID binding, retaining only a timestamped audit row with pre-delete per-table counts and no deleted content. The HTTP path is limited to 2,000 rows per operation. For larger owners, the operator workflow applies the same write fence and full transactional deletion without the HTTP cap:
+
+```bash
+cd apps/api
+MIGRATION_DATABASE_URL='postgresql+psycopg://…?sslmode=require' \
+  uv run --locked python -m shopping.accounts.privacy \
+    --owner-id 'the-existing-owner-uuid' --mode purge --confirm DELETE_MY_DATA
+```
+
+The operator export and purge use a direct TLS endpoint and the owner UUID from the release record. After purge, the configured UID must be bound again by an operator before the owner can use private routes. Optional external memory is disabled; there is no external memory data to retract.
 
 ## Staging verification and release record
 

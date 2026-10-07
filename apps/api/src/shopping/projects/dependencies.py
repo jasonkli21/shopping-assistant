@@ -1,14 +1,15 @@
+import logging
 from functools import lru_cache
 from hashlib import sha256
-from typing import Annotated
 from uuid import UUID
 
-from fastapi import Depends, HTTPException, Request
+from fastapi import HTTPException, Request
 from sqlalchemy import select
-from sqlalchemy.orm import Session
 
 from shopping.config import get_settings
-from shopping.db.session import get_db
+from shopping.db.session import SessionLocal
+
+logger = logging.getLogger(__name__)
 
 
 @lru_cache(maxsize=4)
@@ -26,7 +27,23 @@ def _firebase_app(project_id: str):
         )
 
 
-def get_owner_id(request: Request, session: Annotated[Session, Depends(get_db)]) -> UUID:
+def _firebase_invalid_token_errors(auth_module) -> tuple[type[Exception], ...]:
+    names = (
+        "InvalidIdTokenError",
+        "ExpiredIdTokenError",
+        "RevokedIdTokenError",
+        "UserDisabledError",
+        "UserNotFoundError",
+    )
+    return tuple(
+        error
+        for name in names
+        if isinstance((error := getattr(auth_module, name, None)), type)
+        and issubclass(error, Exception)
+    )
+
+
+def get_owner_id(request: Request) -> UUID:
     """Resolve the authenticated identity to a stable owner; clients never choose it."""
     settings = get_settings()
     if settings.auth_mode == "local":
@@ -44,17 +61,38 @@ def get_owner_id(request: Request, session: Annotated[Session, Depends(get_db)])
 
     try:
         from firebase_admin import auth
+    except Exception as error:
+        logger.warning("firebase_auth_sdk_unavailable error_type=%s", type(error).__name__)
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "token_verification_unavailable",
+                "message": "Sign-in verification is temporarily unavailable.",
+            },
+        ) from None
 
+    try:
         claims = auth.verify_id_token(
             token.strip(),
             app=_firebase_app(settings.firebase_project_id or ""),
             check_revoked=True,
         )
-    except Exception:
+    except (ValueError, *_firebase_invalid_token_errors(auth)):
         raise HTTPException(
             status_code=401,
             detail={"code": "invalid_token", "message": "Sign in again to continue."},
             headers={"WWW-Authenticate": "Bearer"},
+        ) from None
+    except Exception as error:
+        logger.warning(
+            "firebase_token_verification_unavailable error_type=%s", type(error).__name__
+        )
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "token_verification_unavailable",
+                "message": "Sign-in verification is temporarily unavailable.",
+            },
         ) from None
 
     uid = claims.get("uid")
@@ -66,9 +104,12 @@ def get_owner_id(request: Request, session: Annotated[Session, Depends(get_db)])
 
     from shopping.accounts.models import FirebaseOwnerBinding
 
-    owner_id = session.scalar(
-        select(FirebaseOwnerBinding.owner_id).where(FirebaseOwnerBinding.firebase_uid == uid)
-    )
+    # Identity lookup is deliberately shorter than the request's domain session.
+    # Streaming responses and provider calls must not retain this connection.
+    with SessionLocal() as session:
+        owner_id = session.scalar(
+            select(FirebaseOwnerBinding.owner_id).where(FirebaseOwnerBinding.firebase_uid == uid)
+        )
     if owner_id is None or owner_id != settings.local_owner_id:
         raise HTTPException(
             status_code=503,

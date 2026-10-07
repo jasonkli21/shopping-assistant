@@ -8,10 +8,12 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 from uuid import UUID
 
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, or_, select, text, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
+from sqlalchemy.schema import sort_tables
 
-from shopping.accounts.models import OwnerPrivacyEvent
+from shopping.accounts.models import OwnerPrivacyEvent, OwnerPrivacyLifecycle
 from shopping.catalog import models as catalog_models  # noqa: F401
 from shopping.comparisons import models as comparison_models  # noqa: F401
 from shopping.conversations import models as conversation_models  # noqa: F401
@@ -23,7 +25,12 @@ from shopping.research import models as research_models  # noqa: F401
 
 MAX_OWNER_RECORDS = 2_000
 MAX_EXPORT_BYTES = 10 * 1024 * 1024
-_NON_EXPORT_TABLES = {"firebase_owner_bindings", "owner_privacy_events"}
+_NON_EXPORT_TABLES = {
+    "firebase_owner_bindings",
+    "owner_privacy_events",
+    "owner_privacy_lifecycle",
+}
+_PRIVACY_AUDIT_EXCLUDED_TABLES = {"owner_privacy_events", "owner_privacy_lifecycle"}
 _OMITTED_EXPORT_COLUMNS = {"source_snapshots": {"relevant_text", "excerpts"}}
 _URL_COLUMNS = {"url", "normalized_url", "requested_url", "final_url"}
 
@@ -36,7 +43,18 @@ def _primary_key(row: dict[str, Any], table) -> tuple[Any, ...]:
     return tuple(row[column.name] for column in table.primary_key.columns)
 
 
-def _add_rows(collected: dict, table, rows, *, record_limit: int) -> int:
+def _owner_tables() -> list:
+    return sorted(
+        (
+            table
+            for table in Base.metadata.tables.values()
+            if table.name not in {"owner_privacy_events", "owner_privacy_lifecycle"}
+        ),
+        key=lambda table: table.name,
+    )
+
+
+def _add_rows(collected: dict, table, rows, *, record_limit: int | None) -> int:
     target = collected.setdefault(table, {})
     total = sum(len(items) for items in collected.values())
     added = 0
@@ -47,26 +65,26 @@ def _add_rows(collected: dict, table, rows, *, record_limit: int) -> int:
             target[key] = values
             added += 1
             total += 1
-            if total > record_limit:
+            if record_limit is not None and total > record_limit:
                 raise OwnerDataLimitExceeded("Owner data exceeds the supported record limit.")
     return added
 
 
-def _collect_owner_rows(session: Session, owner_id: UUID) -> dict:
-    tables = [
-        table for table in Base.metadata.sorted_tables if table.name not in {"owner_privacy_events"}
-    ]
+def _collect_owner_rows(
+    session: Session, owner_id: UUID, *, record_limit: int | None = MAX_OWNER_RECORDS
+) -> dict:
+    tables = _owner_tables()
     collected: dict = {}
     for table in tables:
         if "owner_id" not in table.c:
             continue
-        rows = session.execute(
-            select(table)
-            .where(table.c.owner_id == owner_id)
-            .order_by(*table.primary_key.columns)
-            .limit(MAX_OWNER_RECORDS + 1)
-        ).mappings()
-        _add_rows(collected, table, rows, record_limit=MAX_OWNER_RECORDS)
+        statement = (
+            select(table).where(table.c.owner_id == owner_id).order_by(*table.primary_key.columns)
+        )
+        if record_limit is not None:
+            statement = statement.limit(record_limit + 1)
+        rows = session.execute(statement).mappings()
+        _add_rows(collected, table, rows, record_limit=record_limit)
 
     changed = True
     while changed:
@@ -91,9 +109,7 @@ def _collect_owner_rows(session: Session, owner_id: UUID) -> dict:
                         .where(child_column.in_(value_batch))
                         .order_by(*child.primary_key.columns)
                     ).mappings()
-                    changed |= bool(
-                        _add_rows(collected, child, rows, record_limit=MAX_OWNER_RECORDS)
-                    )
+                    changed |= bool(_add_rows(collected, child, rows, record_limit=record_limit))
     return collected
 
 
@@ -136,8 +152,21 @@ def _export_value(column_name: str, value: Any) -> Any:
     return _json_value(value, column_name.casefold())
 
 
-def export_owner_data(session: Session, owner_id: UUID) -> bytes:
-    collected = _collect_owner_rows(session, owner_id)
+def export_owner_data(
+    session: Session,
+    owner_id: UUID,
+    *,
+    record_limit: int | None = MAX_OWNER_RECORDS,
+    max_bytes: int | None = MAX_EXPORT_BYTES,
+) -> bytes:
+    # Start one coherent PostgreSQL snapshot before the first owner-row read.
+    if session.in_transaction():
+        connection = session.connection()
+        if connection.get_isolation_level() != "REPEATABLE READ":
+            raise RuntimeError("Owner export requires a fresh repeatable-read transaction")
+    else:
+        session.connection(execution_options={"isolation_level": "REPEATABLE READ"})
+    collected = _collect_owner_rows(session, owner_id, record_limit=record_limit)
     records: dict[str, list[dict[str, Any]]] = {}
     for table, rows in collected.items():
         if table.name in _NON_EXPORT_TABLES:
@@ -159,39 +188,70 @@ def export_owner_data(session: Session, owner_id: UUID) -> bytes:
         "records": records,
     }
     encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-    if len(encoded) > MAX_EXPORT_BYTES:
+    if max_bytes is not None and len(encoded) > max_bytes:
         raise OwnerDataLimitExceeded("Owner data exceeds the supported export size.")
     return encoded
 
 
-def purge_owner_data(session: Session, owner_id: UUID) -> dict[str, int]:
-    collected = _collect_owner_rows(session, owner_id)
-    record_counts: dict[str, int] = {}
-    for table in reversed(Base.metadata.sorted_tables):
-        if table.name == "owner_privacy_events":
-            continue
-        filters = []
-        if "owner_id" in table.c:
-            filters.append(table.c.owner_id == owner_id)
-        for foreign_key in table.foreign_keys:
-            parent_rows = collected.get(foreign_key.column.table)
-            if not parent_rows:
-                continue
-            values = {
-                row[foreign_key.column.name]
-                for row in parent_rows.values()
-                if row[foreign_key.column.name] is not None
-            }
-            if values:
-                filters.append(table.c[foreign_key.parent.name].in_(values))
-        if not filters:
-            continue
-        result = session.execute(delete(table).where(or_(*filters)))
-        if result.rowcount:
-            record_counts[table.name] = result.rowcount
+def purge_owner_data(
+    session: Session, owner_id: UUID, *, record_limit: int | None = MAX_OWNER_RECORDS
+) -> dict[str, int]:
+    lifecycle = OwnerPrivacyLifecycle.__table__
+    try:
+        session.execute(
+            pg_insert(lifecycle)
+            .values(owner_id=owner_id, state="active")
+            .on_conflict_do_nothing(index_elements=[lifecycle.c.owner_id])
+        )
+        session.execute(
+            update(lifecycle).where(lifecycle.c.owner_id == owner_id).values(state="purging")
+        )
 
-    session.add(
-        OwnerPrivacyEvent(owner_id=owner_id, event_type="purge", record_counts=record_counts)
-    )
-    session.commit()
-    return record_counts
+        # The lifecycle row lock waits for same-owner writers and fences later
+        # writes. Table locks also cover child tables whose rows inherit ownership
+        # only through a foreign key and have no owner_id column of their own.
+        preparer = session.get_bind().dialect.identifier_preparer
+        for table in sorted(Base.metadata.tables.values(), key=lambda item: item.name):
+            if table.name not in {"owner_privacy_events", "owner_privacy_lifecycle"}:
+                session.execute(text(f"LOCK TABLE {preparer.quote(table.name)} IN SHARE MODE"))
+
+        collected = _collect_owner_rows(session, owner_id, record_limit=record_limit)
+        record_counts = {
+            table.name: len(rows)
+            for table, rows in collected.items()
+            if table.name not in _PRIVACY_AUDIT_EXCLUDED_TABLES and rows
+        }
+
+        purge_order = sort_tables(
+            _owner_tables(),
+            skip_fn=lambda foreign_key: foreign_key.ondelete == "SET NULL",
+        )
+        for table in reversed(purge_order):
+            filters = []
+            if "owner_id" in table.c:
+                filters.append(table.c.owner_id == owner_id)
+            for foreign_key in table.foreign_keys:
+                parent_rows = collected.get(foreign_key.column.table)
+                if not parent_rows:
+                    continue
+                values = {
+                    row[foreign_key.column.name]
+                    for row in parent_rows.values()
+                    if row[foreign_key.column.name] is not None
+                }
+                if values:
+                    filters.append(table.c[foreign_key.parent.name].in_(values))
+            if filters:
+                session.execute(delete(table).where(or_(*filters)))
+
+        session.execute(
+            update(lifecycle).where(lifecycle.c.owner_id == owner_id).values(state="purged")
+        )
+        session.add(
+            OwnerPrivacyEvent(owner_id=owner_id, event_type="purge", record_counts=record_counts)
+        )
+        session.commit()
+        return record_counts
+    except Exception:
+        session.rollback()
+        raise

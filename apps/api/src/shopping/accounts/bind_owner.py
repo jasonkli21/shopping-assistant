@@ -5,13 +5,12 @@ import json
 import sys
 
 from sqlalchemy import create_engine, func, select
-from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
-from shopping.accounts.models import FirebaseOwnerBinding  # noqa: F401
+from shopping.accounts.models import FirebaseOwnerBinding, OwnerPrivacyLifecycle  # noqa: F401
 from shopping.catalog import models as catalog_models  # noqa: F401
 from shopping.comparisons import models as comparison_models  # noqa: F401
-from shopping.config import Settings
+from shopping.config import Settings, validate_cloud_database_url
 from shopping.conversations import models as conversation_models  # noqa: F401
 from shopping.db.base import Base
 from shopping.evidence import models as evidence_models  # noqa: F401
@@ -51,8 +50,10 @@ def main() -> int:
         parser.error("--firebase-uid must exactly match the configured FIREBASE_OWNER_UID")
     if not settings.migration_database_url:
         parser.error("MIGRATION_DATABASE_URL must be set to the verified direct database endpoint")
-    if "-pooler" in (make_url(settings.migration_database_url).host or ""):
-        parser.error("MIGRATION_DATABASE_URL must use the verified direct, non-pooled endpoint")
+    try:
+        validate_cloud_database_url(settings.migration_database_url)
+    except ValueError as error:
+        parser.error(str(error))
 
     engine = create_engine(
         settings.migration_database_url,
@@ -82,6 +83,13 @@ def main() -> int:
             if existing_by_uid:
                 report["result"] = "already_bound"
             elif args.apply:
+                lifecycle = session.get(OwnerPrivacyLifecycle, settings.local_owner_id)
+                if lifecycle is None:
+                    session.add(
+                        OwnerPrivacyLifecycle(owner_id=settings.local_owner_id, state="active")
+                    )
+                else:
+                    lifecycle.state = "active"
                 session.add(
                     FirebaseOwnerBinding(
                         firebase_uid=args.firebase_uid,

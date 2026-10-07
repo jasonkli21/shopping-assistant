@@ -6,8 +6,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision: str = "0021_cloud_identity_and_privacy_audit"
-down_revision: str | None = "0020_explicit_monetary_preferences"
+revision: str = "p9_identity_privacy_audit"
+down_revision: str | None = "p9_monetary_preferences"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

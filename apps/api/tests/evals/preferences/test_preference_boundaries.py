@@ -12,6 +12,8 @@ from shopping.preferences.schemas import (
     promotable_requirement_kind,
 )
 from shopping.projects.schemas import ProjectRead
+from shopping.research.product_task import SYSTEM_INSTRUCTIONS as PRODUCT_RESEARCH_INSTRUCTIONS
+from shopping.research.task import SYSTEM_INSTRUCTIONS as DISCOVERY_INSTRUCTIONS
 
 FIXTURES = Path(__file__).with_name("scenarios.json")
 SCENARIOS = json.loads(FIXTURES.read_text())
@@ -116,14 +118,47 @@ def test_soft_profile_conflict_keeps_hard_project_requirement_in_assistant_conte
                     "created_at": now,
                     "updated_at": now,
                 },
+                {
+                    "id": str(uuid4()),
+                    "project_id": str(project_id),
+                    "kind": "constraint",
+                    "label": "Keep the desk below the shelf",
+                    "detail": None,
+                    "attribute_key": "max_height",
+                    "operator": "lte",
+                    "value": 25,
+                    "unit": "in",
+                    "position": 2,
+                    "origin": "user",
+                    "source_preference_id": str(uuid4()),
+                    "source_preference_revision": 3,
+                    "source_preference_scope": ["office"],
+                    "created_at": now,
+                    "updated_at": now,
+                },
             ],
         }
     )
 
     context = build_request(project, "Find a suitable desk", []).input["context"]
     requirements = context["requirements"]
-    assert [item["kind"] for item in requirements] == ["constraint", "preference"]
+    assert [item["kind"] for item in requirements] == [
+        "constraint",
+        "preference",
+        "constraint",
+    ]
     assert requirements[0]["label"] == "Must fit under 27 inches"
     assert requirements[1]["preference_origin"]["scope"] == ["office"]
-    assert "must-haves and constraints are hard boundaries" in SYSTEM_INSTRUCTIONS.lower()
-    assert "never weaken a must-have or constraint" in SYSTEM_INSTRUCTIONS.lower()
+    assert requirements[2]["preference_origin"]["preference_revision"] == 3
+    assert (
+        "current explicit project requirement kind determines authority"
+        in SYSTEM_INSTRUCTIONS.lower()
+    )
+    assert "profile-origin copy the user explicitly hardened" in SYSTEM_INSTRUCTIONS.lower()
+    assert "provenance never overrides that current kind" in SYSTEM_INSTRUCTIONS.lower()
+    for instructions in (DISCOVERY_INSTRUCTIONS, PRODUCT_RESEARCH_INSTRUCTIONS):
+        assert (
+            "current explicit project requirement kind determines authority" in instructions.lower()
+        )
+        assert "profile-origin copy the user explicitly hardened" in instructions.lower()
+        assert "provenance never overrides current kind" in instructions.lower()

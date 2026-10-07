@@ -12,6 +12,30 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build the locked production API image without credentials
         run: docker build --file apps/api/Dockerfile --tag shopping-assistant-api:ci .
+      - name: Smoke test packaged imports, health, and readiness from another working directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --detach --name shopping-assistant-api-smoke \
+            --publish 127.0.0.1:18080:8080 \
+            --workdir /tmp \
+            --env ENVIRONMENT=local \
+            --env AUTH_MODE=local \
+            --env DB_CONNECT_TIMEOUT_SECONDS=1 \
+            shopping-assistant-api:ci
+          cleanup() { docker rm --force shopping-assistant-api-smoke >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+          for attempt in $(seq 1 30); do
+            if curl --silent --fail http://127.0.0.1:18080/health >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl --silent --show-error --fail http://127.0.0.1:18080/health
+          ready_status=$(curl --silent --output /tmp/shopping-ready.json \
+            --write-out '%{http_code}' http://127.0.0.1:18080/ready)
+          test "$ready_status" = 503
+          grep --quiet 'storage_not_ready' /tmp/shopping-ready.json
 
   backend:
     runs-on: ubuntu-latest

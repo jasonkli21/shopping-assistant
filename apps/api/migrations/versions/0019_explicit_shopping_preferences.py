@@ -6,7 +6,7 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision: str = "0019_explicit_shopping_preferences"
+revision: str = "p9_shopping_preferences"
 down_revision: str | None = "0018_research_offer_observations"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None

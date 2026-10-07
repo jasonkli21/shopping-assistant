@@ -12,6 +12,9 @@ fi
 
 cd "$(dirname "$0")/../apps/api"
 export DATABASE_URL="$MIGRATION_DATABASE_URL"
+export ENVIRONMENT=local
+export AUTH_MODE=local
+export MIGRATION_TARGET=cloud
 uv run --locked alembic upgrade head
 uv run --locked alembic check
 uv run --locked alembic current

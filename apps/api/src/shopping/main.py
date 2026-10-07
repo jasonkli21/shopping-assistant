@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+import sys
 from contextlib import asynccontextmanager
 from time import monotonic
 from uuid import uuid4
@@ -27,10 +28,18 @@ from shopping.search.factory import create_search_provider
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    logger.addHandler(handler)
+logger.propagate = False
 
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
+    logger.disabled = False
+    logger.setLevel(logging.INFO)
     if settings.auth_mode == "firebase":
         try:
             _firebase_app(settings.firebase_project_id or "")
@@ -131,13 +140,13 @@ async def request_id_middleware(request: Request, call_next):
         logger.info(
             json.dumps(
                 {
-                    "event": "http_request",
+                    "event": "http_request_headers",
                     "request_id": request_id,
                     "owner_key": getattr(request.state, "owner_key", None),
                     "method": request.method,
                     "path": request.url.path,
                     "status_code": status_code,
-                    "duration_ms": round((monotonic() - started_at) * 1000),
+                    "header_duration_ms": round((monotonic() - started_at) * 1000),
                 },
                 separators=(",", ":"),
             )
@@ -216,7 +225,15 @@ async def http_error_handler(request: Request, error: HTTPException) -> JSONResp
 
 
 @app.exception_handler(Exception)
-async def unexpected_error_handler(request: Request, _error: Exception) -> JSONResponse:
+async def unexpected_error_handler(request: Request, error: Exception) -> JSONResponse:
+    original = getattr(error, "orig", None)
+    if getattr(original, "sqlstate", None) == "55000":
+        return error_response(
+            request,
+            status_code=503,
+            code="owner_data_unavailable",
+            message="Owner data is temporarily unavailable.",
+        )
     return error_response(
         request,
         status_code=500,

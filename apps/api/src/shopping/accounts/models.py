@@ -36,3 +36,18 @@ class OwnerPrivacyEvent(Base):
     occurred_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class OwnerPrivacyLifecycle(Base):
+    __tablename__ = "owner_privacy_lifecycle"
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('active', 'purging', 'purged')", name="ck_owner_lifecycle_state"
+        ),
+    )
+
+    owner_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    state: Mapped[str] = mapped_column(String(16), nullable=False, server_default="active")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

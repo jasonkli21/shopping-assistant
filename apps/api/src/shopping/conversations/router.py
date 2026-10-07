@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 from typing import Annotated
 from uuid import UUID
@@ -24,6 +25,7 @@ from shopping.db.session import get_db
 from shopping.projects.dependencies import get_owner_id
 
 router = APIRouter(prefix="/projects", tags=["conversations"])
+logger = logging.getLogger("shopping.main")
 SessionDependency = Annotated[Session, Depends(get_db)]
 OwnerDependency = Annotated[UUID, Depends(get_owner_id)]
 
@@ -110,47 +112,11 @@ async def attach_message_stream(
         proposal_sent = False
         started = time.monotonic()
         heartbeat_at = started
-        yield _event("snapshot", _snapshot_data(current))
-        if current.proposal is not None:
-            yield _event(
-                "proposal",
-                {
-                    "message_id": str(message_id),
-                    "proposal": current.proposal.model_dump(mode="json"),
-                },
-            )
-            proposal_sent = True
-        terminal = _terminal_event(current)
-        if terminal is not None:
-            yield terminal
-            return
-
-        while time.monotonic() - started < 120:
-            await asyncio.sleep(0.2)
-            if await request.is_disconnected():
-                return
-            current = await run_in_threadpool(
-                _read_message, session_factory, owner_id, project_id, message_id
-            )
-            if current.text.startswith(last_text) and len(current.text) > len(last_text):
-                delta = current.text[len(last_text) :]
-                yield _event(
-                    "delta",
-                    {"message_id": str(message_id), "sequence": current.sequence, "delta": delta},
-                )
-                last_text = current.text
-            elif current.text != last_text:
-                # Output is append-only; a mismatch is treated as a safe terminal failure.
-                yield _event(
-                    "error",
-                    {
-                        "message_id": str(message_id),
-                        "code": "stream_state_invalid",
-                        "message": "The response changed unexpectedly. Reload history.",
-                    },
-                )
-                return
-            if current.proposal is not None and not proposal_sent:
+        outcome = "interrupted"
+        error_type = None
+        try:
+            yield _event("snapshot", _snapshot_data(current))
+            if current.proposal is not None:
                 yield _event(
                     "proposal",
                     {
@@ -161,19 +127,85 @@ async def attach_message_stream(
                 proposal_sent = True
             terminal = _terminal_event(current)
             if terminal is not None:
+                outcome = "terminal"
                 yield terminal
                 return
-            if time.monotonic() - heartbeat_at >= 15:
-                yield ": heartbeat\n\n"
-                heartbeat_at = time.monotonic()
-        yield _event(
-            "error",
-            {
-                "message_id": str(message_id),
-                "code": "stream_wait_expired",
-                "message": "The response is still being prepared. Reload to check its status.",
-            },
-        )
+
+            while time.monotonic() - started < 120:
+                await asyncio.sleep(0.2)
+                if await request.is_disconnected():
+                    outcome = "disconnected"
+                    return
+                current = await run_in_threadpool(
+                    _read_message, session_factory, owner_id, project_id, message_id
+                )
+                if current.text.startswith(last_text) and len(current.text) > len(last_text):
+                    delta = current.text[len(last_text) :]
+                    yield _event(
+                        "delta",
+                        {
+                            "message_id": str(message_id),
+                            "sequence": current.sequence,
+                            "delta": delta,
+                        },
+                    )
+                    last_text = current.text
+                elif current.text != last_text:
+                    outcome = "state_invalid"
+                    yield _event(
+                        "error",
+                        {
+                            "message_id": str(message_id),
+                            "code": "stream_state_invalid",
+                            "message": "The response changed unexpectedly. Reload history.",
+                        },
+                    )
+                    return
+                if current.proposal is not None and not proposal_sent:
+                    yield _event(
+                        "proposal",
+                        {
+                            "message_id": str(message_id),
+                            "proposal": current.proposal.model_dump(mode="json"),
+                        },
+                    )
+                    proposal_sent = True
+                terminal = _terminal_event(current)
+                if terminal is not None:
+                    outcome = "terminal"
+                    yield terminal
+                    return
+                if time.monotonic() - heartbeat_at >= 15:
+                    yield ": heartbeat\n\n"
+                    heartbeat_at = time.monotonic()
+            outcome = "wait_expired"
+            yield _event(
+                "error",
+                {
+                    "message_id": str(message_id),
+                    "code": "stream_wait_expired",
+                    "message": "The response is still being prepared. Reload to check its status.",
+                },
+            )
+        except Exception as error:
+            outcome = "error"
+            error_type = type(error).__name__
+            raise
+        finally:
+            logger.info(
+                json.dumps(
+                    {
+                        "event": "http_stream",
+                        "request_id": getattr(request.state, "request_id", None),
+                        "owner_key": getattr(request.state, "owner_key", None),
+                        "message_id": str(message_id),
+                        "outcome": outcome,
+                        "error_type": error_type,
+                        "duration_ms": round((time.monotonic() - started) * 1000),
+                    },
+                    separators=(",", ":"),
+                )
+            )
 
     return StreamingResponse(
         events(),

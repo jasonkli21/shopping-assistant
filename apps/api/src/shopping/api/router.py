@@ -8,7 +8,7 @@ from shopping.accounts.models import FirebaseOwnerBinding
 from shopping.accounts.router import router as accounts_router
 from shopping.catalog.router import router as catalog_router
 from shopping.comparisons.router import router as comparisons_router
-from shopping.config import REPOSITORY_ROOT, get_settings
+from shopping.config import API_ROOT, get_settings
 from shopping.conversations.router import router as conversations_router
 from shopping.db.session import engine
 from shopping.evidence.router import router as evidence_router
@@ -28,7 +28,7 @@ async def health() -> dict[str, str]:
 def readiness() -> dict[str, str]:
     """Check database reachability and that the deployed schema is at the code head."""
     try:
-        migration_config = Config(str(REPOSITORY_ROOT / "apps/api/alembic.ini"))
+        migration_config = Config(str(API_ROOT / "alembic.ini"))
         expected_revision = ScriptDirectory.from_config(migration_config).get_current_head()
         with engine.connect() as connection:
             applied_revision = connection.scalar(text("SELECT version_num FROM alembic_version"))
