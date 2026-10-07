@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
+from shopping.accounts.lifecycle import lock_active_owner_lifecycle
 from shopping.conversations.models import ConversationMessage, ProjectUpdateProposal
 from shopping.conversations.schemas import InterpretationOutput
 from shopping.projects import repository
@@ -36,6 +37,8 @@ def complete_generation(
     provider_request_id: str | None,
     now: datetime | None = None,
 ) -> bool:
+    if not lock_active_owner_lifecycle(session, owner_id):
+        return False
     message = _lock_assistant(session, owner_id, project_id, message_id)
     if not _matches_lease(message, lease_token):
         return False
@@ -85,6 +88,8 @@ def fail_generation(
     *,
     now: datetime | None = None,
 ) -> bool:
+    if not lock_active_owner_lifecycle(session, owner_id):
+        return False
     message = _lock_assistant(session, owner_id, project_id, message_id)
     now = _now(session, now)
     if not _owns_live_lease(message, lease_token, now):
@@ -104,6 +109,8 @@ def interrupt_generation(
     *,
     now: datetime | None = None,
 ) -> bool:
+    if not lock_active_owner_lifecycle(session, owner_id):
+        return False
     message = _lock_assistant(session, owner_id, project_id, message_id)
     now = _now(session, now)
     if not _owns_live_lease(message, lease_token, now):
@@ -140,10 +147,30 @@ def claim_expired_generations(
             <= candidate_now - timedelta(seconds=LEGACY_GENERATION_GRACE_SECONDS),
         ),
     )
+    candidate_owners = list(
+        session.scalars(
+            select(ConversationMessage.owner_id)
+            .where(
+                ConversationMessage.role == "assistant",
+                ConversationMessage.status == "generating",
+                expired,
+            )
+            .distinct()
+            .order_by(ConversationMessage.owner_id)
+            .limit(limit)
+        ).all()
+    )
+    active_owners = [
+        owner_id for owner_id in candidate_owners if lock_active_owner_lifecycle(session, owner_id)
+    ]
+    if not active_owners:
+        return []
+
     rows = list(
         session.scalars(
             select(ConversationMessage)
             .where(
+                ConversationMessage.owner_id.in_(active_owners),
                 ConversationMessage.role == "assistant",
                 ConversationMessage.status == "generating",
                 expired,
@@ -205,6 +232,8 @@ def heartbeat_generation(
     now: datetime | None = None,
     lease_seconds: int = GENERATION_LEASE_SECONDS,
 ) -> bool:
+    if not lock_active_owner_lifecycle(session, owner_id):
+        return False
     message = _lock_assistant(session, owner_id, project_id, message_id)
     now = _now(session, now)
     if not _owns_live_lease(message, lease_token, now):
@@ -224,6 +253,8 @@ def load_generation_input(
     *,
     now: datetime | None = None,
 ) -> tuple[dict | None, str | None]:
+    if not lock_active_owner_lifecycle(session, owner_id):
+        return None, None
     message = _lock_assistant(session, owner_id, project_id, message_id)
     now = _now(session, now)
     if not _owns_live_lease(message, lease_token, now):

@@ -248,6 +248,74 @@ test("assistant generation failure reaches a durable terminal state", async ({ p
   await expect(assistant.getByRole("button", { name: "Retry as a new message" })).toBeVisible();
 });
 
+test("reloading during assistant generation reconnects to the same saved proposal", async ({ page }) => {
+  const { projectId } = await createProject(page, "assistant reconnect");
+  const marker = `E2E_DELAYED_GENERATION_${randomUUID().replaceAll("-", "").slice(0, 12)}`;
+  const callsBeforeResponse = await page.request.get(`${API_ORIGIN}/__e2e__/intent-call-count`, {
+    params: { marker },
+  });
+  expect((await callsBeforeResponse.json()).count).toBe(0);
+
+  await page.getByRole("button", { name: "Ask assistant" }).click();
+  const assistant = page.locator("#project-assistant-panel");
+  await assistant.getByLabel("Your shopping request").fill(
+    `${marker}: This is a cordless vacuum for pet hair under 500 USD.`,
+  );
+  const acceptedResponse = page.waitForResponse((response) =>
+    response.url() === `${API_ORIGIN}/projects/${projectId}/messages` &&
+    response.request().method() === "POST",
+  );
+  await assistant.getByRole("button", { name: "Send" }).click();
+  const accepted = await (await acceptedResponse).json() as { assistant_message_id: string };
+  const messageId = accepted.assistant_message_id;
+  await expect(assistant.locator(".assistant-pending").last()).toBeVisible();
+
+  const pendingHistoryResponse = await page.request.get(
+    `${API_ORIGIN}/projects/${projectId}/messages?limit=100`,
+  );
+  const pendingHistory = await pendingHistoryResponse.json();
+  const pendingMessage = pendingHistory.items.find(
+    (message: { id: string }) => message.id === messageId,
+  );
+  expect(pendingMessage?.status).toBe("generating");
+  await expect.poll(async () => {
+    const callsWhilePending = await page.request.get(
+      `${API_ORIGIN}/__e2e__/intent-call-count`,
+      { params: { marker } },
+    );
+    return (await callsWhilePending.json()).count;
+  }, { timeout: 2_000 }).toBe(1);
+
+  await page.reload();
+  await expect(page.getByRole("heading", { name: /E2E assistant reconnect/ })).toBeVisible();
+  await page.getByRole("button", { name: "Ask assistant" }).click();
+  const reconnectedAssistant = page.locator("#project-assistant-panel");
+  const savedResponse = reconnectedAssistant.locator(".assistant-message-assistant")
+    .filter({ hasText: "I’ve noted the shopping details" });
+  await expect(savedResponse).toBeVisible();
+  const proposal = savedResponse.getByRole("region", { name: "AI suggestion" });
+  await expect(proposal).toBeVisible();
+  await expect(proposal.getByRole("button", { name: "Apply suggestion" })).toBeVisible();
+
+  const completedHistoryResponse = await page.request.get(
+    `${API_ORIGIN}/projects/${projectId}/messages?limit=100`,
+  );
+  const completedHistory = await completedHistoryResponse.json();
+  const completedMessage = completedHistory.items.find(
+    (message: { id: string }) => message.id === messageId,
+  );
+  expect(completedMessage?.status).toBe("completed");
+  expect(completedMessage?.proposal?.status).toBe("pending");
+  expect(completedHistory.items.filter(
+    (message: { role: string; paired_message_id?: string }) =>
+      message.role === "user" && message.paired_message_id === messageId,
+  )).toHaveLength(1);
+  const callsAfterResponse = await page.request.get(`${API_ORIGIN}/__e2e__/intent-call-count`, {
+    params: { marker },
+  });
+  expect((await callsAfterResponse.json()).count).toBe(1);
+});
+
 test("research provider failure is shown as a terminal failed run", async ({ page }) => {
   const { projectId } = await createProject(page, "research failure");
   await saveCategory(page);

@@ -3,11 +3,11 @@ from __future__ import annotations
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
-from threading import Barrier
+from threading import Barrier, Event
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import event, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from shopping.conversations import service
@@ -373,6 +373,57 @@ def test_shutdown_cancels_provider_and_persists_fenced_interruption(db_engine):
         assert message.status == "interrupted"
         assert message.error_code == "generation_interrupted"
         assert client.calls == 1
+
+
+def test_shutdown_waits_for_running_maintenance_recovery(db_engine, monkeypatch):
+    owner_id, project_id = _project(db_engine)
+    factory = sessionmaker(bind=db_engine, autoflush=False, expire_on_commit=False)
+    supervisor = GenerationSupervisor(client=object(), session_factory=factory)  # type: ignore[arg-type]
+    with factory() as session:
+        accepted = _command(
+            session, owner_id, project_id, supervisor.worker_id, "recovery-shutdown-01"
+        )
+    message_id = accepted.response.assistant_message_id
+    _expire(db_engine, message_id)
+
+    recovery_entered = Event()
+    release_recovery = Event()
+
+    def block_actual_recovery(_conn, _cursor, statement, _parameters, _context, _many):
+        if (
+            "FROM conversation_messages" in statement
+            and "DISTINCT" in statement.upper()
+            and "FOR UPDATE" not in statement.upper()
+            and not recovery_entered.is_set()
+        ):
+            recovery_entered.set()
+            assert release_recovery.wait(timeout=5), "recovery was not released"
+
+    event.listen(db_engine, "after_cursor_execute", block_actual_recovery)
+    monkeypatch.setattr("shopping.conversations.supervisor.RECOVERY_INTERVAL_SECONDS", 0.01)
+
+    async def shutdown_while_recovering():
+        supervisor.start_maintenance()
+        assert await asyncio.to_thread(recovery_entered.wait, 2), (
+            "maintenance recovery did not start"
+        )
+        shutdown = asyncio.create_task(supervisor.shutdown())
+        await asyncio.sleep(0.05)
+        assert not shutdown.done(), "shutdown returned while the recovery thread was blocked"
+        release_recovery.set()
+        await asyncio.wait_for(shutdown, timeout=3)
+
+    try:
+        asyncio.run(shutdown_while_recovering())
+    finally:
+        release_recovery.set()
+        event.remove(db_engine, "after_cursor_execute", block_actual_recovery)
+
+    with factory() as session:
+        message = session.get(ConversationMessage, message_id)
+        assert message is not None
+        assert message.status == "interrupted"
+        assert message.error_code == "generation_interrupted"
 
 
 def test_ambiguous_provider_result_is_not_retried_after_recovery_takeover(db_engine):

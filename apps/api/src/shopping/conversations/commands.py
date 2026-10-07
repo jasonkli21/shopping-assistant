@@ -16,7 +16,18 @@ from shopping.comparisons.models import ComparisonDimension, ComparisonItem, Sav
 from shopping.conversations.generation import GENERATION_LEASE_SECONDS
 from shopping.conversations.models import Conversation, ConversationMessage
 from shopping.conversations.schemas import MessageCreated
-from shopping.conversations.task import build_request
+from shopping.conversations.task import (
+    PROMPT_VERSION as INTENT_PROMPT_VERSION,
+)
+from shopping.conversations.task import (
+    SCHEMA_VERSION as INTENT_SCHEMA_VERSION,
+)
+from shopping.conversations.task import (
+    TASK_NAME as INTENT_TASK_NAME,
+)
+from shopping.conversations.task import (
+    build_request,
+)
 from shopping.evidence.models import Claim, ClaimRelation, ProductAssessment, Source, SourceSnapshot
 from shopping.evidence.reads import assessment_context_stale, freshness
 from shopping.projects import notes as note_service
@@ -198,9 +209,9 @@ def create_message_command(
         status="failed" if context_error else "generating",
         snapshot_revision=project.revision,
         task_metadata={
-            "task": "interpret_shopping_intent.v2",
-            "prompt_version": "shopping-intent-2",
-            "schema_version": 2,
+            "task": INTENT_TASK_NAME,
+            "prompt_version": INTENT_PROMPT_VERSION,
+            "schema_version": INTENT_SCHEMA_VERSION,
             "provider_request_id": None,
         },
         input_snapshot=input_snapshot,

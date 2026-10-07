@@ -1,7 +1,11 @@
 """Deterministic provider wiring for the real API used by Playwright."""
 
+import asyncio
 from datetime import UTC, datetime
 from hashlib import sha256
+from typing import Annotated
+
+from fastapi import Query
 
 from shopping.extraction.fake import FakePageRetriever
 from shopping.extraction.retriever import RetrievedDocument
@@ -127,6 +131,7 @@ class DeterministicSearchProvider:
 
 class DeterministicPersonalAIClient(FakePersonalAIClient):
     def __init__(self) -> None:
+        self.intent_calls_by_marker: dict[str, int] = {}
         fixtures = {
             "extract_claims.v1": {
                 product["url"]: {
@@ -158,11 +163,25 @@ class DeterministicPersonalAIClient(FakePersonalAIClient):
     async def generate(self, request: AIRequest):
         context = request.input.get("context", {})
         message = context.get("new_user_message", "") if isinstance(context, dict) else ""
+        marker = next(
+            (
+                part.rstrip(":")
+                for part in str(message).split()
+                if part.startswith("E2E_DELAYED_GENERATION_")
+            ),
+            None,
+        )
+        if marker is not None and request.task.startswith("interpret_shopping_intent"):
+            self.intent_calls_by_marker[marker] = self.intent_calls_by_marker.get(marker, 0) + 1
+            await asyncio.sleep(3)
         if request.task.startswith("interpret_shopping_intent") and (
             "e2e_trigger_generation_failure" in str(message).casefold()
         ):
             raise AIProviderError("provider_unavailable")
         return await super().generate(request)
+
+    def intent_calls_for_marker(self, marker: str) -> int:
+        return self.intent_calls_by_marker.get(marker, 0)
 
 
 _documents = {product["url"]: _document(product) for product in PRODUCTS}
@@ -174,3 +193,9 @@ app.state.discovery_ai_client = _client
 app.state.research_search_provider = DeterministicSearchProvider()
 app.state.catalog_page_retriever = FakePageRetriever(_documents)
 app.state.catalog_extraction_task = FakeCatalogExtractionTask(_extractions)
+
+
+@app.get("/__e2e__/intent-call-count", include_in_schema=False)
+def e2e_intent_call_count(marker: Annotated[str, Query(min_length=1, max_length=80)]):
+    """Expose deterministic provider call counts only in the local browser harness."""
+    return {"count": _client.intent_calls_for_marker(marker)}

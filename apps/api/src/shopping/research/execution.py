@@ -613,7 +613,9 @@ def cancel_run(
         run.finished_at = datetime.now(UTC)
         _cancel_open_work(session, run, "canceled")
         cancel_run_jobs(session, run.id)
-        session.commit()
+    # End the lock/update transaction before loading the response graph. The
+    # reader establishes its repeatable-read snapshot before its first SELECT.
+    session.commit()
     return _run_read_with_queries(session, run, replayed=not changed), changed
 
 

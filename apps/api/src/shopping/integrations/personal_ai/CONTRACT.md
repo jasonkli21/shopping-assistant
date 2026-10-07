@@ -1,6 +1,6 @@
 # Personal AI contract check for Shopping Assistant
 
-**Checked:** 2026-10-07 against the `personal-ai-system` checkout at `983cbab`, including its current working-tree changes. The upstream checkout has uncommitted shared context-builder work; the observations below distinguish checked-in contracts, local in-progress source, and externally callable API routes.
+**Checked:** 2026-10-07 against the `personal-ai-system` source base `983cbab` and its later locally documented Phase 12 work (upstream checkout `HEAD` `3775b16`). Upstream current-state and Phase 12 evidence now record the builder and selected-source routing work; they still distinguish local implementation from a published, externally callable contract.
 
 ## Decision
 
@@ -32,9 +32,9 @@ The `shopping` memory namespace is registry metadata, not proof of a wired runti
 
 ## Context-provider and provenance direction
 
-The checked-out upstream Phase 11 source defines typed `ContextSelection` and `ContextItem` contracts. Selections bound provider/operation, fields, entity references, time window, result count, bytes, timeout, required/optional behavior, and target scope. Returned items carry typed payloads plus owner/application/workspace identity, source identity/version and item ID, entity/source references, authority, timestamps/expiry, sensitivity, field-level sensitivity, and permission dependencies. The coordinator validates registered capabilities, scope, provider identity, provenance, sensitivity ceilings, field projections, and request bounds.
+The upstream Phase 11 source defines typed `ContextSelection` and `ContextItem` contracts. Selections bound provider/operation, fields, entity references, time window, result count, bytes, timeout, required/optional behavior, and target scope. Returned items carry typed payloads plus owner/application/workspace identity, source identity/version and item ID, entity/source references, authority, timestamps/expiry, sensitivity, field-level sensitivity, and permission dependencies. The coordinator validates registered capabilities, scope, provider identity, provenance, sensitivity ceilings, field projections, and request bounds.
 
-Those provider contracts are currently source-level integration seams, not an externally callable Shopping provider API. The committed Phase 11 implementation requires explicit selections and does not provide real Shopping domain providers or automatic context selection. The current upstream working tree contains uncommitted changes wiring selected source items through a shared `ContextBuilder`; the upstream status docs have not yet recorded that work, and it is not a published transport contract or a Shopping integration.
+Upstream current-state and Phase 12 evidence now describe local shared-builder work and selected-source routing through chat, research, proposal, and booking generation input; automatic source selection remains a later Phase 13 item. The Phase 12 evidence reports 652 local tests passed and 26 skipped against source base `983cbab`, with live/provider and other integration checks still open. These are source-level integration seams and local verification, not a published externally callable Shopping provider API. The registered Shopping context capabilities remain unavailable, and there is no Shopping domain provider or verified typed task/context/proposal transport.
 
 For any future Shopping → Personal AI context, expose only a bounded typed domain view with version and provenance. Keep Shopping's authoritative project/product/offer/decision/preference records in Shopping. Carry applicable authority, freshness, owner/application/workspace scope, and sensitivity metadata; do not send unrestricted database rows or transcripts by default.
 

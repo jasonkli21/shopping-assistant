@@ -26,12 +26,24 @@ from shopping.research.common import (
 )
 from shopping.research.jobs import enqueue_run_job
 from shopping.research.models import ResearchJob, ResearchRun, ResearchRunTarget, SearchQueryRecord
+from shopping.research.product_task import (
+    PROMPT_VERSION as PRODUCT_RESEARCH_PROMPT_VERSION,
+)
+from shopping.research.product_task import (
+    TASK_NAME as PRODUCT_RESEARCH_TASK_NAME,
+)
 from shopping.research.reads import _run_read
 from shopping.research.schemas import (
     ResearchBudgets,
     ResearchCreate,
     ResearchRunRead,
     ResearchSourceTargets,
+)
+from shopping.research.task import (
+    PROMPT_VERSION as DISCOVERY_PROMPT_VERSION,
+)
+from shopping.research.task import (
+    TASK_NAME as DISCOVERY_TASK_NAME,
 )
 
 
@@ -161,14 +173,14 @@ def create_run(
         input_snapshot=snapshot,
         effective_budgets=budgets,
         task_name=(
-            "plan_product_research.v1"
+            PRODUCT_RESEARCH_TASK_NAME
             if command.type == "product_research"
-            else "plan_discovery.v1"
+            else DISCOVERY_TASK_NAME
         ),
         prompt_version=(
-            "shopping-product-research-2"
+            PRODUCT_RESEARCH_PROMPT_VERSION
             if command.type == "product_research"
-            else "shopping-discovery-1"
+            else DISCOVERY_PROMPT_VERSION
         ),
         schema_version=2,
         ai_provider=ai_provider_name,

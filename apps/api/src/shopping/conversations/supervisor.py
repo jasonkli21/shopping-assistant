@@ -47,6 +47,7 @@ class GenerationSupervisor:
         self._running_count = 0
         self._capacity_lock = Lock()
         self._maintenance_task: asyncio.Task[None] | None = None
+        self._maintenance_recovery_task: asyncio.Task[int] | None = None
 
     def recover_after_restart(self) -> int:
         with self.session_factory() as session:
@@ -100,6 +101,9 @@ class GenerationSupervisor:
             self._maintenance_task.cancel()
             await asyncio.gather(self._maintenance_task, return_exceptions=True)
             self._maintenance_task = None
+        if self._maintenance_recovery_task is not None:
+            await asyncio.gather(self._maintenance_recovery_task, return_exceptions=True)
+            self._maintenance_recovery_task = None
         tasks = list(self._tasks.values())
         for task in tasks:
             task.cancel()
@@ -242,12 +246,20 @@ class GenerationSupervisor:
     async def _maintenance_loop(self) -> None:
         while True:
             await asyncio.sleep(RECOVERY_INTERVAL_SECONDS)
+            recovery = asyncio.create_task(asyncio.to_thread(self.recover_after_restart))
+            self._maintenance_recovery_task = recovery
             try:
-                await asyncio.to_thread(self.recover_after_restart)
+                await asyncio.shield(recovery)
             except asyncio.CancelledError:
+                # Cancelling a to_thread waiter cannot stop its thread. Keep the
+                # recovery tracked and wait for all recovery sessions to close.
+                await asyncio.gather(recovery, return_exceptions=True)
                 raise
             except Exception as error:
                 logger.warning("Conversation lease recovery failed (%s)", type(error).__name__)
+            finally:
+                if self._maintenance_recovery_task is recovery:
+                    self._maintenance_recovery_task = None
 
     async def _with_session[Result](self, operation: Callable[[Session], Result]) -> Result:
         """Run one bounded synchronous database unit off the event loop.

@@ -31,9 +31,11 @@ class FakePersonalAIClient(PersonalAIClient):
         self.error_code = error_code
         self.task_fixtures = task_fixtures or {}
         self.calls = 0
+        self.requests: list[AIRequest] = []
 
     async def generate(self, request: AIRequest) -> AIResponse:
         self.calls += 1
+        self.requests.append(request)
         if self.delay_seconds:
             await asyncio.sleep(self.delay_seconds)
         if self.error_code:

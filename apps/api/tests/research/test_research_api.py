@@ -9,17 +9,22 @@ from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import event, select
 from sqlalchemy.orm import Session
 
+from shopping.config import get_settings
 from shopping.integrations.personal_ai.fake import FakePersonalAIClient
+from shopping.research import service
 from shopping.research.models import (
     CandidateSearchResult,
     DiscoveryCandidate,
     ResearchRun,
+    ResearchStageAttempt,
     SearchAttempt,
+    SearchQueryRecord,
     SearchResult,
 )
+from shopping.research.schemas import ResearchCreate
 from shopping.search.fake import FakeSearchFailure, FakeSearchProvider
 from shopping.search.provider import SearchResponse
 from shopping.search.provider import SearchResult as ProviderResult
@@ -226,8 +231,9 @@ def test_failed_attempt_consumes_attempt_budget_and_skips_remaining_query(projec
 
 
 def test_task_planner_uses_snapshot_and_effective_query_and_concurrency_budgets(project_api):
-    client, _owner, _engine = project_api
+    client, owner, engine = project_api
     project = _create_project(client)
+    planner = client.app.state.discovery_supervisor.client
     accepted = _start(
         client,
         project,
@@ -244,6 +250,21 @@ def test_task_planner_uses_snapshot_and_effective_query_and_concurrency_budgets(
     assert "400.00" in run["queries"][0]["text"]
     assert "USD" in run["queries"][0]["text"]
     assert client.get(f"/projects/{project['id']}").json()["revision"] == project["revision"]
+    assert len(planner.requests) == 1
+    request = planner.requests[0]
+    with Session(engine) as session:
+        saved_run = session.get(ResearchRun, UUID(accepted["run_id"]))
+        planning = session.scalar(
+            select(ResearchStageAttempt).where(
+                ResearchStageAttempt.research_run_id == UUID(accepted["run_id"]),
+                ResearchStageAttempt.stage == "planning",
+            )
+        )
+        assert saved_run is not None and planning is not None
+        assert saved_run.task_name == request.task
+        assert saved_run.prompt_version == request.input["prompt_version"]
+        assert planning.task_name == request.task
+        assert planning.prompt_version == request.input["prompt_version"]
 
 
 def test_planner_unavailability_is_honest_and_manual_queries_still_work(project_api):
@@ -628,13 +649,112 @@ def test_malformed_pagination_cursors_return_422(project_api):
     assert isinstance(identifier, UUID)
 
 
+def test_get_run_uses_one_snapshot_when_attempt_commits_between_loads(project_api):
+    client, owner, engine = project_api
+    project = _create_project(client)
+    command = ResearchCreate(
+        objective="Find pet-hair vacuum options",
+        request_key="snapshot-interleaving-01",
+        expected_version=project["revision"],
+        manual_queries=["slow query"],
+    )
+    with Session(engine) as session:
+        created, _ = service.create_run(
+            session,
+            owner_id=owner["id"],
+            project_id=UUID(project["id"]),
+            command=command,
+            settings=get_settings(),
+            ai_provider_name="fake",
+            search_provider_name="fake",
+        )
+        run_id = created.id
+        run = session.get(ResearchRun, run_id)
+        assert run is not None
+        run.queries_planned = 1
+        session.add(
+            SearchQueryRecord(
+                run_id=run_id,
+                ordinal=0,
+                text="slow query",
+                purpose="general",
+                max_results=run.effective_budgets["max_results_per_query"],
+                state="queued",
+            )
+        )
+        session.commit()
+
+    root_read_started = Event()
+    writer_committed = Event()
+
+    def pause_after_run_select(_conn, _cursor, statement, _parameters, _context, _many):
+        if "FROM research_runs" in statement and not root_read_started.is_set():
+            root_read_started.set()
+            assert writer_committed.wait(timeout=5), "attempt writer did not commit"
+
+    def commit_attempt() -> None:
+        assert root_read_started.wait(timeout=5), "run read did not reach its root SELECT"
+        with Session(engine) as session:
+            run = session.get(ResearchRun, run_id)
+            query = session.scalar(
+                select(SearchQueryRecord).where(SearchQueryRecord.run_id == run_id)
+            )
+            assert run is not None and query is not None
+            run.attempts_used = 1
+            query.state = "running"
+            query.started_at = datetime.now(UTC)
+            session.add(
+                SearchAttempt(
+                    query_id=query.id,
+                    attempt_number=1,
+                    provider="fake",
+                    status="running",
+                    results_count=0,
+                )
+            )
+            session.commit()
+        writer_committed.set()
+
+    event.listen(engine, "after_cursor_execute", pause_after_run_select)
+    try:
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            writer = pool.submit(commit_attempt)
+            response = client.get(f"/projects/{project['id']}/research/{run_id}")
+            writer.result(timeout=5)
+    finally:
+        event.remove(engine, "after_cursor_execute", pause_after_run_select)
+
+    assert response.status_code == 200, response.text
+    run = response.json()
+    assert run["attempts_used"] == 0
+    assert run["queries"][0]["state"] == "queued"
+    assert run["queries"][0]["attempts"] == []
+
+
 def test_cancellation_is_idempotent_and_late_provider_result_cannot_write(project_api):
     client, _owner, engine = project_api
     project = _create_project(client)
-    provider = FakeSearchProvider(
-        {"slow query": [_result("Late candidate", "https://catalog.example/late")]},
-        delay_seconds=1,
-    )
+
+    class DelayedCancellationProvider:
+        name = "fake"
+
+        def __init__(self):
+            self.entered = Event()
+            self.canceled = Event()
+            self.release = Event()
+
+        async def search(self, _query):
+            self.entered.set()
+            try:
+                await asyncio.to_thread(self.release.wait)
+            except asyncio.CancelledError:
+                self.canceled.set()
+                await asyncio.to_thread(self.release.wait)
+            return SearchResponse(
+                results=[_result("Late candidate", "https://catalog.example/late")]
+            )
+
+    provider = DelayedCancellationProvider()
     client.app.state.discovery_supervisor.search_provider = provider
     accepted = _start(
         client,
@@ -643,10 +763,17 @@ def test_cancellation_is_idempotent_and_late_provider_result_cannot_write(projec
         queries=["slow query"],
     )
     run_id = accepted["run_id"]
+    assert provider.entered.wait(timeout=3), "provider was never entered"
     active = _wait_for_query_state(client, project["id"], run_id, "running")
     assert active["attempts_used"] == 1
 
-    canceled = client.post(f"/projects/{project['id']}/research/{run_id}/cancel")
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        cancel_request = pool.submit(
+            client.post, f"/projects/{project['id']}/research/{run_id}/cancel"
+        )
+        assert provider.canceled.wait(timeout=3), "provider did not observe cancellation"
+        provider.release.set()
+        canceled = cancel_request.result(timeout=5)
     assert canceled.status_code == 200, canceled.text
     assert canceled.json()["run"]["status"] == "canceled"
     assert canceled.json()["replayed"] is False
@@ -659,6 +786,8 @@ def test_cancellation_is_idempotent_and_late_provider_result_cannot_write(projec
         assert run.attempts_used == 1
         assert run.results_found == 0
         assert run.candidates_found == 0
+        assert session.scalars(select(SearchResult)).all() == []
+        assert session.scalars(select(DiscoveryCandidate)).all() == []
         assert (
             session.scalar(
                 select(SearchAttempt).where(SearchAttempt.query_id == run.queries[0].id)

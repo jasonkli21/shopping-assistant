@@ -242,6 +242,7 @@ def test_product_research_assesses_all_one_hundred_requirements(project_api):
 def test_malformed_planner_output_is_terminal_and_inspectable(project_api):
     client, owner, engine = project_api
     project = _create_project(client)
+    planner = client.app.state.discovery_supervisor.client
     _product_id, _variant_id, project_product_id = _seed_project_product(project, owner, engine)
     client.app.state.discovery_supervisor.client.task_fixtures = {
         "plan_product_research.v1": {"*": {"queries": "not a list"}}
@@ -274,6 +275,19 @@ def test_malformed_planner_output_is_terminal_and_inspectable(project_api):
     ]
     with Session(engine) as session:
         assert session.scalar(select(ProductAssessment)) is not None
+        saved_run = session.get(ResearchRun, UUID(accepted.json()["run_id"]))
+        planning = session.scalar(
+            select(ResearchStageAttempt).where(
+                ResearchStageAttempt.research_run_id == UUID(accepted.json()["run_id"]),
+                ResearchStageAttempt.stage == "planning",
+            )
+        )
+        assert saved_run is not None and planning is not None
+        request = planner.requests[0]
+        assert saved_run.task_name == request.task
+        assert saved_run.prompt_version == request.input["prompt_version"]
+        assert planning.task_name == request.task
+        assert planning.prompt_version == request.input["prompt_version"]
 
 
 def test_canceled_product_planner_cannot_persist_late_plan(project_api):

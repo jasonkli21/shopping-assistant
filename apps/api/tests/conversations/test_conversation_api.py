@@ -4,19 +4,21 @@ import json
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from io import StringIO
-from threading import Barrier
+from threading import Barrier, Event
 from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import func, select
+from sqlalchemy import event, func, select, text
 from sqlalchemy.orm import Session
 
+from shopping.accounts.export import purge_owner_data
 from shopping.catalog.models import Product, ProductVariant, ProjectProduct
 from shopping.conversations import service
 from shopping.conversations.models import ConversationMessage, ProjectUpdateProposal
+from shopping.conversations.schemas import InterpretationOutput
 from shopping.integrations.personal_ai.fake import FakePersonalAIClient
 from shopping.main import logger as application_logger
 from shopping.projects.models import ProjectRequirement, UserNote
@@ -97,6 +99,23 @@ def wait_for_message(
             return message
         time.sleep(0.01)
     raise AssertionError("assistant generation did not reach a terminal state")
+
+
+def test_persisted_conversation_prompt_metadata_matches_provider_request(project_api):
+    client, _owner, engine = project_api
+    fake = FakePersonalAIClient(response={"assistant_message": "I captured that for review."})
+    set_fake(client, fake)
+    project = create_project(client)
+    accepted = send_message(client, project["id"], "prompt-provenance-key-0001")
+    assert accepted.status_code == 202
+    wait_for_message(client, project["id"], accepted.json()["assistant_message_id"])
+    assert len(fake.requests) == 1
+
+    with Session(engine) as session:
+        message = session.get(ConversationMessage, UUID(accepted.json()["assistant_message_id"]))
+        assert message is not None
+        assert message.task_metadata["task"] == fake.requests[0].task
+        assert message.task_metadata["prompt_version"] == fake.requests[0].input["prompt_version"]
 
 
 def test_message_replay_proposal_apply_and_replay_after_later_edit(project_api):
@@ -785,6 +804,139 @@ def test_restart_marks_durable_generation_interrupted(project_api):
     message = wait_for_message(client, project["id"], str(reserved.response.assistant_message_id))
     assert message["status"] == "interrupted"
     assert message["error_code"] == "generation_interrupted"
+
+
+@pytest.mark.parametrize("operation", ["heartbeat", "recovery", "completion"])
+def test_privacy_purge_serializes_with_generation_writes(project_api, operation):
+    client, owner, engine = project_api
+    project = create_project(client)
+    with Session(engine) as session:
+        reserved = service.create_message_command(
+            session,
+            owner["id"],
+            UUID(project["id"]),
+            text="Find a vacuum",
+            request_key=f"purge-race-{operation}-01",
+            expected_version=1,
+        )
+    message_id = reserved.response.assistant_message_id
+    lease_token = reserved.lease_token
+    assert lease_token is not None
+    if operation == "recovery":
+        with Session(engine) as session:
+            message = session.get(ConversationMessage, message_id)
+            assert message is not None
+            message.generation_lease_expires_at = datetime.now(UTC) - timedelta(seconds=1)
+            session.commit()
+
+    message_lock_acquired = Event()
+    release_writer = Event()
+    purge_statement_started = Event()
+    purge_pid: dict[str, int] = {}
+
+    def pause_after_message_lock(_conn, _cursor, statement, _parameters, _context, _many):
+        if "FROM conversation_messages" in statement and "FOR UPDATE" in statement:
+            if not message_lock_acquired.is_set():
+                message_lock_acquired.set()
+                assert release_writer.wait(timeout=8), "writer was not released"
+
+    def observe_purge_start(conn, _cursor, statement, _parameters, _context, _many):
+        if statement.lstrip().upper().startswith("UPDATE OWNER_PRIVACY_LIFECYCLE"):
+            driver_connection = conn.connection.driver_connection
+            purge_pid["value"] = driver_connection.info.backend_pid
+            purge_statement_started.set()
+
+    def write_generation_state():
+        with Session(engine) as session:
+            if operation == "heartbeat":
+                return service.heartbeat_generation(
+                    session,
+                    owner_id=owner["id"],
+                    project_id=UUID(project["id"]),
+                    message_id=message_id,
+                    lease_token=lease_token,
+                )
+            if operation == "recovery":
+                return service.claim_expired_generations(
+                    session,
+                    worker_id="purge-race-recovery",
+                    now=datetime.now(UTC) + timedelta(seconds=5),
+                )
+            return service.complete_generation(
+                session,
+                owner_id=owner["id"],
+                project_id=UUID(project["id"]),
+                message_id=message_id,
+                lease_token=lease_token,
+                output=InterpretationOutput(assistant_message="The response is ready."),
+                provider_request_id="purge-race-test",
+            )
+
+    def purge():
+        with Session(engine) as session:
+            return purge_owner_data(session, owner["id"], record_limit=None)
+
+    event.listen(engine, "after_cursor_execute", pause_after_message_lock)
+    event.listen(engine, "before_cursor_execute", observe_purge_start)
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            writer = pool.submit(write_generation_state)
+            assert message_lock_acquired.wait(timeout=5), "generation write did not lock a message"
+            purge_result = pool.submit(purge)
+            assert purge_statement_started.wait(timeout=5), (
+                "purge did not reach the lifecycle fence"
+            )
+
+            deadline = time.monotonic() + 5
+            purge_waiting = False
+            while time.monotonic() < deadline:
+                with Session(engine) as monitor:
+                    wait_state = monitor.execute(
+                        text("SELECT wait_event_type FROM pg_stat_activity WHERE pid = :pid"),
+                        {"pid": purge_pid["value"]},
+                    ).scalar_one_or_none()
+                if wait_state == "Lock":
+                    purge_waiting = True
+                    break
+                time.sleep(0.01)
+            assert purge_waiting, "purge did not wait at a PostgreSQL lock boundary"
+
+            release_writer.set()
+            write_result = writer.result(timeout=5)
+            counts = purge_result.result(timeout=8)
+        assert counts["conversation_messages"] >= 1
+        if operation == "recovery":
+            assert len(write_result) == 1
+        else:
+            assert write_result is True
+    finally:
+        release_writer.set()
+        event.remove(engine, "after_cursor_execute", pause_after_message_lock)
+        event.remove(engine, "before_cursor_execute", observe_purge_start)
+
+    with Session(engine) as session:
+        assert not service.heartbeat_generation(
+            session,
+            owner_id=owner["id"],
+            project_id=UUID(project["id"]),
+            message_id=message_id,
+            lease_token=lease_token,
+        )
+        assert not service.complete_generation(
+            session,
+            owner_id=owner["id"],
+            project_id=UUID(project["id"]),
+            message_id=message_id,
+            lease_token=lease_token,
+            output=InterpretationOutput(assistant_message="Must be rejected."),
+            provider_request_id=None,
+        )
+        assert (
+            service.claim_expired_generations(
+                session, worker_id="after-purge", now=datetime.now(UTC) + timedelta(days=1)
+            )
+            == []
+        )
 
 
 def test_stale_proposal_conflicts_without_project_mutation(project_api):

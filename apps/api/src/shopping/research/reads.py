@@ -45,6 +45,7 @@ def list_runs(
     *,
     cursor: str | None = None,
 ) -> ResearchRunPage:
+    _begin_consistent_snapshot(session)
     _live_project(session, owner_id, project_id)
     _validate_page_limit(limit)
     statement = (
@@ -74,6 +75,7 @@ def list_runs(
 
 
 def get_run(session: Session, owner_id: UUID, project_id: UUID, run_id: UUID) -> ResearchRunRead:
+    _begin_consistent_snapshot(session)
     _live_project(session, owner_id, project_id)
     run = session.scalar(
         select(ResearchRun)
@@ -211,6 +213,7 @@ def _candidate_read(
 def _run_read_with_queries(
     session: Session, run: ResearchRun, *, replayed: bool
 ) -> ResearchRunRead:
+    _begin_consistent_snapshot(session)
     loaded = session.scalar(
         select(ResearchRun)
         .options(selectinload(ResearchRun.queries).selectinload(SearchQueryRecord.attempts))
@@ -219,6 +222,14 @@ def _run_read_with_queries(
         .where(ResearchRun.id == run.id)
     )
     return _run_read(loaded or run, replayed=replayed)
+
+
+def _begin_consistent_snapshot(session: Session) -> None:
+    """Use one PostgreSQL MVCC snapshot for the multi-query run response graph."""
+    if session.get_bind().dialect.name == "postgresql":
+        # Set isolation before the first response query so selectin-loaded
+        # children share the same snapshot. Mutating callers must commit first.
+        session.connection(execution_options={"isolation_level": "REPEATABLE READ"})
 
 
 def _run_read(run: ResearchRun, *, replayed: bool = False) -> ResearchRunRead:
