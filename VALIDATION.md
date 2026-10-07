@@ -2,7 +2,31 @@
 
 This file is chronological verification history, not current status or required fresh-session reading. For the live implementation boundary, see [`docs/current-state.md`](docs/current-state.md); for task-routed context, see [`docs/README.md`](docs/README.md).
 
-Latest records: [SA-01 cross-instance conversation generation ownership](#sa-01-cross-instance-conversation-generation-ownership--2026-10-07), [SA-03 and SA-04 bounded-context and regression-baseline corrections](#sa-03-and-sa-04-bounded-context-and-regression-baseline-corrections--2026-10-07), [Phase 9 review verification follow-up](#phase-9-review-verification-follow-up--2026-10-07), [Phase 9 independent review corrections](#phase-9-independent-review-corrections--2026-10-07), [Context architecture cleanup verification](#context-architecture-cleanup-verification--2026-10-07), [Phase 8 implementation baseline](#phase-8-local-implementation-checks--2026-10-05), [Phase 7](#phase-7-implementation-checks--2026-10-05), and [Phase 6](#phase-6-implementation-and-verification--2026-10-05). Older phase records below remain historical evidence.
+Latest records: [SA-05 deterministic browser acceptance](#sa-05-deterministic-browser-acceptance--2026-10-07), [SA-01 cross-instance conversation generation ownership](#sa-01-cross-instance-conversation-generation-ownership--2026-10-07), [SA-03 and SA-04 bounded-context and regression-baseline corrections](#sa-03-and-sa-04-bounded-context-and-regression-baseline-corrections--2026-10-07), [Phase 9 review verification follow-up](#phase-9-review-verification-follow-up--2026-10-07), [Phase 9 independent review corrections](#phase-9-independent-review-corrections--2026-10-07), [Context architecture cleanup verification](#context-architecture-cleanup-verification--2026-10-07), [Phase 8 implementation baseline](#phase-8-local-implementation-checks--2026-10-05), [Phase 7](#phase-7-implementation-checks--2026-10-05), and [Phase 6](#phase-6-implementation-and-verification--2026-10-05). Older phase records below remain historical evidence.
+
+## SA-05 deterministic browser acceptance — 2026-10-07
+
+Added a small Playwright suite that runs the real Vite frontend and FastAPI application against an explicitly named disposable PostgreSQL database. Test-only API wiring replaces Personal AI, search, page retrieval, and catalog extraction with fixed fixtures. `apps/web/e2e/api-server.sh` refuses non-PostgreSQL targets or database names that do not end in `_e2e` / `_e2e_test`, rejects the configured application database, resets only the target database's `public` schema, and applies Alembic migrations. No live Tavily/model calls are part of the suite.
+
+The primary journey creates a project, changes requirements, applies a structured assistant proposal, discovers and researches two fixed variants, inspects a source-grounded citation, saves a comparison, shortlists one product and rejects another, reloads to verify durable decisions, promotes a requirement, accepts it into the Shopping Profile, reuses it in another project, revokes it, and verifies that a future project receives no suggestion. The same journey checks the evidence dialog and comparison at a 320px viewport, including Tab/Shift+Tab/Escape focus behavior. Separate cases cover stale-revision reconciliation, assistant generation failure, research provider failure, and the local-auth bypass boundary.
+
+| Check | Result |
+|---|---|
+| Playwright E2E | Passed through `pnpm run test:e2e`: 5 tests, including the end-to-end preference lifecycle, at a 1280×800 default viewport and a 320px narrow viewport. Browser output/trace are retained on failure. No screenshot goldens are used. |
+| Frontend Vitest | Passed: 68 tests across 9 files. |
+| Frontend lint | Passed: ESLint over the app and E2E sources. |
+| Frontend typecheck | Passed: `tsc -b`. |
+| Frontend production build | Passed. Vite emitted the existing advisory that the main bundle exceeds 500 kB. |
+| Offline API suite | Passed: 184 passed, 123 deselected. |
+| API Ruff / formatting | Passed: `ruff check src tests migrations` and `ruff format --check src tests migrations`. |
+| Generated API types | Passed: `scripts/generate_api_types.py --check`; current OpenAPI output is unchanged. |
+| PostgreSQL integration suite | Passed on the final run: 122 passed, 185 deselected. Two pre-existing terminal-state assertions were corrected to pass a single iterable to SQLAlchemy `in_()`. One research-cancellation scheduling assertion failed in the first post-correction run, passed in isolation, and passed in the final full rerun. |
+| E2E schema/model parity | Passed: online Alembic upgrade to head ran in the harness; `alembic check` reported no new upgrade operations. Migration upgrade/downgrade/re-upgrade cases passed within the PostgreSQL suite. |
+| Whitespace | Passed: `git diff --check`. |
+
+The local browser run used the installed bundled Node 24 runtime and an already-installed Chromium headless executable because the matching Playwright browser revision was not cached on this host. CI installs Chromium for the pinned Playwright dependency. `pnpm --config.manage-package-manager-versions=false install --frozen-lockfile --offline --ignore-scripts` passed with the bundled pnpm 11.19.0; the repository pins pnpm 10.34.6, and the hosted `frontend-e2e` job has not run here.
+
+SA-05's deterministic browser-test slice is implemented and locally verified. Phase 6 and Phase 8 remain unaccepted: manual visual/browser review, remaining review-finding dispositions, hosted CI, live source/provider quality, and external Personal AI memory behavior are not established by this suite.
 
 ## SA-01 cross-instance conversation generation ownership — 2026-10-07
 

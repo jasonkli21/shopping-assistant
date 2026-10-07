@@ -140,3 +140,50 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
+
+  frontend-e2e:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: shopping_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d shopping_e2e"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      E2E_DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/shopping_e2e
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --locked --extra dev
+        working-directory: apps/api
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: apps/web/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: pnpm install --frozen-lockfile
+        working-directory: apps/web
+      - run: pnpm exec playwright install --with-deps chromium
+        working-directory: apps/web
+      - run: pnpm test:e2e
+        working-directory: apps/web
+      - name: Upload browser diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-e2e-diagnostics
+          path: |
+            apps/web/test-results/
+            apps/web/playwright-report/
+          if-no-files-found: ignore

@@ -216,7 +216,7 @@ def test_expired_lease_can_be_reclaimed_but_old_worker_cannot_complete(db_engine
                 .select_from(ConversationMessage)
                 .where(
                     ConversationMessage.id == claim.message_id,
-                    ConversationMessage.status.in_("completed", "failed", "interrupted"),
+                    ConversationMessage.status.in_(("completed", "failed", "interrupted")),
                 )
             )
             == 1
@@ -327,7 +327,7 @@ def test_competing_terminal_writes_commit_only_one_state(db_engine):
             .select_from(ConversationMessage)
             .where(
                 ConversationMessage.id == message.id,
-                ConversationMessage.status.in_("completed", "failed", "interrupted"),
+                ConversationMessage.status.in_(("completed", "failed", "interrupted")),
             )
         )
         assert terminal_count == 1

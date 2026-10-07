@@ -48,7 +48,7 @@ async def lifespan(application: FastAPI):
     application.state.conversation_session_factory = getattr(
         application.state, "conversation_session_factory", SessionLocal
     )
-    client = (
+    client = getattr(application.state, "conversation_ai_client", None) or (
         FakePersonalAIClient()
         if settings.personal_ai_mode == "fake"
         else UnavailablePersonalAIClient()

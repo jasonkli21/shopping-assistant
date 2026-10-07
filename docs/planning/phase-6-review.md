@@ -37,3 +37,7 @@ No code-level authorization, revision, provenance or unsupported-unit equality b
 ## Gate decision
 
 **Do not pass the Phase 6 gate yet.** Required PostgreSQL behavior and the planned browser journey remain without evidence. The original instruction not to begin Phase 7 is superseded as stated above; Phase 7 implementation does not close this gate. Update this report and the [validation record](../../VALIDATION.md) only after those checks have actually run.
+
+## SA-05 evidence update — 2026-10-07
+
+The historical findings above record the state at the 2026-10-05 review. The [SA-05 validation entry](../../VALIDATION.md#sa-05-deterministic-browser-acceptance--2026-10-07) now records the deterministic Playwright journey, local PostgreSQL integration/migration checks, and model-drift check. This updates only the missing browser/online-PostgreSQL evidence. Phase 6 remains unaccepted while manual browser/source review and the remaining review-finding dispositions are open; hosted CI and live provider compatibility are also unverified.

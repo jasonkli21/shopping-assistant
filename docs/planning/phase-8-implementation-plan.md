@@ -1,6 +1,6 @@
 # Phase 8 — Personalization and explicit memory boundaries
 
-Status: implemented locally; external verification open; not accepted. Phase 6 and Phase 7 review gates remain open; this code slice proceeded at the user's explicit direction without passing either gate. Read the [index](implementation-plans-index.md), product learning principle, Personal AI integration contract, preferences module notes and ADR 0003.
+Status: implemented locally; external verification open; not accepted. Phase 6 and Phase 7 review gates remain open; this code slice proceeded at the user's explicit direction without passing either gate. The SA-05 deterministic browser journey now covers preference promotion, explicit profile acceptance, reuse, and revocation; manual browser review, remaining review findings, and the unavailable external memory boundary remain open. Read the [index](implementation-plans-index.md), product learning principle, Personal AI integration contract, preferences module notes and ADR 0003.
 
 ## Outcome, slice and boundary
 
