@@ -1,4 +1,5 @@
 import os
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -39,6 +40,18 @@ class Settings(BaseSettings):
     # `external` currently selects UnavailablePersonalAIClient; production
     # requires it only to prevent fake responses until a supported transport exists.
     personal_ai_mode: Literal["fake", "external"] = "fake"
+    # Separate, opt-in read-provider boundary. This is unrelated to the app's
+    # queued PersonalAIClient generation transport, which remains unavailable.
+    personal_ai_context_enabled: bool = False
+    personal_ai_context_service_audience: str = Field(default="", max_length=500)
+    personal_ai_context_service_account: str = Field(default="", max_length=254)
+    personal_ai_context_user_audience: str = Field(default="", max_length=500)
+    personal_ai_context_google_user_email: str = Field(default="", max_length=254)
+    personal_ai_context_google_user_subject: str = Field(default="", max_length=255)
+    # Operator attestation tying the allowlisted Google identity to the fixed
+    # Firebase owner configured above; store the reference, never a credential.
+    personal_ai_context_identity_mapping_reference: str = Field(default="", max_length=500)
+    personal_ai_context_timeout_seconds: float = Field(default=3.0, gt=0, le=5.0)
     conversation_generation_timeout_seconds: int = Field(default=30, gt=0, le=120)
     conversation_max_concurrent_generations: int = Field(default=4, gt=0, le=32)
     search_provider: str = "fake"
@@ -76,6 +89,23 @@ class Settings(BaseSettings):
             if not self.migration_database_url:
                 raise ValueError("MIGRATION_DATABASE_URL is required for cloud operations")
             validate_cloud_database_url(self.migration_database_url)
+
+        if self.personal_ai_context_enabled and (
+            self.auth_mode != "firebase"
+            or not self.firebase_project_id
+            or not self.firebase_owner_uid
+            or not self.personal_ai_context_service_audience.startswith("https://")
+            or not re.fullmatch(
+                r"[^@\s]+@[^@\s]+\.[^@\s]+", self.personal_ai_context_service_account
+            )
+            or not self.personal_ai_context_user_audience.strip()
+            or not re.fullmatch(
+                r"[^@\s]+@[^@\s]+\.[^@\s]+", self.personal_ai_context_google_user_email
+            )
+            or not self.personal_ai_context_google_user_subject.strip()
+            or not self.personal_ai_context_identity_mapping_reference.strip()
+        ):
+            raise ValueError("personal_ai_context_identity_configuration_required")
 
         if self.environment == "local":
             if self.auth_mode != "local":

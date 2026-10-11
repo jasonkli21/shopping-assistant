@@ -136,6 +136,10 @@ async def request_id_middleware(request: Request, call_next):
         response = await call_next(request)
         status_code = response.status_code
         response.headers["X-Request-ID"] = request_id
+        if request.url.path == "/v1/integrations/personal-ai/context":
+            response.headers["Cache-Control"] = "private, no-store"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Vary"] = "Authorization, X-User-ID-Token, X-Application-ID"
         return response
     finally:
         logger.info(

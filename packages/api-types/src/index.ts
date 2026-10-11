@@ -270,6 +270,54 @@ export interface components {
       "expected_version": number;
       "expected_comparison_version": number;
     };
+    ContextFieldSensitivity: {
+      "field": string;
+      "sensitivity": "public" | "personal" | "sensitive" | "restricted" | "unknown";
+    };
+    ContextPermissionDependency: {
+      "permission_id": string;
+      "version": string;
+      "purpose": string;
+    };
+    ContextReadRequest: {
+      "schema_version"?: string;
+      "application_id"?: string;
+      "workspace_id"?: null;
+      "operation": "current" | "search" | "verify";
+      "project_id": string;
+      "selected_project_product_ids"?: Array<string>;
+      "fields": Array<string>;
+      "max_results": number;
+      "max_bytes": number;
+      "timeout_seconds"?: number;
+    };
+    ContextReadResponse: {
+      "schema_version"?: string;
+      "application_id"?: string;
+      "workspace_id"?: null;
+      "items"?: Array<components["schemas"]["ContextRecord"]>;
+    };
+    ContextRecord: {
+      "entity_type": "project" | "project_product" | "evidence";
+      "entity_id": string;
+      "source_id": string;
+      "source_version": string;
+      "source_class": "domain_current" | "external_research";
+      "authority": "authoritative" | "external";
+      "observed_at"?: null | string;
+      "effective_at"?: null | string;
+      "expires_at"?: null | string;
+      "sensitivity": "public" | "personal" | "sensitive" | "restricted" | "unknown";
+      "payload": Record<string, unknown>;
+      "source_refs": Array<components["schemas"]["ContextSourceRef"]>;
+      "permission_dependencies"?: Array<components["schemas"]["ContextPermissionDependency"]>;
+      "field_sensitivity"?: Array<components["schemas"]["ContextFieldSensitivity"]>;
+    };
+    ContextSourceRef: {
+      "kind": "record" | "evidence";
+      "reference_id": string;
+      "fingerprint"?: null | string;
+    };
     ConversationPage: {
       "items": Array<components["schemas"]["ConversationRead"]>;
       "next_cursor"?: null | string;
@@ -1059,6 +1107,9 @@ export interface paths {
   "/saved-products/{variant_id}/favorite": {
     "delete": operations["unfavorite_product_saved_products__variant_id__favorite_delete"];
     "put": operations["favorite_product_saved_products__variant_id__favorite_put"];
+  };
+  "/v1/integrations/personal-ai/context": {
+    "post": operations["read_personal_ai_context_v1_integrations_personal_ai_context_post"];
   };
 }
 
@@ -2407,6 +2458,32 @@ export interface operations {
     responses: {
       "200": { content?: {
         "application/json": components["schemas"]["NoteMutationResult"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
+  "read_personal_ai_context_v1_integrations_personal_ai_context_post": {
+    parameters: {
+      header: {
+        "X-Application-ID"?: null | string;
+        "X-User-ID-Token"?: null | string;
+        "authorization"?: null | string;
+      };
+    };
+    requestBody: { content: {
+      "application/json": components["schemas"]["ContextReadRequest"];
+    } };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["ContextReadResponse"];
       } };
       "404": { content?: {
         "application/json": components["schemas"]["ApiErrorEnvelope"];

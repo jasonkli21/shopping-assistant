@@ -1,5 +1,19 @@
 # Personal AI contract check for Shopping Assistant
 
+## Current status — 2026-10-11
+
+Shopping implements the bounded, read-only `shopping-context-read-v1` contract at `POST /v1/integrations/personal-ai/context`. It supports `current`, `search`, and `verify` over an owner-authorized Shopping Project. `current` returns only requested fields and explicitly selected product/variant IDs; hard requirements remain distinct from soft preferences, and saved/rejected state is preserved. `search` returns stored offers and evidence claims only for selected project products, grouped with the exact project-product, canonical product, and variant IDs plus source references, authority, observation time, freshness, and expiry. It does not crawl merchants or turn catalog data into current offer authority. `verify` rechecks the exact project and revision for shared context permission revalidation.
+
+The wire contract fixes `application_id="shopping"` and `workspace_id=null`; `project_id` is a separate Shopping domain reference, not a workspace encoding. Requests cap selected products at 16, fields at 32, results at 50, response bytes at 65,536, and timeout at five seconds. Shopping executes reads in a repeatable, read-only DB transaction and returns no-store responses. Shopping remains the sole authority for projects, requirements, products/variants, decisions, offers, and evidence.
+
+Authentication verifies two Google ID tokens independently: the Personal AI service token in `Authorization` and the forwarded verified user token in `X-User-ID-Token`. Shopping checks configured audiences, exact service account, exact user subject/email, an operator-supplied identity-mapping reference, and the fixed configured Firebase-owner binding before project retrieval. `PERSONAL_AI_CONTEXT_ENABLED` is false by default. Personal AI's `SHOPPING_CONTEXT_ENABLED` is also false by default. Neither `application_id` nor a project ID authorizes data access.
+
+This contract only supplies selected context. Shopping's `PersonalAIClient.generate(AIRequest) -> AIResponse` remains unchanged; its `external` mode still fails closed without network calls because there is no supported typed task-generation transport. The `shopping.product_action` capability remains unavailable. No Shopping frontend shared-sidecar host exists yet, so Phase 27's task-routing and sidecar work remain incomplete. See [Phase 27 implementation evidence](../../../../../../docs/planning/phase-27-implementation-evidence.md) and the [living current state](../../../../../../docs/current-state.md).
+
+## Historical integration check — 2026-10-07
+
+The content below records the earlier boundary and implementation guidance. Use the current status above wherever it differs; the historical sections are retained to preserve the decision trail.
+
 **Checked:** 2026-10-07 against the `personal-ai-system` source base `983cbab` and its later locally documented Phase 12 work (upstream checkout `HEAD` `3775b16`). Upstream current-state and Phase 12 evidence now record the builder and selected-source routing work; they still distinguish local implementation from a published, externally callable contract.
 
 ## Decision

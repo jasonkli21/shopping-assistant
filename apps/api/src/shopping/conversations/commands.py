@@ -263,6 +263,8 @@ def _current_state(
     *,
     selected_project_product_ids: list[UUID] | None = None,
     comparison_id: UUID | None = None,
+    selected_context_only: bool = False,
+    include_external_evidence: bool = False,
 ) -> dict:
     """Bounded, owner-scoped context for explicit Phase 6 assistant proposals."""
     project = repository.project_by_owner(session, project_id, owner_id)
@@ -303,7 +305,7 @@ def _current_state(
         if len(scoped_by_id) != len(scoped_ids):
             raise _not_found("One or more selected variants are not in this project")
         scoped_rows = [scoped_by_id[item] for item in scoped_ids]
-    remaining = max(0, 8 - len(scoped_rows))
+    remaining = 0 if selected_context_only else max(0, 8 - len(scoped_rows))
     rows = [*scoped_rows]
     if remaining:
         rest_statement = product_statement
@@ -316,15 +318,17 @@ def _current_state(
                 )
             ).all()
         )
-    total_products = (
-        session.scalar(
-            select(func.count(ProjectProduct.id))
-            .join(ProductVariant, ProductVariant.id == ProjectProduct.variant_id)
-            .join(Product, Product.id == ProductVariant.product_id)
-            .where(ProjectProduct.project_id == project_id, Product.owner_id == owner_id)
+    total_products = 0
+    if not selected_context_only:
+        total_products = (
+            session.scalar(
+                select(func.count(ProjectProduct.id))
+                .join(ProductVariant, ProductVariant.id == ProjectProduct.variant_id)
+                .join(Product, Product.id == ProductVariant.product_id)
+                .where(ProjectProduct.project_id == project_id, Product.owner_id == owner_id)
+            )
+            or 0
         )
-        or 0
-    )
     products = []
     for membership, variant, product in rows:
         decision = session.scalar(
@@ -333,43 +337,59 @@ def _current_state(
                 ProjectProductDecision.project_product_id == membership.id,
             )
         )
-        note = session.scalar(
-            select(UserNote).where(
-                UserNote.owner_id == owner_id,
-                UserNote.project_id == project_id,
-                UserNote.project_product_id == membership.id,
+        note = (
+            None
+            if selected_context_only
+            else session.scalar(
+                select(UserNote).where(
+                    UserNote.owner_id == owner_id,
+                    UserNote.project_id == project_id,
+                    UserNote.project_product_id == membership.id,
+                )
             )
         )
-        offers = list(
-            session.scalars(
-                select(RetailOffer)
-                .where(RetailOffer.owner_id == owner_id, RetailOffer.variant_id == variant.id)
-                .order_by(RetailOffer.observed_at.desc(), RetailOffer.id.desc())
-                .limit(2)
+        offers = (
+            list(
+                session.scalars(
+                    select(RetailOffer)
+                    .where(RetailOffer.owner_id == owner_id, RetailOffer.variant_id == variant.id)
+                    .order_by(RetailOffer.observed_at.desc(), RetailOffer.id.desc())
+                    .limit(2)
+                ).all()
+            )
+            if not selected_context_only or include_external_evidence
+            else []
+        )
+        assessment = (
+            None
+            if selected_context_only
+            else session.scalar(
+                select(ProductAssessment)
+                .where(
+                    ProductAssessment.owner_id == owner_id,
+                    ProductAssessment.project_product_id == membership.id,
+                )
+                .order_by(ProductAssessment.generated_at.desc(), ProductAssessment.id.desc())
+                .limit(1)
+            )
+        )
+        claim_rows = (
+            session.execute(
+                select(Claim, SourceSnapshot, Source)
+                .join(SourceSnapshot, SourceSnapshot.id == Claim.snapshot_id)
+                .join(Source, Source.id == SourceSnapshot.source_id)
+                .where(
+                    Claim.owner_id == owner_id,
+                    Claim.subject_variant_id == variant.id,
+                    SourceSnapshot.owner_id == owner_id,
+                    Source.owner_id == owner_id,
+                )
+                .order_by(Claim.extracted_at.desc(), Claim.id)
+                .limit(3)
             ).all()
+            if not selected_context_only or include_external_evidence
+            else []
         )
-        assessment = session.scalar(
-            select(ProductAssessment)
-            .where(
-                ProductAssessment.owner_id == owner_id,
-                ProductAssessment.project_product_id == membership.id,
-            )
-            .order_by(ProductAssessment.generated_at.desc(), ProductAssessment.id.desc())
-            .limit(1)
-        )
-        claim_rows = session.execute(
-            select(Claim, SourceSnapshot, Source)
-            .join(SourceSnapshot, SourceSnapshot.id == Claim.snapshot_id)
-            .join(Source, Source.id == SourceSnapshot.source_id)
-            .where(
-                Claim.owner_id == owner_id,
-                Claim.subject_variant_id == variant.id,
-                SourceSnapshot.owner_id == owner_id,
-                Source.owner_id == owner_id,
-            )
-            .order_by(Claim.extracted_at.desc(), Claim.id)
-            .limit(3)
-        ).all()
         claim_ids = [claim.id for claim, _snapshot, _source in claim_rows]
         claim_relations = (
             list(
@@ -383,7 +403,7 @@ def _current_state(
                     )
                 ).all()
             )
-            if claim_ids
+            if claim_ids and not selected_context_only
             else []
         )
         products.append(
@@ -405,9 +425,12 @@ def _current_state(
                 "offers": [
                     {
                         "offer_id": str(offer.id),
+                        "source_url": offer.url[:2048],
                         "amount": format(offer.amount, ".2f") if offer.amount is not None else None,
                         "currency": offer.currency,
                         "retailer": offer.retailer_name[:100],
+                        "availability": offer.availability,
+                        "condition": offer.condition,
                         "observed_at": offer.observed_at.isoformat(),
                     }
                     for offer in offers
@@ -439,6 +462,9 @@ def _current_state(
                         "evidence_category": claim.evidence_category,
                         "source_title": (snapshot.title or source.title or "")[:200],
                         "source_url": source.normalized_url[:1000],
+                        "published_at": (
+                            snapshot.published_at.isoformat() if snapshot.published_at else None
+                        ),
                         "retrieved_at": snapshot.retrieved_at.isoformat(),
                         "freshness": freshness(
                             claim.evidence_category,
@@ -460,6 +486,8 @@ def _current_state(
                 ],
             }
         )
+    if selected_context_only:
+        return {"products": products}
     comparisons = []
     comparison_rows = list(
         session.scalars(

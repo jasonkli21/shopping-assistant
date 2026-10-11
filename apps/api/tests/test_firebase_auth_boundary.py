@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from fastapi.routing import APIRoute
 from starlette.requests import Request
 
+from shopping.integrations.personal_ai.auth import get_personal_ai_context_owner
 from shopping.main import app
 from shopping.projects import dependencies
 
@@ -140,7 +141,12 @@ def test_every_private_api_route_has_the_owner_dependency():
     ]
     assert private_routes
     assert all(
-        dependencies.get_owner_id in _dependency_calls(route.dependant) for route in private_routes
+        {
+            dependencies.get_owner_id,
+            get_personal_ai_context_owner,
+        }
+        & _dependency_calls(route.dependant)
+        for route in private_routes
     )
 
 

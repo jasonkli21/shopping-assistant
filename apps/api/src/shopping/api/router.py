@@ -12,6 +12,7 @@ from shopping.config import API_ROOT, get_settings
 from shopping.conversations.router import router as conversations_router
 from shopping.db.session import engine
 from shopping.evidence.router import router as evidence_router
+from shopping.integrations.personal_ai.router import router as personal_ai_router
 from shopping.preferences.router import router as preferences_router
 from shopping.projects.router import router as projects_router
 from shopping.research.router import router as research_router
@@ -68,3 +69,4 @@ router.include_router(catalog_router)
 router.include_router(evidence_router)
 router.include_router(comparisons_router)
 router.include_router(accounts_router)
+router.include_router(personal_ai_router)
