@@ -48,8 +48,9 @@ class Settings(BaseSettings):
     personal_ai_context_user_audience: str = Field(default="", max_length=500)
     personal_ai_context_google_user_email: str = Field(default="", max_length=254)
     personal_ai_context_google_user_subject: str = Field(default="", max_length=255)
-    # Operator attestation tying the allowlisted Google identity to the fixed
-    # Firebase owner configured above; store the reference, never a credential.
+    # Version label for the configured single-owner identity mapping. Its value
+    # and the exact identities below are fingerprinted into read dependencies;
+    # rotate it whenever the operator's mapping intent changes.
     personal_ai_context_identity_mapping_reference: str = Field(default="", max_length=500)
     personal_ai_context_timeout_seconds: float = Field(default=3.0, gt=0, le=5.0)
     conversation_generation_timeout_seconds: int = Field(default=30, gt=0, le=120)

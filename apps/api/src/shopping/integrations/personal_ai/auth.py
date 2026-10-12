@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable, Mapping
 from hashlib import sha256
-from typing import Annotated
+from typing import Annotated, Any, cast
 from uuid import UUID
 
 from fastapi import Depends, Header, HTTPException, Request
@@ -31,15 +32,42 @@ class IdentityProviderUnavailable(RuntimeError):
     """Google signing certificates could not be checked."""
 
 
+def _bounded_google_request_type() -> Callable[[], Any]:
+    class BoundedGoogleRequest(GoogleRequest):
+        def __call__(
+            self,
+            url: str,
+            method: str = "GET",
+            body: bytes | None = None,
+            headers: Mapping[str, str] | None = None,
+            timeout: int | float | None = 3,
+            **kwargs: Any,
+        ) -> Any:
+            request = cast(Callable[..., Any], super().__call__)
+            return request(
+                url,
+                method,
+                body,
+                headers,
+                timeout=min(timeout or 3, 3),
+                **kwargs,
+            )
+
+    return cast(Callable[[], Any], BoundedGoogleRequest)
+
+
 def _verify_google_identity_token(token: str, *, audience: str) -> dict[str, object]:
     if not token or len(token) > 8192 or any(char.isspace() for char in token):
         raise InvalidIdentityToken
+    request = _bounded_google_request_type()()
     try:
-        claims = id_token.verify_oauth2_token(token, GoogleRequest(), audience=audience)
+        claims = id_token.verify_oauth2_token(token, request, audience=audience)
     except TransportError as error:
         raise IdentityProviderUnavailable from error
     except Exception as error:
         raise InvalidIdentityToken from error
+    finally:
+        request.session.close()
     if (
         not isinstance(claims, dict)
         or claims.get("iss") not in {"accounts.google.com", "https://accounts.google.com"}

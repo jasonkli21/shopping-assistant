@@ -7,12 +7,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
-from sqlalchemy import desc, func, or_, select
+from sqlalchemy import desc, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from shopping.catalog.models import Product, ProductVariant, ProjectProduct, RetailOffer
-from shopping.comparisons.models import ComparisonDimension, ComparisonItem, SavedComparison
 from shopping.conversations.generation import GENERATION_LEASE_SECONDS
 from shopping.conversations.models import Conversation, ConversationMessage
 from shopping.conversations.schemas import MessageCreated
@@ -28,13 +26,10 @@ from shopping.conversations.task import (
 from shopping.conversations.task import (
     build_request,
 )
-from shopping.evidence.models import Claim, ClaimRelation, ProductAssessment, Source, SourceSnapshot
-from shopping.evidence.reads import assessment_context_stale, freshness
-from shopping.projects import notes as note_service
 from shopping.projects import repository
 from shopping.projects import service as project_service
+from shopping.projects.context import read_project_context
 from shopping.projects.errors import ProjectError
-from shopping.projects.models import ProjectProductDecision, UserNote
 
 
 @dataclass(frozen=True)
@@ -266,305 +261,13 @@ def _current_state(
     selected_context_only: bool = False,
     include_external_evidence: bool = False,
 ) -> dict:
-    """Bounded, owner-scoped context for explicit Phase 6 assistant proposals."""
-    project = repository.project_by_owner(session, project_id, owner_id)
-    if project is None:
-        raise _not_found("Project not found")
-    scoped_ids = list(selected_project_product_ids or [])
-    if comparison_id is not None:
-        comparison = session.scalar(
-            select(SavedComparison).where(
-                SavedComparison.id == comparison_id,
-                SavedComparison.owner_id == owner_id,
-                SavedComparison.project_id == project_id,
-            )
-        )
-        if comparison is None:
-            raise _not_found("Comparison not found")
-        scoped_ids = list(
-            session.scalars(
-                select(ComparisonItem.project_product_id)
-                .where(ComparisonItem.comparison_id == comparison.id)
-                .order_by(ComparisonItem.position)
-            ).all()
-        )
-    product_statement = (
-        select(ProjectProduct, ProductVariant, Product)
-        .join(ProductVariant, ProductVariant.id == ProjectProduct.variant_id)
-        .join(Product, Product.id == ProductVariant.product_id)
-        .where(ProjectProduct.project_id == project_id, Product.owner_id == owner_id)
+    """Compatibility wrapper over the canonical project context projection."""
+    return read_project_context(
+        session,
+        owner_id,
+        project_id,
+        selected_project_product_ids=selected_project_product_ids,
+        comparison_id=comparison_id,
+        selected_context_only=selected_context_only,
+        include_external_evidence=include_external_evidence,
     )
-    scoped_rows = []
-    if scoped_ids:
-        scoped_by_id = {
-            row[0].id: row
-            for row in session.execute(
-                product_statement.where(ProjectProduct.id.in_(scoped_ids))
-            ).all()
-        }
-        if len(scoped_by_id) != len(scoped_ids):
-            raise _not_found("One or more selected variants are not in this project")
-        scoped_rows = [scoped_by_id[item] for item in scoped_ids]
-    remaining = 0 if selected_context_only else max(0, 8 - len(scoped_rows))
-    rows = [*scoped_rows]
-    if remaining:
-        rest_statement = product_statement
-        if scoped_ids:
-            rest_statement = rest_statement.where(~ProjectProduct.id.in_(scoped_ids))
-        rows.extend(
-            session.execute(
-                rest_statement.order_by(ProjectProduct.created_at, ProjectProduct.id).limit(
-                    remaining
-                )
-            ).all()
-        )
-    total_products = 0
-    if not selected_context_only:
-        total_products = (
-            session.scalar(
-                select(func.count(ProjectProduct.id))
-                .join(ProductVariant, ProductVariant.id == ProjectProduct.variant_id)
-                .join(Product, Product.id == ProductVariant.product_id)
-                .where(ProjectProduct.project_id == project_id, Product.owner_id == owner_id)
-            )
-            or 0
-        )
-    products = []
-    for membership, variant, product in rows:
-        decision = session.scalar(
-            select(ProjectProductDecision).where(
-                ProjectProductDecision.owner_id == owner_id,
-                ProjectProductDecision.project_product_id == membership.id,
-            )
-        )
-        note = (
-            None
-            if selected_context_only
-            else session.scalar(
-                select(UserNote).where(
-                    UserNote.owner_id == owner_id,
-                    UserNote.project_id == project_id,
-                    UserNote.project_product_id == membership.id,
-                )
-            )
-        )
-        offers = (
-            list(
-                session.scalars(
-                    select(RetailOffer)
-                    .where(RetailOffer.owner_id == owner_id, RetailOffer.variant_id == variant.id)
-                    .order_by(RetailOffer.observed_at.desc(), RetailOffer.id.desc())
-                    .limit(2)
-                ).all()
-            )
-            if not selected_context_only or include_external_evidence
-            else []
-        )
-        assessment = (
-            None
-            if selected_context_only
-            else session.scalar(
-                select(ProductAssessment)
-                .where(
-                    ProductAssessment.owner_id == owner_id,
-                    ProductAssessment.project_product_id == membership.id,
-                )
-                .order_by(ProductAssessment.generated_at.desc(), ProductAssessment.id.desc())
-                .limit(1)
-            )
-        )
-        claim_rows = (
-            session.execute(
-                select(Claim, SourceSnapshot, Source)
-                .join(SourceSnapshot, SourceSnapshot.id == Claim.snapshot_id)
-                .join(Source, Source.id == SourceSnapshot.source_id)
-                .where(
-                    Claim.owner_id == owner_id,
-                    Claim.subject_variant_id == variant.id,
-                    SourceSnapshot.owner_id == owner_id,
-                    Source.owner_id == owner_id,
-                )
-                .order_by(Claim.extracted_at.desc(), Claim.id)
-                .limit(3)
-            ).all()
-            if not selected_context_only or include_external_evidence
-            else []
-        )
-        claim_ids = [claim.id for claim, _snapshot, _source in claim_rows]
-        claim_relations = (
-            list(
-                session.scalars(
-                    select(ClaimRelation).where(
-                        ClaimRelation.owner_id == owner_id,
-                        or_(
-                            ClaimRelation.claim_id.in_(claim_ids),
-                            ClaimRelation.related_claim_id.in_(claim_ids),
-                        ),
-                    )
-                ).all()
-            )
-            if claim_ids and not selected_context_only
-            else []
-        )
-        products.append(
-            {
-                "project_product_id": str(membership.id),
-                "product_id": str(product.id),
-                "variant_id": str(variant.id),
-                "canonical_name": product.canonical_name[:250],
-                "brand": product.brand,
-                "variant_name": variant.display_name[:250],
-                "identity_attributes": _compact_attributes(variant.identity_attributes),
-                "category_attributes": _compact_attributes(variant.category_attributes),
-                "decision": {
-                    "state": decision.state if decision else "considering",
-                    "reason": decision.reason[:600] if decision else "",
-                    "rejection_reason": decision.rejection_reason if decision else None,
-                },
-                "note": note.text[:1000] if note else None,
-                "offers": [
-                    {
-                        "offer_id": str(offer.id),
-                        "source_url": offer.url[:2048],
-                        "amount": format(offer.amount, ".2f") if offer.amount is not None else None,
-                        "currency": offer.currency,
-                        "retailer": offer.retailer_name[:100],
-                        "availability": offer.availability,
-                        "condition": offer.condition,
-                        "observed_at": offer.observed_at.isoformat(),
-                    }
-                    for offer in offers
-                ],
-                "assessment": (
-                    {
-                        "assessment_id": str(assessment.id),
-                        "summary": assessment.summary[:600],
-                        "conclusions": assessment.conclusions[:6],
-                        "project_revision": assessment.project_revision,
-                        "context_stale": assessment_context_stale(
-                            assessment, project, product, variant
-                        ),
-                        "product_revision": assessment.product_revision,
-                        "variant_revision": assessment.variant_revision,
-                        "claim_ids": assessment.claim_ids[:20],
-                    }
-                    if assessment
-                    else None
-                ),
-                "claims": [
-                    {
-                        "claim_id": str(claim.id),
-                        "snapshot_id": str(snapshot.id),
-                        "attribute_key": claim.attribute_key,
-                        "assertion": claim.assertion_text[:400],
-                        "normalized_value": claim.normalized_value,
-                        "qualifiers": claim.qualifiers,
-                        "evidence_category": claim.evidence_category,
-                        "source_title": (snapshot.title or source.title or "")[:200],
-                        "source_url": source.normalized_url[:1000],
-                        "published_at": (
-                            snapshot.published_at.isoformat() if snapshot.published_at else None
-                        ),
-                        "retrieved_at": snapshot.retrieved_at.isoformat(),
-                        "freshness": freshness(
-                            claim.evidence_category,
-                            published_at=snapshot.published_at,
-                            retrieved_at=snapshot.retrieved_at,
-                            now=datetime.now(UTC),
-                        ),
-                    }
-                    for claim, snapshot, source in claim_rows
-                ],
-                "claim_relations": [
-                    {
-                        "claim_id": str(item.claim_id),
-                        "related_claim_id": str(item.related_claim_id),
-                        "relation": item.relation,
-                        "basis": item.basis[:300],
-                    }
-                    for item in claim_relations
-                ],
-            }
-        )
-    if selected_context_only:
-        return {"products": products}
-    comparisons = []
-    comparison_rows = list(
-        session.scalars(
-            select(SavedComparison)
-            .where(SavedComparison.owner_id == owner_id, SavedComparison.project_id == project_id)
-            .order_by(SavedComparison.updated_at.desc(), SavedComparison.id)
-            .limit(10)
-        ).all()
-    )
-    if comparison_id is not None:
-        prioritized = session.scalar(
-            select(SavedComparison).where(
-                SavedComparison.id == comparison_id,
-                SavedComparison.owner_id == owner_id,
-                SavedComparison.project_id == project_id,
-            )
-        )
-        comparison_rows = [
-            prioritized,
-            *[item for item in comparison_rows if item.id != comparison_id],
-        ]
-    for comparison in comparison_rows[:10]:
-        item_ids = list(
-            session.scalars(
-                select(ComparisonItem.project_product_id)
-                .where(ComparisonItem.comparison_id == comparison.id)
-                .order_by(ComparisonItem.position)
-            ).all()
-        )
-        dimensions = list(
-            session.scalars(
-                select(ComparisonDimension)
-                .where(ComparisonDimension.comparison_id == comparison.id)
-                .order_by(ComparisonDimension.position)
-            ).all()
-        )
-        comparisons.append(
-            {
-                "id": str(comparison.id),
-                "title": comparison.title,
-                "comparison_revision": comparison.comparison_revision,
-                "project_product_ids": [str(item) for item in item_ids],
-                "dimensions": [
-                    {
-                        "key": item.key,
-                        "label": item.label,
-                        "unit": item.unit,
-                        "dimension_type": item.dimension_type,
-                    }
-                    for item in dimensions
-                ],
-            }
-        )
-    project_note = note_service.get_note(session, owner_id, project_id)
-    return {
-        "products": products,
-        "comparisons": comparisons,
-        "project_notes": project_note.text[:2000] if project_note else "",
-        "scope": {
-            "type": "comparison" if comparison_id else "selection" if scoped_ids else "project",
-            "comparison_id": str(comparison_id) if comparison_id else None,
-            "project_product_ids": [str(item) for item in scoped_ids],
-        },
-        "omitted_product_count": max(0, total_products - len(rows)),
-    }
-
-
-def _compact_attributes(attributes: dict) -> dict:
-    compact = {}
-    for key, value in list(attributes.items())[:12]:
-        if isinstance(value, dict):
-            bounded = dict(value)
-            if isinstance(bounded.get("value"), str):
-                bounded["value"] = bounded["value"][:200]
-            compact[key[:100]] = bounded
-        elif isinstance(value, str):
-            compact[key[:100]] = value[:200]
-        elif isinstance(value, (int, float, bool)) or value is None:
-            compact[key[:100]] = value
-    return compact

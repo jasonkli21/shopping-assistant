@@ -12,10 +12,11 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy.orm import Session
 
-from shopping.conversations.commands import _current_state
+from shopping.config import get_settings
 from shopping.evidence.freshness import DISPLAY_FRESHNESS, evidence_freshness, offer_freshness
 from shopping.projects import repository
 from shopping.projects import service as project_service
+from shopping.projects.context import read_project_context
 from shopping.projects.errors import ProjectError
 
 SCHEMA_VERSION = "shopping-context-read-v1"
@@ -95,16 +96,19 @@ class ContextReadRequest(BaseModel):
                 "selected_products",
             },
             "search": {"catalog_observations"},
-            "verify": {"project_revision"},
+            "verify": {"project_revision", "selected_products"},
         }[self.operation]
         if not set(self.fields).issubset(allowed):
             raise ValueError("shopping_context_fields_invalid")
         if self.operation == "search" and not self.selected_project_product_ids:
             raise ValueError("shopping_catalog_selection_required")
-        if self.operation == "verify" and self.selected_project_product_ids:
-            raise ValueError("shopping_context_verify_products_unsupported")
-        if self.operation == "verify" and self.fields != ("project_revision",):
-            raise ValueError("shopping_context_verify_fields_invalid")
+        if self.operation == "verify":
+            if self.fields == ("project_revision",) and self.selected_project_product_ids:
+                raise ValueError("shopping_context_verify_project_products_unsupported")
+            if self.fields == ("selected_products",) and not self.selected_project_product_ids:
+                raise ValueError("shopping_context_verify_product_selection_required")
+            if self.fields not in {("project_revision",), ("selected_products",)}:
+                raise ValueError("shopping_context_verify_fields_invalid")
         return self
 
 
@@ -122,11 +126,14 @@ class ContextRecord(BaseModel):
     expires_at: datetime | None = None
     sensitivity: Literal["public", "personal", "sensitive", "restricted", "unknown"]
     payload: dict[str, object] = Field(max_length=32)
-    source_refs: tuple[ContextSourceRef, ...] = Field(min_length=1, max_length=16)
+    source_refs: tuple[ContextSourceRef, ...] = Field(min_length=1, max_length=32)
     permission_dependencies: tuple[ContextPermissionDependency, ...] = Field(
-        default=(), max_length=16
+        default=(), max_length=32
     )
     field_sensitivity: tuple[ContextFieldSensitivity, ...] = Field(default=(), max_length=32)
+    partial_result: bool = False
+    omitted_count: int | None = Field(default=None, ge=0)
+    selection_policy_version: str | None = Field(default=None, max_length=100)
 
 
 class ContextReadResponse(BaseModel):
@@ -164,15 +171,29 @@ def read_context(
         raise ProjectError(404, "not_found", "Project not found")
 
     if request.operation == "verify":
-        item = _project_record(
-            project,
-            {"project_revision": project.revision},
-            fields=("project_revision",),
-        )
-        return _bounded_response((item,), request.max_bytes, request.max_results)
+        if request.selected_project_product_ids:
+            current = read_project_context(
+                session,
+                owner_id,
+                request.project_id,
+                selected_project_product_ids=list(request.selected_project_product_ids),
+                selected_context_only=True,
+            )
+            items = tuple(
+                _project_product_record(project, product) for product in current["products"]
+            )
+        else:
+            items = (
+                _project_record(
+                    project,
+                    {"project_revision": project.revision},
+                    fields=("project_revision",),
+                ),
+            )
+        return _bounded_response(items, request.max_bytes, request.max_results)
 
     project_read = project_service.get_project(session, owner_id, request.project_id)
-    current = _current_state(
+    current = read_project_context(
         session,
         owner_id,
         request.project_id,
@@ -195,24 +216,44 @@ def read_context(
             "selected_products": [_product_projection(item) for item in current["products"]],
         }
         payload = {name: values[name] for name in request.fields if name in values}
-        record = _project_record(project, payload, fields=tuple(payload))
+        record = _project_record(
+            project,
+            payload,
+            fields=tuple(payload),
+            product_projections=(current["products"] if "selected_products" in payload else ()),
+        )
         return _bounded_response((record,), request.max_bytes, request.max_results)
 
     evidence_records: list[ContextRecord] = []
     for product in current["products"]:
         observations = _observation_projections(product)
         if observations:
-            evidence_records.append(
-                _evidence_record(
-                    project,
-                    product,
-                    observations,
-                    ("catalog_observations",),
+            total_available = int(product["evidence_total_available"])
+            omitted_count = max(0, total_available - len(observations))
+            for observation in observations:
+                evidence_records.append(
+                    _evidence_record(
+                        project,
+                        product,
+                        observation,
+                        ("catalog_observations",),
+                        partial_result=omitted_count > 0,
+                        omitted_count=omitted_count,
+                    )
                 )
+    omitted_by_result_limit = max(0, len(evidence_records) - request.max_results)
+    bounded_evidence = evidence_records[: request.max_results]
+    if omitted_by_result_limit:
+        bounded_evidence = [
+            item.model_copy(
+                update={
+                    "partial_result": True,
+                    "omitted_count": (item.omitted_count or 0) + omitted_by_result_limit,
+                }
             )
-    return _bounded_response(
-        tuple(evidence_records[: request.max_results]), request.max_bytes, request.max_results
-    )
+            for item in bounded_evidence
+        ]
+    return _bounded_response(tuple(bounded_evidence), request.max_bytes, request.max_results)
 
 
 def _requirement_projection(item) -> dict[str, object]:
@@ -240,7 +281,9 @@ def _product_projection(item: dict) -> dict[str, object]:
     return {
         "project_product_id": item["project_product_id"],
         "product_id": item["product_id"],
+        "product_revision": item["product_revision"],
         "variant_id": item["variant_id"],
+        "variant_revision": item["variant_revision"],
         "canonical_name": item["canonical_name"],
         "brand": item["brand"],
         "variant_name": item["variant_name"],
@@ -315,28 +358,160 @@ def _observation_projections(item: dict) -> list[dict[str, object]]:
                 ),
             }
         )
+    result.sort(
+        key=lambda value: (
+            _parse_timestamp(value["observed_at"]),
+            str(value["observation_id"]),
+        ),
+        reverse=True,
+    )
     return result[:5]
 
 
-def _project_record(project, payload: dict, *, fields: tuple[str, ...]) -> ContextRecord:
+def _product_context_version(product: dict) -> str:
+    """Version the selected membership and every product identity it projects."""
+    return _fingerprint(
+        _canonical_json(
+            {
+                "project_product_id": product["project_product_id"],
+                "product_id": product["product_id"],
+                "product_revision": product["product_revision"],
+                "variant_id": product["variant_id"],
+                "variant_revision": product["variant_revision"],
+            }
+        )
+    )
+
+
+def _project_permission(project_id: UUID, revision: int) -> ContextPermissionDependency:
+    settings = get_settings()
+    mapping_version = _fingerprint(
+        _canonical_json(
+            {
+                "mapping_reference": settings.personal_ai_context_identity_mapping_reference,
+                "firebase_project_id": settings.firebase_project_id,
+                "firebase_owner_uid": settings.firebase_owner_uid,
+                "local_owner_id": str(settings.local_owner_id),
+                "google_user_audience": settings.personal_ai_context_user_audience,
+                "google_user_email": settings.personal_ai_context_google_user_email.casefold(),
+                "google_user_subject": settings.personal_ai_context_google_user_subject,
+            }
+        )
+    )
+    return ContextPermissionDependency(
+        permission_id=f"shopping_project_read:{project_id}",
+        version=f"r{revision}:{mapping_version}",
+        purpose=(
+            "verify current Shopping project ownership, revision, and delegated identity mapping"
+        ),
+    )
+
+
+def _project_product_permission(
+    project_id: UUID, project_product_id: UUID, version: str
+) -> ContextPermissionDependency:
+    return ContextPermissionDependency(
+        permission_id=f"shopping_product_read:{project_id}:{project_product_id}",
+        version=version,
+        purpose="verify selected Shopping product and current catalog identity",
+    )
+
+
+def _project_product_record(project, product: dict) -> ContextRecord:
+    project_product_id = UUID(product["project_product_id"])
+    product_version = _product_context_version(product)
     return ContextRecord(
-        entity_type="project",
-        entity_id=str(project.id),
-        source_id=f"shopping-project:{project.id}",
-        source_version=str(project.revision),
+        entity_type="project_product",
+        entity_id=str(project_product_id),
+        source_id=f"shopping-project-product:{project.id}:{project_product_id}",
+        source_version=product_version,
         source_class="domain_current",
         authority="authoritative",
-        observed_at=project.updated_at,
+        observed_at=datetime.now(UTC),
         sensitivity="sensitive",
-        payload=payload,
+        payload={"selected_products": (_product_projection(product),)},
         source_refs=(
             ContextSourceRef(
                 kind="record",
                 reference_id=str(project.id),
                 fingerprint=_fingerprint(f"{project.id}:{project.revision}"),
             ),
+            ContextSourceRef(
+                kind="record",
+                reference_id=str(project_product_id),
+                fingerprint=product_version,
+            ),
+            ContextSourceRef(
+                kind="record",
+                reference_id=product["product_id"],
+                fingerprint=_fingerprint(f"{product['product_id']}:{product['product_revision']}"),
+            ),
+            ContextSourceRef(
+                kind="record",
+                reference_id=product["variant_id"],
+                fingerprint=_fingerprint(f"{product['variant_id']}:{product['variant_revision']}"),
+            ),
         ),
-        permission_dependencies=(_project_permission(project.id, project.revision),),
+        permission_dependencies=(
+            _project_permission(project.id, project.revision),
+            _project_product_permission(project.id, project_product_id, product_version),
+        ),
+        field_sensitivity=(
+            ContextFieldSensitivity(field="selected_products", sensitivity="sensitive"),
+        ),
+    )
+
+
+def _project_record(
+    project,
+    payload: dict,
+    *,
+    fields: tuple[str, ...],
+    product_projections=(),
+) -> ContextRecord:
+    product_versions = tuple(
+        {
+            "project_product_id": product["project_product_id"],
+            "version": _product_context_version(product),
+        }
+        for product in product_projections
+    )
+    dependencies = [_project_permission(project.id, project.revision)]
+    source_refs = [
+        ContextSourceRef(
+            kind="record",
+            reference_id=str(project.id),
+            fingerprint=_fingerprint(f"{project.id}:{project.revision}"),
+        )
+    ]
+    for product, version_data in zip(product_projections, product_versions, strict=True):
+        product_id = UUID(product["project_product_id"])
+        version = version_data["version"]
+        source_refs.append(
+            ContextSourceRef(kind="record", reference_id=str(product_id), fingerprint=version)
+        )
+        dependencies.append(_project_product_permission(project.id, product_id, version))
+    source_version = _fingerprint(
+        _canonical_json(
+            {
+                "project_id": str(project.id),
+                "project_revision": project.revision,
+                "selected_products": product_versions,
+            }
+        )
+    )
+    return ContextRecord(
+        entity_type="project",
+        entity_id=str(project.id),
+        source_id=f"shopping-project:{project.id}",
+        source_version=source_version,
+        source_class="domain_current",
+        authority="authoritative",
+        observed_at=project.updated_at,
+        sensitivity="sensitive",
+        payload=payload,
+        source_refs=tuple(source_refs),
+        permission_dependencies=tuple(dependencies),
         field_sensitivity=tuple(
             ContextFieldSensitivity(
                 field=name,
@@ -350,29 +525,26 @@ def _project_record(project, payload: dict, *, fields: tuple[str, ...]) -> Conte
 def _evidence_record(
     project,
     product: dict,
-    observations: list[dict],
+    observation: dict[str, object],
     fields: tuple[str, ...],
+    *,
+    partial_result: bool = False,
+    omitted_count: int = 0,
 ) -> ContextRecord:
     project_product_id = UUID(product["project_product_id"])
-    references = tuple(
+    product_version = _product_context_version(product)
+    product_record_refs = (
         ContextSourceRef(
-            kind="evidence",
-            reference_id=str(value["observation_id"]),
-            fingerprint=_fingerprint(_canonical_json(value)),
-        )
-        for value in observations[:16]
+            kind="record",
+            reference_id=product["product_id"],
+            fingerprint=_fingerprint(f"{product['product_id']}:{product['product_revision']}"),
+        ),
+        ContextSourceRef(
+            kind="record",
+            reference_id=product["variant_id"],
+            fingerprint=_fingerprint(f"{product['variant_id']}:{product['variant_revision']}"),
+        ),
     )
-    product_reference = ContextSourceRef(
-        kind="record",
-        reference_id=str(project_product_id),
-        fingerprint=_fingerprint(f"{project_product_id}:{project.revision}"),
-    )
-    observed = [
-        _parse_timestamp(value["observed_at"]) for value in observations if value.get("observed_at")
-    ]
-    expiries = [
-        _parse_timestamp(value["expires_at"]) for value in observations if value.get("expires_at")
-    ]
     return ContextRecord(
         entity_type="evidence",
         entity_id=str(project_product_id),
@@ -380,34 +552,53 @@ def _evidence_record(
         source_version=_fingerprint(
             _canonical_json(
                 {
-                    "project_product_id": str(project_product_id),
-                    "product_id": product["product_id"],
-                    "variant_id": product["variant_id"],
-                    "observations": observations,
+                    "product_version": product_version,
+                    "observation": observation,
                 }
             )
         ),
         source_class="external_research",
         authority="external",
-        observed_at=max(observed) if observed else None,
-        expires_at=max(expiries) if expiries else None,
+        observed_at=_parse_timestamp(observation["observed_at"]),
+        expires_at=(
+            _parse_timestamp(observation["expires_at"]) if observation.get("expires_at") else None
+        ),
         sensitivity="personal",
         payload={
-            **(
-                {
-                    "catalog_observations": {
-                        "project_product_id": str(project_product_id),
-                        "product_id": product["product_id"],
-                        "variant_id": product["variant_id"],
-                        "observations": observations,
-                    }
-                }
-                if "catalog_observations" in fields
-                else {}
-            ),
+            "catalog_observations": {
+                "project_product_id": str(project_product_id),
+                "product_id": product["product_id"],
+                "product_revision": product["product_revision"],
+                "variant_id": product["variant_id"],
+                "variant_revision": product["variant_revision"],
+                "observations": (observation,),
+                "partial_result": partial_result,
+                "omitted_count": omitted_count,
+                "selection_policy_version": "shopping-catalog-recent-first-v1",
+            }
         },
-        source_refs=(product_reference, *references[:15]),
-        permission_dependencies=(_project_permission(project.id, project.revision),),
+        source_refs=(
+            ContextSourceRef(
+                kind="record",
+                reference_id=str(project.id),
+                fingerprint=_fingerprint(f"{project.id}:{project.revision}"),
+            ),
+            ContextSourceRef(
+                kind="record",
+                reference_id=str(project_product_id),
+                fingerprint=product_version,
+            ),
+            *product_record_refs,
+            ContextSourceRef(
+                kind="evidence",
+                reference_id=str(observation["observation_id"]),
+                fingerprint=_fingerprint(_canonical_json(observation)),
+            ),
+        ),
+        permission_dependencies=(
+            _project_permission(project.id, project.revision),
+            _project_product_permission(project.id, project_product_id, product_version),
+        ),
         field_sensitivity=tuple(
             ContextFieldSensitivity(
                 field=name,
@@ -415,14 +606,9 @@ def _evidence_record(
             )
             for name in fields
         ),
-    )
-
-
-def _project_permission(project_id: UUID, revision: int) -> ContextPermissionDependency:
-    return ContextPermissionDependency(
-        permission_id=f"shopping_project_read:{project_id}",
-        version=str(revision),
-        purpose="verify current Shopping project ownership and revision",
+        partial_result=partial_result,
+        omitted_count=omitted_count,
+        selection_policy_version="shopping-catalog-recent-first-v1",
     )
 
 

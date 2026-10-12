@@ -29,7 +29,7 @@ Personal AI implements `shopping.product_context` and `shopping.catalog_search` 
 - **Mutation:** no shortlist/requirement write path was added. `shopping.product_action` remains unavailable pending Phase 31.
 - **README:** no README-visible behavior changed because both new read gates default off and generation/UI behavior is unchanged.
 
-The implementation reuses one Shopping-owned projection for selected products and does not introduce a parallel project store, provider route, worker state, generation client, or mutation mechanism. The API integration module currently consumes the existing internal conversation current-state projection; independent review should consider whether that projection should become an explicitly named shared domain-read seam before more consumers are added.
+The implementation reuses one Shopping-owned projection for selected products and does not introduce a parallel project store, provider route, worker state, generation client, or mutation mechanism. The post-implementation review follow-up below promotes the owner-scoped projection to an explicit public domain context seam and routes the legacy conversation helper and Personal AI adapter through it.
 
 ## Verification
 
@@ -53,3 +53,12 @@ Tested on 2026-10-11 against the starting revisions above plus this working-tree
 ## Independent review focus
 
 Review the Google subject-to-fixed-Firebase-owner attestation and revocation lifecycle; transaction isolation and timeout behavior; whether every project-child mutation advances the revision used for permission revalidation; the selected-only projection and its internal conversation-module dependency; freshness calculations and observation fingerprints; and confirmation that the default-off gates cannot be bypassed through registry metadata. Review task generation and sidecar integration as open Phase 27 work, not delivered behavior.
+
+
+## Post-implementation review follow-up — 2026-10-11
+
+The owner-scoped current-state projection is now a public domain context seam used by both the conversation compatibility helper and the Personal AI adapter. Product and variant revisions and exact project-product membership are included in source versions and permission dependencies. Catalog evidence is represented one observation per record, each with its exact expiry; recent-first bounded selection carries omitted count and selection-policy version. The adapter retains Shopping entity references and rejects selected products without authoritative membership IDs. Google certificate requests have a three-second maximum timeout and close their session.
+
+The required identity-mapping reference remains a configuration string, not a versioned or revocable authority record. The review finding remains unresolved; both integration gates stay off. Common workflow-routing prerequisites and the accepted shared-sidecar host/identity contract also remain open.
+
+Verification on 2026-10-11: the offline API suite passed (**196 passed, 130 database tests deselected**) and Ruff passed for the changed files. PostgreSQL, live Google identity/certificate verification, cloud/IAM, provider, browser, and sidecar behavior were not exercised.

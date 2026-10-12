@@ -10,7 +10,7 @@ from fastapi import HTTPException
 from starlette.requests import Request
 
 from shopping.config import Settings
-from shopping.integrations.personal_ai import auth
+from shopping.integrations.personal_ai import auth, context
 from shopping.integrations.personal_ai.auth import get_personal_ai_context_owner
 from shopping.integrations.personal_ai.context import (
     ContextReadRequest,
@@ -62,6 +62,27 @@ def test_context_contract_bounds_scope_and_operation_fields():
         _context_request(max_bytes=65_537)
 
 
+def test_project_permission_version_tracks_configured_identity_mapping(monkeypatch):
+    settings = Settings(_env_file=None)
+    settings.personal_ai_context_identity_mapping_reference = "owner-map-v1"
+    settings.firebase_project_id = "health-project"
+    settings.firebase_owner_uid = "firebase-owner"
+    settings.personal_ai_context_user_audience = "personal-ai-client"
+    settings.personal_ai_context_google_user_email = "owner@example.com"
+    settings.personal_ai_context_google_user_subject = "google-subject-1"
+    monkeypatch.setattr(context, "get_settings", lambda: settings)
+
+    project_id = uuid4()
+    first = context._project_permission(project_id, 4).version
+    settings.personal_ai_context_identity_mapping_reference = "owner-map-v2"
+    second = context._project_permission(project_id, 4).version
+    assert second != first
+
+    settings.personal_ai_context_google_user_subject = "google-subject-2"
+    third = context._project_permission(project_id, 4).version
+    assert third != second
+
+
 def test_requirement_projection_keeps_hard_constraints_and_soft_preferences_distinct():
     classifications = {
         kind: _requirement_projection(
@@ -102,6 +123,8 @@ def test_selected_project_product_projection_preserves_domain_identity_and_decis
             "variant_name": "Model X, US",
             "identity_attributes": {"region": {"value": "US"}},
             "category_attributes": {"weight": {"value": 8, "unit": "lb"}},
+            "product_revision": 2,
+            "variant_revision": 3,
             "decision": {"state": "rejected", "rejection_reason": "too_heavy"},
         }
     )
@@ -109,6 +132,8 @@ def test_selected_project_product_projection_preserves_domain_identity_and_decis
     assert projected["project_product_id"] == project_product_id
     assert projected["product_id"] == product_id
     assert projected["variant_id"] == variant_id
+    assert projected["product_revision"] == 2
+    assert projected["variant_revision"] == 3
     assert projected["decision_state"] == "rejected"
     assert projected["saved"] is False
     assert projected["rejection_reason"] == "too_heavy"
@@ -158,13 +183,15 @@ def test_catalog_observations_keep_authority_source_and_freshness():
         }
     )
 
-    assert observations[0]["kind"] == "merchant_offer"
-    assert observations[0]["authority"] == "external_observation"
-    assert observations[0]["freshness"] == "current"
-    assert observations[0]["source_url"] == "https://shop.example/item"
-    assert observations[1]["freshness"] == "stale"
-    assert observations[2]["freshness"] == "unknown"
-    assert observations[2]["expires_at"] is None
+    by_url = {item.get("source_url"): item for item in observations}
+    current = by_url["https://shop.example/item"]
+    stale = by_url["https://shop.example/old-item"]
+    unknown = next(item for item in observations if item["kind"] == "evidence_claim")
+    assert current["authority"] == "external_observation"
+    assert current["freshness"] == "current"
+    assert stale["freshness"] == "stale"
+    assert unknown["freshness"] == "unknown"
+    assert unknown["expires_at"] is None
 
 
 def test_evidence_fingerprint_tracks_values_when_observation_identity_is_unchanged():
@@ -172,7 +199,9 @@ def test_evidence_fingerprint_tracks_values_when_observation_identity_is_unchang
     product = {
         "project_product_id": str(uuid4()),
         "product_id": str(uuid4()),
+        "product_revision": 4,
         "variant_id": str(uuid4()),
+        "variant_revision": 9,
     }
     observed_at = datetime.now(UTC).isoformat()
     baseline = {
@@ -184,15 +213,18 @@ def test_evidence_fingerprint_tracks_values_when_observation_identity_is_unchang
     }
     changed = {**baseline, "amount": "189.00"}
 
-    first = _evidence_record(project, product, [baseline], ("catalog_observations",))
-    second = _evidence_record(project, product, [changed], ("catalog_observations",))
+    first = _evidence_record(project, product, baseline, ("catalog_observations",))
+    second = _evidence_record(project, product, changed, ("catalog_observations",))
 
     assert first.source_version != second.source_version
-    assert first.source_refs[1].fingerprint != second.source_refs[1].fingerprint
+    assert first.source_refs[-1].fingerprint != second.source_refs[-1].fingerprint
+    assert first.expires_at == datetime.fromisoformat(baseline["expires_at"])
     projected = first.payload["catalog_observations"]
     assert projected["project_product_id"] == product["project_product_id"]
     assert projected["product_id"] == product["product_id"]
     assert projected["variant_id"] == product["variant_id"]
+    assert projected["product_revision"] == product["product_revision"]
+    assert projected["variant_revision"] == product["variant_revision"]
 
 
 def test_context_response_enforces_serialized_byte_limit():
@@ -274,6 +306,43 @@ def _auth_settings():
         personal_ai_context_identity_mapping_reference="identity-map-review-42",
         personal_ai_context_timeout_seconds=3.0,
     )
+
+
+def test_google_identity_verification_bounds_certificate_fetch_and_closes_session(monkeypatch):
+    calls = []
+
+    class FakeSession:
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+    requests = []
+
+    class FakeRequest:
+        def __init__(self):
+            self.session = FakeSession()
+            requests.append(self)
+
+        def __call__(self, _url, method="GET", body=None, headers=None, timeout=None, **_kwargs):
+            calls.append(timeout)
+            return None
+
+    monkeypatch.setattr(auth, "GoogleRequest", FakeRequest)
+    bounded_request_type = auth._bounded_google_request_type()
+    monkeypatch.setattr(auth, "_bounded_google_request_type", lambda: bounded_request_type)
+
+    def verify(_token, supplied_request, *, audience):
+        supplied_request("https://www.googleapis.com/oauth2/v1/certs", timeout=60)
+        return {"iss": "https://accounts.google.com", "email_verified": True}
+
+    monkeypatch.setattr(auth.id_token, "verify_oauth2_token", verify)
+
+    claims = auth._verify_google_identity_token("signed-token", audience="shopping-client")
+
+    assert claims["email_verified"] is True
+    assert calls == [3]
+    assert len(requests) == 1 and requests[0].session.closed is True
 
 
 def test_context_auth_separates_service_and_user_tokens_and_derives_fixed_owner(monkeypatch):
@@ -485,6 +554,33 @@ def test_context_endpoint_returns_selected_state_and_bounded_evidence(project_ap
                     condition="unknown",
                     observed_at=now - timedelta(days=3),
                 ),
+                *[
+                    RetailOffer(
+                        owner_id=owner["id"],
+                        variant_id=variant_id,
+                        idempotency_key=f"context-recent-offer-{index}",
+                        retailer_name="Example Shop",
+                        url=f"https://shop.example/recent-{index}",
+                        amount="239.00",
+                        currency="USD",
+                        availability="in_stock",
+                        condition="new",
+                        observed_at=now - timedelta(hours=index),
+                    )
+                    for index in range(1, 4)
+                ],
+                RetailOffer(
+                    owner_id=owner["id"],
+                    variant_id=variant_id,
+                    idempotency_key="context-omitted-offer-01",
+                    retailer_name="Example Shop",
+                    url="https://shop.example/omitted",
+                    amount="209.00",
+                    currency="USD",
+                    availability="unknown",
+                    condition="unknown",
+                    observed_at=now - timedelta(days=5),
+                ),
             ]
         )
         session.commit()
@@ -528,13 +624,64 @@ def test_context_endpoint_returns_selected_state_and_bounded_evidence(project_ap
     [selected] = project_context["payload"]["selected_products"]
     assert selected["project_product_id"] == str(membership_id)
     assert selected["product_id"] == str(product_id)
+    assert selected["product_revision"] == 1
     assert selected["variant_id"] == str(variant_id)
+    assert selected["variant_revision"] == 1
     assert selected["decision_state"] == "rejected"
     assert selected["saved"] is False
     assert selected["rejection_reason"] == "too_heavy"
     assert project_context["permission_dependencies"][0]["permission_id"] == (
         f"shopping_project_read:{project_id}"
     )
+    product_dependency = next(
+        item
+        for item in project_context["permission_dependencies"]
+        if item["permission_id"].startswith("shopping_product_read:")
+    )
+    original_product_version = product_dependency["version"]
+    project_revision_before_refresh = client.get(f"/projects/{project_id}").json()["revision"]
+    with Session(engine) as session:
+        variant = session.get(ProductVariant, variant_id)
+        variant.category_attributes = {"weight": {"value": 4, "unit": "lb"}}
+        variant.revision += 1
+        session.commit()
+    verify_product = client.post(
+        path,
+        headers=headers,
+        json={
+            "operation": "verify",
+            "project_id": str(project_id),
+            "selected_project_product_ids": [str(membership_id)],
+            "fields": ["selected_products"],
+            "max_results": 1,
+            "max_bytes": 8192,
+        },
+    )
+    assert verify_product.status_code == 200, verify_product.text
+    [verified_product] = verify_product.json()["items"]
+    refreshed_product_dependency = next(
+        item
+        for item in verified_product["permission_dependencies"]
+        if item["permission_id"] == product_dependency["permission_id"]
+    )
+    assert refreshed_product_dependency["version"] != original_product_version
+    refreshed_project = client.get(f"/projects/{project_id}").json()
+    assert refreshed_project["revision"] == project_revision_before_refresh
+    refreshed_current = client.post(
+        path,
+        headers=headers,
+        json={
+            "operation": "current",
+            "project_id": str(project_id),
+            "selected_project_product_ids": [str(membership_id)],
+            "fields": ["project_title", "selected_products"],
+            "max_results": 1,
+            "max_bytes": 16384,
+        },
+    )
+    assert refreshed_current.status_code == 200, refreshed_current.text
+    refreshed_version = refreshed_current.json()["items"][0]["source_version"]
+    assert refreshed_version != project_context["source_version"]
 
     search = client.post(
         path,
@@ -544,24 +691,41 @@ def test_context_endpoint_returns_selected_state_and_bounded_evidence(project_ap
             "project_id": str(project_id),
             "selected_project_product_ids": [str(membership_id)],
             "fields": ["catalog_observations"],
-            "max_results": 1,
+            "max_results": 10,
             "max_bytes": 32768,
         },
     )
     assert search.status_code == 200, search.text
-    [evidence] = search.json()["items"]
-    assert evidence["entity_type"] == "evidence"
-    assert evidence["entity_id"] == str(membership_id)
-    assert evidence["source_class"] == "external_research"
-    assert evidence["authority"] == "external"
-    assert len(evidence["source_refs"]) == 3
-    catalog_context = evidence["payload"]["catalog_observations"]
-    assert catalog_context["project_product_id"] == str(membership_id)
-    assert catalog_context["product_id"] == str(product_id)
-    assert catalog_context["variant_id"] == str(variant_id)
-    observations = catalog_context["observations"]
+    evidence_records = search.json()["items"]
+    assert len(evidence_records) == 5
+    assert all(item["entity_type"] == "evidence" for item in evidence_records)
+    assert all(item["entity_id"] == str(membership_id) for item in evidence_records)
+    assert all(item["source_class"] == "external_research" for item in evidence_records)
+    assert all(item["authority"] == "external" for item in evidence_records)
+    assert all(len(item["source_refs"]) == 5 for item in evidence_records)
+    observations = [
+        item["payload"]["catalog_observations"]["observations"][0] for item in evidence_records
+    ]
     assert {item["freshness"] for item in observations} == {"current", "stale"}
     assert all(item["authority"] == "external_observation" for item in observations)
+    assert all(item["partial_result"] is True for item in evidence_records)
+    assert all(item["omitted_count"] == 1 for item in evidence_records)
+    assert all(
+        record["expires_at"]
+        == record["payload"]["catalog_observations"]["observations"][0]["expires_at"]
+        for record in evidence_records
+    )
+    current_expiry = max(
+        datetime.fromisoformat(record["expires_at"])
+        for record in evidence_records
+        if record["payload"]["catalog_observations"]["observations"][0]["freshness"] == "current"
+    )
+    stale_expiry = next(
+        datetime.fromisoformat(record["expires_at"])
+        for record in evidence_records
+        if record["payload"]["catalog_observations"]["observations"][0]["freshness"] == "stale"
+    )
+    assert stale_expiry < current_expiry
     assert (
         client.get(f"/projects/{project_id}").json()["revision"]
         == rejected.json()["event"]["project_version"]
