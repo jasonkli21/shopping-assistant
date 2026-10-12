@@ -18,6 +18,16 @@ Shopping exposes a Shopping-owned, versioned, read-only `shopping-context-read-v
 
 Phase 27 is **locally partial and incomplete**. The context provider reuses Shopping's owner-scoped domain projection and Personal AI's shared runtime, planning, field policy, and permission revalidation. Shopping's queued AI jobs do not carry a delegated-user identity and no accepted generic typed-task upstream route exists; Phase 15/21/24 workflow routing prerequisites remain open. Shopping's frontend also has no accepted embedding contract for the shared Personal AI sidecar. These gates prevent claims of routed research/generation, sidecar inclusion/copy/draft support, or live integration. See the [Phase 27 implementation evidence](planning/phase-27-implementation-evidence.md).
 
+Phase 30's three incoming federation flows remain unavailable in the product.
+Shopping has no typed Personal AI task transport that carries the delegated
+user through its queued jobs, and no shared-sidecar host. Its existing
+Shopping context endpoint remains a Shopping-owned read contribution; it does
+not make Shopping a destination for Health, Travel, or Finance exports. There
+is no direct cross-domain database access or destination-owned source copy.
+The generic broker will remain the only path once the user-bound host contract
+is implemented. The external client still fails closed without network calls.
+See [Phase 30 destination evidence](planning/phase-30-federation-destination-evidence.md).
+
 The SA-03/SA-04 correction run and subsequent review follow-up are historical evidence recorded in [`VALIDATION.md`](../VALIDATION.md#review-follow-up-coherent-research-lifecycle-and-provenance--2026-10-07). Phase 27's read-contract checks, current source revisions, explicit open gates, and test results are recorded separately in the [Phase 27 evidence](planning/phase-27-implementation-evidence.md).
 
 ## Latest verification evidence

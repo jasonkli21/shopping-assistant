@@ -10,6 +10,19 @@ Authentication verifies two Google ID tokens independently: the Personal AI serv
 
 This contract only supplies selected context. Shopping's `PersonalAIClient.generate(AIRequest) -> AIResponse` remains unchanged; its `external` mode still fails closed without network calls because there is no supported typed task-generation transport. The `shopping.product_action` capability remains unavailable. No Shopping frontend shared-sidecar host exists yet, so Phase 27's task-routing and sidecar work remain incomplete. See [Phase 27 implementation evidence](../../../../../../docs/planning/phase-27-implementation-evidence.md) and the [living current state](../../../../../../docs/current-state.md).
 
+## Phase 30 destination boundary — 2026-10-11
+
+Shopping does not yet consume Health ergonomic constraints, Travel trip
+summaries, or Finance monthly budgets through a product task. The source
+domains and shared Personal AI broker own export authorization, consent,
+revision checks, grants, and revocation dependencies. Shopping must receive
+only the selected generic federation context through a future user-bound typed
+task host; its queued job schema currently carries no delegated user identity,
+and the frontend has no accepted shared-sidecar embedding contract. No direct
+cross-domain database access or Shopping-owned durable copy is permitted. The
+current `UnavailablePersonalAIClient` remains the production behavior for
+`PERSONAL_AI_MODE=external`. See [Phase 30 destination evidence](../../../../../../docs/planning/phase-30-federation-destination-evidence.md).
+
 ## Historical integration check — 2026-10-07
 
 The content below records the earlier boundary and implementation guidance. Use the current status above wherever it differs; the historical sections are retained to preserve the decision trail.
