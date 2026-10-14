@@ -24,11 +24,15 @@ bounded-response fixture, and Discover's derived initial goal. The full current
 API/web/native evidence is in the linked verification record. No container,
 live provider, cloud IAM, hosted lifecycle or new browser acceptance is inferred.
 
+Fresh CI exposed missing local environment/auth in the one-shot container
+Alembic smoke. The migration invocation now sets both explicitly; production
+security validation is unchanged.
+
 ## Evidence authority
 
-[Exact commands/counts/source identity](../../personal-ai-system/stabilization/VERIFICATION.md),
-[transition verification](../../personal-ai-system/stabilization/LUNA-TRANSITION-VERIFICATION.md)
-and [review priorities](../../personal-ai-system/stabilization/REVIEW-HANDOFF.md)
+[Exact commands/counts/source identity](https://github.com/jasonkli21/personal-ai-agent/blob/main/stabilization/VERIFICATION.md),
+[transition verification](https://github.com/jasonkli21/personal-ai-agent/blob/main/stabilization/LUNA-TRANSITION-VERIFICATION.md)
+and [review priorities](https://github.com/jasonkli21/personal-ai-agent/blob/main/stabilization/REVIEW-HANDOFF.md)
 are the suite evidence index. Earlier records retain their original date/results;
 newer local evidence supersedes their unrun-local-check statements only.
 

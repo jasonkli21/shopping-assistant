@@ -55,6 +55,8 @@ jobs:
           test "$ready_status" = 503
           grep --quiet 'storage_not_ready' /tmp/shopping-ready.json
           docker run --rm --network host --workdir /tmp \
+            --env ENVIRONMENT=local \
+            --env AUTH_MODE=local \
             --env DATABASE_URL="$db_url" \
             shopping-assistant-api:ci alembic --config /app/apps/api/alembic.ini upgrade head
           docker run --rm --network host --workdir /tmp \
