@@ -13,6 +13,7 @@ dependencies = [
   "uvicorn[standard]>=0.34,<1",
   "google-auth>=2.43,<3",
   "firebase-admin>=6.5,<8",
+  "cryptography>=46,<51",
 ]
 
 [project.optional-dependencies]
@@ -44,3 +45,8 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]
+
+# Shared wire module is formatted canonically at 88 columns by the suite generator.
+[tool.ruff.format]
+exclude = [
+    "src/shopping/integrations/personal_ai/task_control.py","src/shopping/integrations/personal_ai/task_wire.py"]

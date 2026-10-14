@@ -1,5 +1,9 @@
 # Documentation guide
 
+Stabilization and delegated tasks: [current state](current-state.md),
+[dated evidence](stabilization-2026-10-14.md), then the
+[suite review handoff](../../personal-ai-system/stabilization/REVIEW-HANDOFF.md).
+
 This page routes documentation by task. For any disagreement, use this authority order:
 
 1. Code, executable schemas/contracts, migrations, and tests describe delivered behavior.
@@ -16,7 +20,7 @@ Security and privacy constraints take precedence. A current user instruction can
 - [`current-state.md`](current-state.md) is the only living implementation-status summary.
 - [`adr/`](adr/) contains durable decisions.
 - [`planning/`](planning/) contains the phase index, plans, and review handoffs. A plan is not evidence that code exists; review handoffs record findings, and any embedded follow-up prompt does not authorize work or change acceptance.
-- [`../VALIDATION.md`](../VALIDATION.md) is chronological verification evidence, not required fresh-session reading. Its latest entry records the 2026-10-07 review follow-up for coherent research reads, lifecycle races, shutdown recovery, prompt provenance, and browser reconnect during generation; earlier implementation baselines and open Phase 6–8 gates remain recorded below it.
+- [`../VALIDATION.md`](../VALIDATION.md) is chronological verification evidence, not required fresh-session reading. Its latest entry records the 2026-10-13 Gate 1 local repair checks; earlier implementation baselines and open Phase 6–8 gates remain recorded below it.
 - `history/` is reserved for superseded material worth retaining outside Git history. The old handoff and coordinator diary are retained only as short redirects; their prior text remains in Git history.
 
 ## Route by task

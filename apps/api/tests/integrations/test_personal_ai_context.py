@@ -125,7 +125,7 @@ def test_selected_project_product_projection_preserves_domain_identity_and_decis
             "category_attributes": {"weight": {"value": 8, "unit": "lb"}},
             "product_revision": 2,
             "variant_revision": 3,
-            "decision": {"state": "rejected", "rejection_reason": "too_heavy"},
+            "decision": {"state": "rejected", "rejection_reason": "too_large"},
         }
     )
 
@@ -136,7 +136,7 @@ def test_selected_project_product_projection_preserves_domain_identity_and_decis
     assert projected["variant_revision"] == 3
     assert projected["decision_state"] == "rejected"
     assert projected["saved"] is False
-    assert projected["rejection_reason"] == "too_heavy"
+    assert projected["rejection_reason"] == "too_large"
 
 
 def test_catalog_observations_keep_authority_source_and_freshness():
@@ -592,7 +592,7 @@ def test_context_endpoint_returns_selected_state_and_bounded_evidence(project_ap
             "request_key": "context-reject-selected-01",
             "reason": "Does not satisfy preference",
             "concerns": [],
-            "rejection_reason": "too_heavy",
+            "rejection_reason": "too_large",
         },
     )
     assert rejected.status_code == 200, rejected.text
@@ -629,7 +629,7 @@ def test_context_endpoint_returns_selected_state_and_bounded_evidence(project_ap
     assert selected["variant_revision"] == 1
     assert selected["decision_state"] == "rejected"
     assert selected["saved"] is False
-    assert selected["rejection_reason"] == "too_heavy"
+    assert selected["rejection_reason"] == "too_large"
     assert project_context["permission_dependencies"][0]["permission_id"] == (
         f"shopping_project_read:{project_id}"
     )
@@ -712,7 +712,16 @@ def test_context_endpoint_returns_selected_state_and_bounded_evidence(project_ap
     assert all(item["omitted_count"] == 1 for item in evidence_records)
     assert all(
         record["expires_at"]
-        == record["payload"]["catalog_observations"]["observations"][0]["expires_at"]
+        and record["payload"]["catalog_observations"]["observations"][0]["expires_at"]
+        for record in evidence_records
+    )
+    assert all(
+        datetime.fromisoformat(record["expires_at"].replace("Z", "+00:00"))
+        == datetime.fromisoformat(
+            record["payload"]["catalog_observations"]["observations"][0]["expires_at"].replace(
+                "Z", "+00:00"
+            )
+        )
         for record in evidence_records
     )
     current_expiry = max(

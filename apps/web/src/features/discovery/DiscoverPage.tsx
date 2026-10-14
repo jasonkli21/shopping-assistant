@@ -157,7 +157,9 @@ function DiscoverPageContent({ projectId }: { projectId?: string }) {
   const [savedCommand, setSavedCommand] = useState<SavedCommand | null>(() =>
     projectId ? readSavedCommand(projectId) : null,
   );
-  const [objective, setObjective] = useState(() => savedCommand?.command.objective ?? "");
+  const [objective, setObjective] = useState<string | null>(
+    () => savedCommand?.command.objective ?? null,
+  );
   const [manualMode, setManualMode] = useState(() =>
     Boolean(savedCommand?.command.manual_queries),
   );
@@ -186,14 +188,7 @@ function DiscoverPageContent({ projectId }: { projectId?: string }) {
     refetchOnWindowFocus: false,
   });
   const project = projectQuery.data;
-
-  const objectiveInitialized = useRef(false);
-  useEffect(() => {
-    if (project && !objectiveInitialized.current) {
-      if (!savedCommand) setObjective(project.goal);
-      objectiveInitialized.current = true;
-    }
-  }, [project, savedCommand]);
+  const objectiveValue = objective ?? project?.goal ?? "";
 
   useEffect(() => {
     headingRef.current?.focus();
@@ -331,7 +326,7 @@ function DiscoverPageContent({ projectId }: { projectId?: string }) {
         .map((line) => line.trim())
         .filter(Boolean);
       const command: ResearchCreate = {
-        objective: objective.trim(),
+        objective: objectiveValue.trim(),
         type: "discovery",
         mode,
         request_key: newRequestKey(),
@@ -494,7 +489,7 @@ function DiscoverPageContent({ projectId }: { projectId?: string }) {
                 <label className="field-label" htmlFor="discovery-objective">What would you like to find?</label>
                 <textarea
                   id="discovery-objective"
-                  value={objective}
+                  value={objectiveValue}
                   onChange={(event) => setObjective(event.target.value)}
                   rows={3}
                   maxLength={2000}

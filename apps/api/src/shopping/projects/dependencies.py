@@ -22,7 +22,7 @@ def _firebase_app(project_id: str):
     except ValueError:
         return firebase_admin.initialize_app(
             credentials.ApplicationDefault(),
-            options={"projectId": project_id},
+            options={"projectId": project_id, "httpTimeout": 3},
             name="shopping-assistant",
         )
 

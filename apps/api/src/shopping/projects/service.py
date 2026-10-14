@@ -93,6 +93,8 @@ def patch_project(
     owner_id: UUID,
     project_id: UUID,
     command: ProjectPatch,
+    *,
+    commit: bool = True,
 ) -> ProjectRead:
     project = _lock_project(session, owner_id, project_id, command.expected_version)
     changes = command.model_dump(exclude_unset=True, exclude={"expected_version"})
@@ -118,7 +120,10 @@ def patch_project(
     for name, value in changes.items():
         setattr(project, name, value)
     _advance_revision(project)
-    return _commit_and_read(session, project)
+    if commit:
+        return _commit_and_read(session, project)
+    session.flush()
+    return _project_read(session, project)
 
 
 def delete_project(

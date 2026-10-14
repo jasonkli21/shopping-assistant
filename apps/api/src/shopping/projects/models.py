@@ -148,6 +148,9 @@ class ProjectRequirement(Base):
             "shopping_preferences.id",
             name="fk_project_requirements_source_preference",
             ondelete="SET NULL",
+            # Declare this existing cycle edge separately during metadata DDL;
+            # the database FK and its SET NULL behavior remain unchanged.
+            use_alter=True,
         ),
     )
     source_preference_revision: Mapped[int | None] = mapped_column(Integer)
@@ -309,5 +312,33 @@ class UserNote(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class DelegatedTaskReceipt(Base):
+    """Permanent operation identity committed atomically with its domain effect.
+
+    A project deletion retains only the opaque receipt; account purge removes it
+    under the existing owner fence. No delegated token or source payload is stored.
+    """
+
+    __tablename__ = "delegated_task_receipts"
+    __table_args__ = (
+        CheckConstraint(
+            "intent_fingerprint ~ '^[0-9a-f]{64}$'", name="ck_task_receipt_fingerprint"
+        ),
+        CheckConstraint("state IN ('applied', 'rejected')", name="ck_task_receipt_state"),
+        CheckConstraint("domain_version >= 1", name="ck_task_receipt_domain_version"),
+    )
+
+    owner_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    execution_key: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    intent_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    target_entity_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False)
+    code: Mapped[str] = mapped_column(String(100), nullable=False)
+    domain_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

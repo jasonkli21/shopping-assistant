@@ -5,6 +5,7 @@ from uuid import uuid4
 import pytest
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import inspect, text
 from sqlalchemy.exc import IntegrityError
 
@@ -122,7 +123,7 @@ def test_legacy_long_revision_ids_upgrade_without_losing_existing_rows(postgres_
             connection.commit()
             command.upgrade(config, "head")
             assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
-                "p9_conversation_generation_leases"
+                ScriptDirectory.from_config(config).get_current_head()
             )
             assert (
                 connection.scalar(

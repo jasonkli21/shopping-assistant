@@ -43,6 +43,13 @@ class Settings(BaseSettings):
     # Separate, opt-in read-provider boundary. This is unrelated to the app's
     # queued PersonalAIClient generation transport, which remains unavailable.
     personal_ai_context_enabled: bool = False
+    personal_ai_tasks_enabled: bool = False
+    personal_ai_tasks_delegation_issuer: str = Field(default="", max_length=200)
+    personal_ai_tasks_delegation_key_id: str = Field(default="", max_length=100)
+    personal_ai_tasks_delegation_public_key: str = Field(default="", max_length=128)
+    personal_ai_tasks_authority_base_url: str = Field(default="", max_length=500)
+    personal_ai_tasks_authority_audience: str = Field(default="", max_length=500)
+    personal_ai_tasks_callback_service_account: str = Field(default="", max_length=254)
     personal_ai_context_service_audience: str = Field(default="", max_length=500)
     personal_ai_context_service_account: str = Field(default="", max_length=254)
     personal_ai_context_user_audience: str = Field(default="", max_length=500)
@@ -107,6 +114,40 @@ class Settings(BaseSettings):
             or not self.personal_ai_context_identity_mapping_reference.strip()
         ):
             raise ValueError("personal_ai_context_identity_configuration_required")
+
+        if self.personal_ai_tasks_enabled:
+            import base64
+
+            from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+            if (
+                not self.personal_ai_context_enabled
+                or not self.personal_ai_tasks_delegation_issuer
+                or not self.personal_ai_tasks_delegation_key_id
+                or not self.personal_ai_tasks_authority_audience.startswith("https://")
+                or not re.fullmatch(
+                    r"[^@\s]+@[^@\s]+\.[^@\s]+", self.personal_ai_tasks_callback_service_account
+                )
+            ):
+                raise ValueError("personal_ai_tasks_identity_configuration_required")
+            parsed = urlsplit(self.personal_ai_tasks_authority_base_url)
+            if (
+                parsed.scheme != "https"
+                or not parsed.hostname
+                or parsed.path not in {"", "/"}
+                or parsed.username
+                or parsed.password
+                or parsed.query
+                or parsed.fragment
+            ):
+                raise ValueError("personal_ai_tasks_authority_url_invalid")
+            try:
+                key = self.personal_ai_tasks_delegation_public_key
+                Ed25519PublicKey.from_public_bytes(
+                    base64.b64decode(key + "=" * (-len(key) % 4), altchars=b"-_", validate=True)
+                )
+            except (ValueError, TypeError) as error:
+                raise ValueError("personal_ai_tasks_delegation_key_invalid") from error
 
         if self.environment == "local":
             if self.auth_mode != "local":

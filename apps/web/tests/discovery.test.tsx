@@ -1,11 +1,13 @@
 import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { renderToString } from "react-dom/server";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Project, ResearchRunRead } from "../src/api/client";
 import { App } from "../src/app/App";
+import { DiscoverPage } from "../src/features/discovery/DiscoverPage";
 
 const PROJECT_ID = "6f16a208-307f-4dfc-8a2d-44aeb6df4d50";
 const RUN_ID = "8b3e7047-0e09-4bf4-b1fd-c63fc43cb711";
@@ -192,6 +194,24 @@ afterEach(() => {
 });
 
 describe("Discover", () => {
+  it("derives the project goal before passive effects run", () => {
+    const client = new QueryClient();
+    client.setQueryData(["project", PROJECT_ID], project());
+    const html = renderToString(
+      <QueryClientProvider client={client}>
+        <MemoryRouter initialEntries={[`/projects/${PROJECT_ID}/discover`]}>
+          <Routes>
+            <Route path="/projects/:projectId/discover" element={<DiscoverPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    const container = document.createElement("div");
+    container.innerHTML = html;
+
+    expect(container.querySelector("#discovery-objective")?.textContent).toBe(project().goal);
+  });
+
   it("shows saved requirements and renders only provisional search observations", async () => {
     const done = run();
     const fetchMock = discoveryFetch(done, [candidate]);

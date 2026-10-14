@@ -312,6 +312,9 @@ export interface components {
       "source_refs": Array<components["schemas"]["ContextSourceRef"]>;
       "permission_dependencies"?: Array<components["schemas"]["ContextPermissionDependency"]>;
       "field_sensitivity"?: Array<components["schemas"]["ContextFieldSensitivity"]>;
+      "partial_result"?: boolean;
+      "omitted_count"?: null | number;
+      "selection_policy_version"?: null | string;
     };
     ContextSourceRef: {
       "kind": "record" | "evidence";
@@ -370,6 +373,16 @@ export interface components {
       "version": number;
       "updated_at": null | string;
       "events"?: Array<components["schemas"]["DecisionEventRead"]>;
+    };
+    DelegatedTaskResult: {
+      "schema_version"?: string;
+      "execution_key": string;
+      "intent_digest": string;
+      "state": "validated" | "applied" | "rejected" | "uncertain";
+      "code": string;
+      "domain_version"?: null | string;
+      "reference_id"?: null | string;
+      "preview"?: null | string;
     };
     FavoriteCommand: {
       "expected_version": number;
@@ -1111,6 +1124,15 @@ export interface paths {
   "/v1/integrations/personal-ai/context": {
     "post": operations["read_personal_ai_context_v1_integrations_personal_ai_context_post"];
   };
+  "/v1/integrations/personal-ai/tasks": {
+    "post": operations["dispatch_task_v1_integrations_personal_ai_tasks_post"];
+  };
+  "/v1/integrations/personal-ai/tasks/contracts": {
+    "get": operations["contracts_v1_integrations_personal_ai_tasks_contracts_get"];
+  };
+  "/v1/integrations/personal-ai/tasks/target-authority": {
+    "post": operations["target_authority_v1_integrations_personal_ai_tasks_target_authority_post"];
+  };
 }
 
 export interface operations {
@@ -1246,6 +1268,24 @@ export interface operations {
     responses: {
       "200": { content?: {
         "application/json": components["schemas"]["ClaimDetailRead"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
+  "contracts_v1_integrations_personal_ai_tasks_contracts_get": {
+    parameters: {
+    };
+    responses: {
+      "200": { content?: {
+        "application/json": unknown;
       } };
       "404": { content?: {
         "application/json": components["schemas"]["ApiErrorEnvelope"];
@@ -1585,6 +1625,24 @@ export interface operations {
     responses: {
       "200": { content?: {
         "application/json": components["schemas"]["ProposalMutationResult"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
+  "dispatch_task_v1_integrations_personal_ai_tasks_post": {
+    parameters: {
+    };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["DelegatedTaskResult"];
       } };
       "404": { content?: {
         "application/json": components["schemas"]["ApiErrorEnvelope"];
@@ -2673,6 +2731,24 @@ export interface operations {
     responses: {
       "200": { content?: {
         "application/json": components["schemas"]["SourceSnapshotRead"];
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
+  "target_authority_v1_integrations_personal_ai_tasks_target_authority_post": {
+    parameters: {
+    };
+    responses: {
+      "200": { content?: {
+        "application/json": unknown;
       } };
       "404": { content?: {
         "application/json": components["schemas"]["ApiErrorEnvelope"];

@@ -163,24 +163,30 @@ def read_project_context(
         offer_total_available = len(offers)
         claim_total_available = len(claim_rows)
         if selected_context_only and include_external_evidence:
-            offer_total_available = session.scalar(
-                select(func.count(RetailOffer.id)).where(
-                    RetailOffer.owner_id == owner_id,
-                    RetailOffer.variant_id == variant.id,
+            offer_total_available = (
+                session.scalar(
+                    select(func.count(RetailOffer.id)).where(
+                        RetailOffer.owner_id == owner_id,
+                        RetailOffer.variant_id == variant.id,
+                    )
                 )
-            ) or 0
-            claim_total_available = session.scalar(
-                select(func.count(Claim.id))
-                .select_from(Claim)
-                .join(SourceSnapshot, SourceSnapshot.id == Claim.snapshot_id)
-                .join(Source, Source.id == SourceSnapshot.source_id)
-                .where(
-                    Claim.owner_id == owner_id,
-                    Claim.subject_variant_id == variant.id,
-                    SourceSnapshot.owner_id == owner_id,
-                    Source.owner_id == owner_id,
+                or 0
+            )
+            claim_total_available = (
+                session.scalar(
+                    select(func.count(Claim.id))
+                    .select_from(Claim)
+                    .join(SourceSnapshot, SourceSnapshot.id == Claim.snapshot_id)
+                    .join(Source, Source.id == SourceSnapshot.source_id)
+                    .where(
+                        Claim.owner_id == owner_id,
+                        Claim.subject_variant_id == variant.id,
+                        SourceSnapshot.owner_id == owner_id,
+                        Source.owner_id == owner_id,
+                    )
                 )
-            ) or 0
+                or 0
+            )
         claim_ids = [claim.id for claim, _snapshot, _source in claim_rows]
         claim_relations = (
             list(
@@ -381,8 +387,7 @@ def compact_requirement_descriptions(
     ):
         raise ValueError("project requirements must be a list of objects")
     labels = [
-        item.get("label") if isinstance(item.get("label"), str) else ""
-        for item in requirements
+        item.get("label") if isinstance(item.get("label"), str) else "" for item in requirements
     ]
     details = [item.get("detail") for item in requirements]
     full_label_lengths = [len(label) for label in labels]
@@ -409,7 +414,10 @@ def compact_requirement_descriptions(
     labels_only = build(full_label_lengths, None)
     if measure_size(labels_only) <= max_chars:
         detail_lengths = _allocate_text(
-            details, [0] * len(details), max_chars=max_chars, measure=measure_size,
+            details,
+            [0] * len(details),
+            max_chars=max_chars,
+            measure=measure_size,
             build=lambda lengths: build(full_label_lengths, lengths),
         )
         return build(full_label_lengths, detail_lengths)
@@ -418,18 +426,27 @@ def compact_requirement_descriptions(
     if measure_size(minimum_labels) > max_chars:
         raise ValueError("project context exceeds its configured size limit after compaction")
     label_lengths = _allocate_text(
-        labels, minimum_label_lengths, max_chars=max_chars, measure=measure_size,
+        labels,
+        minimum_label_lengths,
+        max_chars=max_chars,
+        measure=measure_size,
         build=lambda lengths: build(lengths, None),
     )
     detail_lengths = _allocate_text(
-        details, [0] * len(details), max_chars=max_chars, measure=measure_size,
+        details,
+        [0] * len(details),
+        max_chars=max_chars,
+        measure=measure_size,
         build=lambda lengths: build(label_lengths, lengths),
     )
     return build(label_lengths, detail_lengths)
 
 
 def _allocate_text(
-    values: list[Any], initial_lengths: list[int], *, max_chars: int,
+    values: list[Any],
+    initial_lengths: list[int],
+    *,
+    max_chars: int,
     measure: Callable[[dict[str, Any]], int],
     build: Callable[[list[int]], dict[str, Any]],
 ) -> list[int]:
@@ -440,16 +457,14 @@ def _allocate_text(
     while low < high:
         middle = (low + high + 1) // 2
         candidate_lengths = [
-            max(initial_lengths[index], min(middle, len(text)))
-            for index, text in enumerate(texts)
+            max(initial_lengths[index], min(middle, len(text))) for index, text in enumerate(texts)
         ]
         if measure(build(candidate_lengths)) <= max_chars:
             low = middle
         else:
             high = middle - 1
     allocated = [
-        max(initial_lengths[index], min(low, len(text)))
-        for index, text in enumerate(texts)
+        max(initial_lengths[index], min(low, len(text))) for index, text in enumerate(texts)
     ]
     while True:
         advanced = False

@@ -13,6 +13,7 @@ from shopping.conversations.router import router as conversations_router
 from shopping.db.session import engine
 from shopping.evidence.router import router as evidence_router
 from shopping.integrations.personal_ai.router import router as personal_ai_router
+from shopping.integrations.personal_ai.task_router import router as personal_ai_task_router
 from shopping.preferences.router import router as preferences_router
 from shopping.projects.router import router as projects_router
 from shopping.research.router import router as research_router
@@ -70,3 +71,5 @@ router.include_router(evidence_router)
 router.include_router(comparisons_router)
 router.include_router(accounts_router)
 router.include_router(personal_ai_router)
+
+router.include_router(personal_ai_task_router)

@@ -1,37 +1,49 @@
-# Current implementation state
+# Current implementation state — Shopping Assistant
 
-Updated 2026-10-11. This is the single living summary of implementation status; detailed evidence remains in the linked phase plans, [`VALIDATION.md`](../VALIDATION.md), and dated integration evidence.
+Updated2026-10-14. This is the living delivery boundary. Code, contracts,
+migrations and tests take precedence over plans. The stabilization patch is based
+on `2268b944ffa8fe5c2e6f2787c88dea616160e398`; final commit/source identity and exact checks are recorded in the
+[verification record](stabilization-2026-10-14.md). Independent final review and
+external acceptance remain open.
 
-## Delivery boundary
+## Implemented locally
 
-- **Phases 0–5 — accepted.** Phase 5 has independent review and local verification. Live provider, hosted, and some manual browser checks remain outside the accepted local baseline; see the verification record.
-- **Phase 6 — implemented locally; independently reviewed; not accepted.** PostgreSQL integration/migration checks and the deterministic Playwright journey now have local evidence; manual browser review and remaining review-finding dispositions remain open. See the [Phase 6 review](planning/phase-6-review.md).
-- **Phase 7 — implemented locally; review follow-up recorded; not accepted.** PostgreSQL lease/concurrency/recovery checks and browser journeys now have local evidence, including reload while assistant generation is pending. Deployed cross-instance behavior, provider behavior, and labeled quality/call-count measurements remain open. Local ID-based execution is provisional; measurements do not establish production suitability. See the [Phase 7 plan](planning/phase-7-implementation-plan.md) and [execution decision](architecture/research-execution-decision.md).
-- **Phase 8 — implemented locally; review findings and external verification open; not accepted.** PostgreSQL lifecycle/migration/model-drift checks and the promotion/reuse/revocation Playwright journey now have local evidence. This review also corrected prompt-version provenance for new conversation and research records; historical metadata was not relabelled. Manual browser review, other reported review findings, and the unavailable external Personal AI memory boundary remain open. The dated `phase-8-independent-review-handoff.md` exists only as an untracked local artifact; no committed or recoverable Git copy was found. Its other reported unresolved areas include stale preference revisions/forms, project requirement and monetary validation/content preservation, first-use transaction locking, delayed project-draft loss, lifecycle/history UX, and prompt precedence. See the [Phase 8 plan](planning/phase-8-implementation-plan.md).
-- **Phase 9 — review corrections implemented locally; not accepted.** The 12 earlier actionable findings have local corrections and focused regression coverage. This review adds coherent research snapshots, privacy-safe lock ordering, awaited maintenance recovery on shutdown, and local generation-reconnect coverage. Full PostgreSQL and browser checks passed locally; hosted lifecycle remains unverified. The 180-second grace only applies to lease-less legacy rows in the lease-aware recovery code; it does not make an older revision with unconditional recovery safe to overlap. Drain and fence legacy revisions for the first lease rollout and follow the rollback boundary in the [runbook](deployment/runbook.md). Container execution, cloud IAM, live provider behavior, and hosted backup/restore/security evidence remain open. Phases 6–8 retain their existing gates. See the [Phase 9 plan](planning/phase-9-implementation-plan.md) and latest [verification record](../VALIDATION.md#review-follow-up-coherent-research-lifecycle-and-provenance--2026-10-07).
+Shopping owns projects, constraints, discovery, catalog/evidence, comparisons,
+shortlists, preferences, proposals and research jobs. Checkout/payment remain
+outside scope. General external AI generation and the Shopping sidecar remain
+unavailable. Existing Phases6–9 acceptance gates remain open.
 
-## Current stop boundary and hard gates
+The default-off delegated destination now supports `project.set_budget` and
+`project.append_context_note` through the normal project command service. An
+owner/execution receipt and effect commit atomically at migration
+`p9_delegated_task_receipts`. Retired fingerprints can observe known exact
+receipts; unknown contracts cannot create writes. Current linked identity,
+owner lifecycle, revision, constraints and PAI confirmation/grant authority are
+rechecked. Receipts survive project deletion and participate in owner erasure.
+The new migration refuses populated rollback. The existing preference cycle is
+declared with a separate metadata DDL edge; database FK semantics stay intact.
 
-This review authorized local corrections and verification for the listed findings. It does not authorize a hosted deployment or pass any earlier phase gate. Do not report Phases 6–8 as accepted. Before phase acceptance, close each phase's stated review and verification gates, and preserve predecessor-gate distinctions.
+Baseline fixes include the explicit container Alembic path, timestamp handling,
+bounded-response fixture, and Discover's derived initial goal. The full current
+API/web/native evidence is in the linked verification record. No container,
+live provider, cloud IAM, hosted lifecycle or new browser acceptance is inferred.
 
-Shopping exposes a Shopping-owned, versioned, read-only `shopping-context-read-v1` endpoint for selected project state and existing catalog observations through the public owner-scoped domain projection. Personal AI registers `shopping.product_context` and `shopping.catalog_search` as implemented behind `SHOPPING_CONTEXT_ENABLED=false`; Shopping independently defaults `PERSONAL_AI_CONTEXT_ENABLED=false`. Selected product and variant revisions and project-product memberships are preserved as permission dependencies and entity references. Catalog observations retain individual expiry and bounded selection reports partiality explicitly. Enabling the read path requires separate Google service and user identity verification plus an explicit identity-mapping version label. Shopping fingerprints that label and the exact configured Google identity/Firebase owner mapping into project permission dependencies, so configuration changes invalidate earlier context. This is a deployment-managed single-owner mapping, not a multi-owner grant store. Project IDs remain entity references and `workspace_id` is null. `shopping.product_action` remains unavailable. This context read does not change Shopping's `PersonalAIClient.generate(AIRequest) -> AIResponse`: `PERSONAL_AI_MODE=external` still selects `UnavailablePersonalAIClient`, makes no network request, and provides no typed task-generation transport. The exact-barcode comparison API remains separate. No Shopping memory adapter or external writes are present.
+## Verification and release boundary
 
-Phase 27 is **locally partial and incomplete**. The context provider reuses Shopping's owner-scoped domain projection and Personal AI's shared runtime, planning, field policy, and permission revalidation. Shopping's queued AI jobs do not carry a delegated-user identity and no accepted generic typed-task upstream route exists; Phase 15/21/24 workflow routing prerequisites remain open. Shopping's frontend also has no accepted embedding contract for the shared Personal AI sidecar. These gates prevent claims of routed research/generation, sidecar inclusion/copy/draft support, or live integration. See the [Phase 27 implementation evidence](planning/phase-27-implementation-evidence.md).
+Read [the local stabilization evidence](stabilization-2026-10-14.md) and
+[suite verification](../../personal-ai-system/stabilization/VERIFICATION.md).
+The all-five synthetic PostgreSQL/loopback HTTPS paths do not prove real IAM,
+provider, cloud, browser or native-device behavior. Feature gates remain off by
+default. No cloud deployment or live-provider operation was run. The user
+authorized commits and pushes to remote main; hosted CI is separate evidence.
 
-Phase 30's three incoming federation flows remain unavailable in the product.
-Shopping has no typed Personal AI task transport that carries the delegated
-user through its queued jobs, and no shared-sidecar host. Its existing
-Shopping context endpoint remains a Shopping-owned read contribution; it does
-not make Shopping a destination for Health, Travel, or Finance exports. There
-is no direct cross-domain database access or destination-owned source copy.
-The generic broker will remain the only path once the user-bound host contract
-is implemented. The external client still fails closed without network calls.
-See [Phase 30 destination evidence](planning/phase-30-federation-destination-evidence.md).
+## Minimum context
 
-The SA-03/SA-04 correction run and subsequent review follow-up are historical evidence recorded in [`VALIDATION.md`](../VALIDATION.md#review-follow-up-coherent-research-lifecycle-and-provenance--2026-10-07). Phase 27's read-contract checks, current source revisions, explicit open gates, and test results are recorded separately in the [Phase 27 evidence](planning/phase-27-implementation-evidence.md).
-
-## Latest verification evidence
-
-[`VALIDATION.md`](../VALIDATION.md) is the chronological evidence record, not a startup guide. Its 2026-10-07 entry records the review follow-up's deterministic browser, PostgreSQL, offline API, frontend, and provenance checks. Phase 27 commands and results are in the dated phase evidence. Hosted CI, manual visual/browser review, live-provider/quality checks, Firebase/IAM, Neon, mixed-revision rollout, hard termination, SSE lifecycle, and backup/restore checks remain open.
-
-Status terms used here: **planned**, **locally started**, **implemented locally**, **independently reviewed**, **accepted**, **external verification open**, and **superseded**. Plans state intended work; only recorded evidence can establish what was run.
+Read [the router](README.md), the owning module/contract and focused tests.
+[Suite contracts](../../personal-ai-system/stabilization/CROSS-REPO-CONTRACTS.md),
+[operations](../../personal-ai-system/stabilization/OPERATIONS.md) and the
+[review handoff](../../personal-ai-system/stabilization/REVIEW-HANDOFF.md) explain
+cross-app assumptions and remaining acceptance. The
+[previous status](history/stabilization/current-state-before-2026-10-14.md)
+preserves detailed predecessor phase evidence and unresolved gates. This status
+does not authorize implementation of the future roadmap.

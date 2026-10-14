@@ -10,6 +10,7 @@ from fastapi.routing import APIRoute
 from starlette.requests import Request
 
 from shopping.integrations.personal_ai.auth import get_personal_ai_context_owner
+from shopping.integrations.personal_ai.task_router import get_task_identity, get_task_service
 from shopping.main import app
 from shopping.projects import dependencies
 
@@ -140,14 +141,22 @@ def test_every_private_api_route_has_the_owner_dependency():
         if route.path not in {"/health", "/ready"} and not route.path.startswith("/openapi")
     ]
     assert private_routes
-    assert all(
-        {
-            dependencies.get_owner_id,
-            get_personal_ai_context_owner,
-        }
-        & _dependency_calls(route.dependant)
-        for route in private_routes
-    )
+    for route in private_routes:
+        calls = _dependency_calls(route.dependant)
+        if route.path == "/v1/integrations/personal-ai/tasks/contracts":
+            # Exact service-only metadata route: no canonical records are read.
+            assert get_task_service in calls
+        else:
+            assert {
+                dependencies.get_owner_id,
+                get_personal_ai_context_owner,
+                get_task_identity,
+            } & calls, route.path
+            if get_task_identity in calls:
+                assert route.path in {
+                    "/v1/integrations/personal-ai/tasks",
+                    "/v1/integrations/personal-ai/tasks/target-authority",
+                }
 
 
 def test_request_logs_are_enabled_and_exclude_credentials(monkeypatch):
