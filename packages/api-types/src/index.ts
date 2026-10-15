@@ -374,6 +374,10 @@ export interface components {
       "updated_at": null | string;
       "events"?: Array<components["schemas"]["DecisionEventRead"]>;
     };
+    DelegatedTargetChoicesResult: {
+      "schema_version"?: string;
+      "choices": Array<components["schemas"]["ShoppingTargetChoice"]>;
+    };
     DelegatedTaskResult: {
       "schema_version"?: string;
       "execution_key": string;
@@ -915,6 +919,11 @@ export interface components {
       "completed_at"?: null | string;
       "attempts": Array<components["schemas"]["SearchAttemptRead"]>;
     };
+    ShoppingTargetChoice: {
+      "project_id": string;
+      "label": string;
+      "revision": number;
+    };
     SourceAttemptRead: {
       "id": string;
       "snapshot_id": null | string;
@@ -1132,6 +1141,9 @@ export interface paths {
   };
   "/v1/integrations/personal-ai/tasks/target-authority": {
     "post": operations["target_authority_v1_integrations_personal_ai_tasks_target_authority_post"];
+  };
+  "/v1/integrations/personal-ai/tasks/target-choices": {
+    "post": operations["target_choices_v1_integrations_personal_ai_tasks_target_choices_post"];
   };
 }
 
@@ -2749,6 +2761,24 @@ export interface operations {
     responses: {
       "200": { content?: {
         "application/json": unknown;
+      } };
+      "404": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "409": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+      "422": { content?: {
+        "application/json": components["schemas"]["ApiErrorEnvelope"];
+      } };
+    };
+  };
+  "target_choices_v1_integrations_personal_ai_tasks_target_choices_post": {
+    parameters: {
+    };
+    responses: {
+      "200": { content?: {
+        "application/json": components["schemas"]["DelegatedTargetChoicesResult"];
       } };
       "404": { content?: {
         "application/json": components["schemas"]["ApiErrorEnvelope"];

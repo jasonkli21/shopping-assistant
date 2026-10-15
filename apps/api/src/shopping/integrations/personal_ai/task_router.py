@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy import select
 from starlette.concurrency import run_in_threadpool
 
@@ -22,6 +22,8 @@ from shopping.integrations.personal_ai.task_auth import (
     task_owner,
 )
 from shopping.integrations.personal_ai.task_wire import (
+    DelegatedTargetChoicesRequest,
+    DelegatedTargetChoicesResult,
     DelegatedTargetRequest,
     DelegatedTaskRequest,
     task_manifest,
@@ -32,6 +34,7 @@ from shopping.integrations.personal_ai.tasks import (
     OPERATION_DESCRIPTOR,
     OPERATION_FINGERPRINT,
     BudgetTaskResult,
+    list_target_choices,
     process_budget_task,
 )
 from shopping.projects import repository
@@ -161,6 +164,29 @@ async def target_authority(
             return {"allowed": False}
 
     return await run_in_threadpool(read)
+
+
+@router.post("/target-choices", response_model=DelegatedTargetChoicesResult)
+async def target_choices(
+    request: Request,
+    identity: Annotated[VerifiedTaskInput, Depends(get_task_identity)],
+    response: Response,
+):
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+    try:
+        DelegatedTargetChoicesRequest.model_validate(identity.body)
+    except ValueError as error:
+        raise HTTPException(409, "task_contract_unsupported") from error
+
+    def read():
+        with _factory(request)() as session, session.begin():
+            return list_target_choices(session, identity.owner_id)
+
+    try:
+        return await run_in_threadpool(read)
+    except PermissionError as error:
+        raise HTTPException(403, "task_authority_denied") from error
 
 
 @router.post("", response_model=BudgetTaskResult)

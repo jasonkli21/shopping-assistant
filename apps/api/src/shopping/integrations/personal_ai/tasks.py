@@ -19,13 +19,15 @@ from sqlalchemy.orm import Session
 
 from shopping.accounts.lifecycle import lock_active_owner_lifecycle
 from shopping.integrations.personal_ai.task_wire import (
+    DelegatedTargetChoicesResult,
     DelegatedTaskRequest,
     DelegatedTaskResult,
+    ShoppingTargetChoice,
     canonical_bytes,
 )
 from shopping.projects import repository
 from shopping.projects.errors import ProjectError
-from shopping.projects.models import DelegatedTaskReceipt
+from shopping.projects.models import DelegatedTaskReceipt, ShoppingProject
 from shopping.projects.schemas import SUPPORTED_CURRENCIES, ProjectPatch
 from shopping.projects.service import _validate_budget_or_raise, get_project, patch_project
 
@@ -91,6 +93,27 @@ OPERATION_CONTRACTS = {
 
 
 BudgetTaskResult = DelegatedTaskResult
+
+
+def list_target_choices(session: Session, owner_id: UUID) -> DelegatedTargetChoicesResult:
+    """Expose only active owned project labels and revisions to a linked user."""
+    if not lock_active_owner_lifecycle(session, owner_id):
+        raise PermissionError("task_owner_unavailable")
+    projects = session.scalars(
+        repository.owned_projects(session, owner_id)
+        .where(ShoppingProject.status == "active")
+        .limit(32)
+    ).all()
+    return DelegatedTargetChoicesResult(
+        choices=tuple(
+            ShoppingTargetChoice(
+                project_id=project.id,
+                label=project.title,
+                revision=project.revision,
+            )
+            for project in projects
+        )
+    )
 
 
 def _receipt_result(receipt: DelegatedTaskReceipt, intent_digest: str) -> BudgetTaskResult:

@@ -1,6 +1,6 @@
 # Current implementation state — Shopping Assistant
 
-Updated2026-10-14. This is the living delivery boundary. Code, contracts,
+Updated 2026-10-14. This is the living delivery boundary. Code, contracts,
 migrations and tests take precedence over plans. The stabilization patch is based
 on `2268b944ffa8fe5c2e6f2787c88dea616160e398`; final commit/source identity and exact checks are recorded in the
 [verification record](stabilization-2026-10-14.md). Independent final review and
@@ -23,6 +23,14 @@ rechecked. Receipts survive project deletion and participate in owner erasure.
 The new migration refuses populated rollback. The existing preference cycle is
 declared with a separate metadata DDL edge; database FK semantics stay intact.
 
+The read-only Shopping target-choice route returns at most 32 active projects
+owned by the currently linked user, with only project ID, title and current
+revision. It locks the owner lifecycle before listing. The execute path also
+locks that lifecycle before asking Personal AI for live effect authority, so
+owner deletion is ordered with the effect and permanent receipt. The successful
+authority callback is the source/grant linearization point: a later source or
+grant revocation blocks new writes but does not cancel this in-flight write.
+
 Baseline fixes include the explicit container Alembic path, timestamp handling,
 bounded-response fixture, and Discover's derived initial goal. The full current
 API/web/native evidence is in the linked verification record. No container,
@@ -35,14 +43,15 @@ Read [the local stabilization evidence](stabilization-2026-10-14.md) and
 The all-five synthetic PostgreSQL/loopback HTTPS paths do not prove real IAM,
 provider, cloud, browser or native-device behavior. Feature gates remain off by
 default. No cloud deployment or live-provider operation was run. The user
-authorized commits and pushes to remote main; hosted CI is separate evidence.
+authorized local commits followed by pushes to each remote `main`. Hosted CI is
+separate evidence.
 
 ## Minimum context
 
 Read [the router](README.md), the owning module/contract and focused tests.
 [Suite contracts](https://github.com/jasonkli21/personal-ai-agent/blob/main/stabilization/CROSS-REPO-CONTRACTS.md),
 [operations](https://github.com/jasonkli21/personal-ai-agent/blob/main/stabilization/OPERATIONS.md) and the
-[review handoff](https://github.com/jasonkli21/personal-ai-agent/blob/main/stabilization/REVIEW-HANDOFF.md) explain
+[fresh re-review handoff](https://github.com/jasonkli21/personal-ai-agent/blob/main/stabilization/FRESH-REVIEW-HANDOFF.md) explain
 cross-app assumptions and remaining acceptance. The
 [previous status](history/stabilization/current-state-before-2026-10-14.md)
 preserves detailed predecessor phase evidence and unresolved gates. This status

@@ -22,6 +22,7 @@ from shopping.integrations.personal_ai.auth import (
     _verify_token,
 )
 from shopping.integrations.personal_ai.task_wire import (
+    TARGET_CHOICES_CONTRACT_FINGERPRINT,
     TARGET_CONTRACT_FINGERPRINT,
     TASK_CONTRACT_FINGERPRINT,
     DelegatedTaskRequest,
@@ -35,11 +36,10 @@ def task_owner(
     request: Request, body: dict, session: Session, settings: Settings
 ) -> tuple[UUID, str]:
     """Resolve the explicit linked domain owner; no email or UUID-based linking."""
-    expected_contract = (
-        TARGET_CONTRACT_FINGERPRINT
-        if body.get("schema_version") == "suite-task-target-v1"
-        else TASK_CONTRACT_FINGERPRINT
-    )
+    expected_contract = {
+        "suite-task-target-v1": TARGET_CONTRACT_FINGERPRINT,
+        "suite-task-target-choices-v1": TARGET_CHOICES_CONTRACT_FINGERPRINT,
+    }.get(body.get("schema_version"), TASK_CONTRACT_FINGERPRINT)
     if request.headers.get("x-task-contract-fingerprint") != expected_contract:
         raise HTTPException(409, "task_contract_incompatible")
     service = _verify_token(

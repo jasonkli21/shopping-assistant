@@ -2,7 +2,7 @@
 
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
-from threading import Barrier
+from threading import Barrier, Event
 from uuid import uuid4
 
 import pytest
@@ -10,11 +10,13 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from shopping.accounts.export import purge_owner_data
+from shopping.accounts.models import OwnerPrivacyLifecycle
 from shopping.integrations.personal_ai.task_wire import DelegatedTaskRequest
 from shopping.integrations.personal_ai.tasks import (
     OPERATION_FINGERPRINT,
     OPERATION_ID,
     PAYLOAD_SCHEMA_ID,
+    list_target_choices,
     process_budget_task,
 )
 from shopping.projects.errors import ProjectError
@@ -146,6 +148,44 @@ def test_wrong_owner_and_workspace_cannot_write(db_engine, budget_task):
         assert session.get(ShoppingProject, project).revision == 1
 
 
+def test_target_choices_are_minimal_owned_active_projects(db_engine, budget_task):
+    owner, first_id, _request = budget_task
+    other_owner = uuid4()
+    with Session(db_engine) as session:
+        second = create_project(
+            session,
+            owner,
+            ProjectCreate(title="Second private title", goal="Never disclose goal"),
+        )
+        create_project(
+            session,
+            other_owner,
+            ProjectCreate(title="Other owner secret", goal="Never enumerate"),
+        )
+    with Session(db_engine) as session, session.begin():
+        result = list_target_choices(session, owner)
+    serialized = result.model_dump(mode="json")
+    assert serialized["schema_version"] == "suite-task-target-choices-v1"
+    assert {item["project_id"] for item in serialized["choices"]} == {
+        str(first_id), str(second.id)
+    }
+    assert all(set(item) == {"project_id", "label", "revision"} for item in serialized["choices"])
+    assert "Never disclose goal" not in str(serialized)
+    assert "Other owner secret" not in str(serialized)
+
+
+def test_target_choices_fail_closed_when_owner_is_purging(db_engine, budget_task):
+    owner, _project, _request = budget_task
+    with Session(db_engine) as session, session.begin():
+        lifecycle = session.get(OwnerPrivacyLifecycle, owner)
+        assert lifecycle is not None
+        lifecycle.state = "purging"
+    with Session(db_engine) as session, session.begin(), pytest.raises(
+        PermissionError, match="owner_unavailable"
+    ):
+        list_target_choices(session, owner)
+
+
 def test_project_deletion_keeps_receipt_and_account_purge_fences_replay(db_engine, budget_task):
     owner, project, request = budget_task
     applied = run(db_engine, owner, request)
@@ -158,6 +198,48 @@ def test_project_deletion_keeps_receipt_and_account_purge_fences_replay(db_engin
         run(db_engine, owner, request)
     with Session(db_engine) as session:
         assert session.scalar(select(func.count()).select_from(DelegatedTaskReceipt)) == 0
+
+
+def test_owner_purge_waits_for_effect_authorized_under_lifecycle_lock(db_engine, budget_task):
+    owner, project, request = budget_task
+    authority_allowed = Event()
+    finish_authority = Event()
+    purge_started = Event()
+    purge_finished = Event()
+
+    def authorize(_request, effect):
+        if effect:
+            authority_allowed.set()
+            if not finish_authority.wait(timeout=5):
+                raise TimeoutError("test did not release effect authority")
+        return True
+
+    def apply():
+        with Session(db_engine) as session, session.begin():
+            return process_budget_task(session, owner, request, authorize)
+
+    def purge():
+        with Session(db_engine) as session, session.begin():
+            purge_started.set()
+            purge_owner_data(session, owner, record_limit=None)
+        purge_finished.set()
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            apply_result = pool.submit(apply)
+            assert authority_allowed.wait(timeout=5)
+            purge_result = pool.submit(purge)
+            assert purge_started.wait(timeout=5)
+            assert not purge_finished.wait(timeout=0.2)
+            finish_authority.set()
+            assert apply_result.result(timeout=10).state == "applied"
+            purge_result.result(timeout=10)
+        with Session(db_engine) as session:
+            assert session.get(ShoppingProject, project) is None
+            assert session.scalar(select(func.count()).select_from(DelegatedTaskReceipt)) == 0
+            assert session.get(OwnerPrivacyLifecycle, owner).state == "purged"
+    finally:
+        finish_authority.set()
 
 
 @pytest.mark.parametrize("source", ["travel", "health"])

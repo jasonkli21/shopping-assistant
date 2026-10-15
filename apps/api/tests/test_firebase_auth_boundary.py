@@ -156,6 +156,7 @@ def test_every_private_api_route_has_the_owner_dependency():
                 assert route.path in {
                     "/v1/integrations/personal-ai/tasks",
                     "/v1/integrations/personal-ai/tasks/target-authority",
+                    "/v1/integrations/personal-ai/tasks/target-choices",
                 }
 
 
